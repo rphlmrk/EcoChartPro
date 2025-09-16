@@ -1,0 +1,16 @@
+<configuration>
+  <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder>
+      <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+    </encoder>
+  </appender>
+
+  <logger name="com.EcoChart" level="INFO"/>
+  <logger name="com.EcoChart.ui.FloatingStyleToolbarPanel" level="DEBUG"/>
+  <!-- You can set specific levels for specific packages -->
+  <!-- <logger name="com.EcoChart.indicators.IndicatorRegistry" level="DEBUG"/> -->
+
+  <root level="WARN"> <!-- Default level for other libraries -->
+    <appender-ref ref="STDOUT" />
+  </root>
+</configuration>

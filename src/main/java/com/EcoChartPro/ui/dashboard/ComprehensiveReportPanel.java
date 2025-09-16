@@ -1,0 +1,496 @@
+package com.EcoChartPro.ui.dashboard;
+
+import com.EcoChartPro.core.coaching.Challenge;
+import com.EcoChartPro.core.coaching.CoachingInsight;
+import com.EcoChartPro.core.coaching.CoachingService;
+import com.EcoChartPro.core.coaching.InsightSeverity;
+import com.EcoChartPro.core.controller.LiveSessionTrackerService;
+import com.EcoChartPro.core.gamification.Achievement;
+import com.EcoChartPro.core.gamification.AchievementService;
+import com.EcoChartPro.core.gamification.GamificationService;
+import com.EcoChartPro.core.gamification.ProgressCardViewModel;
+import com.EcoChartPro.core.journal.JournalAnalysisService;
+import com.EcoChartPro.core.journal.JournalAnalysisService.OverallStats;
+import com.EcoChartPro.core.state.ReplaySessionState;
+import com.EcoChartPro.model.Trade;
+import com.EcoChartPro.ui.dashboard.theme.UITheme;
+import com.EcoChartPro.ui.dialogs.AchievementsDialog;
+import com.EcoChartPro.ui.dialogs.InsightsDialog;
+import com.EcoChartPro.ui.dashboard.widgets.*;
+import com.EcoChartPro.utils.DataSourceManager;
+import com.EcoChartPro.utils.SessionManager;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import javax.swing.*;
+import java.awt.*;
+import java.beans.PropertyChangeEvent;
+import java.beans.PropertyChangeListener;
+import java.io.File;
+import java.io.IOException;
+import java.math.BigDecimal;
+import java.nio.file.Path;
+import java.text.DecimalFormat;
+import java.time.Duration;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Optional;
+import java.util.Random;
+import java.util.concurrent.TimeUnit;
+
+public class ComprehensiveReportPanel extends JPanel implements Scrollable, PropertyChangeListener {
+    private static final Logger logger = LoggerFactory.getLogger(ComprehensiveReportPanel.class);
+    private static final int WIDGET_VIEW_ROTATION_MS = 8000; // Time to show each view (live/overall)
+
+    // --- UI Components ---
+    private final StatWidget realizedPnlWidget, winRateWidget, avgRrWidget, tradeEfficiencyWidget;
+    private final JLabel profitFactorValueLabel, expectedValueValueLabel, avgTradeTimeValueLabel;
+    private final ProgressCardPanel streakProgressCard;
+    private final AreaChartWidget finishedTradesPnlWidget;
+    private final CoachingCardPanel coachingCardPanel;
+    private final DailyDisciplineWidget dailyDisciplineWidget;
+    private ReplaySessionState currentSessionState;
+    private final Timer cosmeticRotationTimer;
+    private final Timer liveViewRotationTimer;
+
+    // --- View Model "Playlists" for Rotation ---
+    private final List<ProgressCardViewModel> coachingViewModels = new ArrayList<>();
+    private final List<ProgressCardViewModel> streakViewModels = new ArrayList<>();
+    private int currentCoachingIndex = 0;
+    private int currentStreakIndex = 0;
+    
+    // --- Live Mode ---
+    private LiveSessionTrackerService liveSessionTracker;
+    private boolean isLiveMode = false;
+    private boolean isShowingLiveView = false;
+    
+    private static final List<String> quotes = List.of(
+        "\"The secret of getting ahead is getting started.\" - Mark Twain",
+        "\"Success is the sum of small efforts, repeated day-in and day-out.\" - Robert Collier",
+        "\"Discipline is the bridge between goals and accomplishment.\" - Jim Rohn"
+    );
+    private final Random random = new Random();
+
+    public ComprehensiveReportPanel() {
+        setOpaque(false);
+        setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        setLayout(new BorderLayout(0, 15));
+
+        realizedPnlWidget = new StatWidget("Realized PNL", "Total profit or loss from all finished trades, excluding fees.");
+        winRateWidget = new StatWidget("Win Rate", "The percentage of winning trades out of all trades taken.");
+        tradeEfficiencyWidget = new StatWidget("Win Efficiency", "The percentage of potential profit captured on winning trades (Actual PNL / Max Favorable Excursion).");
+        avgRrWidget = new StatWidget("Average RR", "Average Risk-to-Reward Ratio: The average return for every dollar risked.");
+        finishedTradesPnlWidget = new AreaChartWidget();
+        
+        coachingCardPanel = new CoachingCardPanel();
+        streakProgressCard = new ProgressCardPanel();
+        dailyDisciplineWidget = new DailyDisciplineWidget();
+
+        // Setup Panel Structure... (Code is identical to previous version, omitted for brevity)
+        // ...
+        JPanel headerPanel = new JPanel(new BorderLayout());
+        headerPanel.setOpaque(false);
+        
+        JButton refreshButton = new JButton(UITheme.getIcon(UITheme.Icons.REFRESH, 18, 18));
+        refreshButton.setToolTipText("Reload and recalculate all stats from the last session file");
+        refreshButton.setOpaque(false);
+        refreshButton.setContentAreaFilled(false);
+        refreshButton.setBorderPainted(false);
+        refreshButton.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        refreshButton.addActionListener(e -> refreshStats());
+
+        JPanel refreshPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+        refreshPanel.setOpaque(false);
+        refreshPanel.add(refreshButton);
+        headerPanel.add(refreshPanel, BorderLayout.NORTH);
+        
+        JPanel statsContainer = new JPanel(new BorderLayout(0, 15));
+        statsContainer.setOpaque(false);
+        
+        JPanel primaryStatsPanel = new JPanel(new GridLayout(1, 0, 15, 15));
+        primaryStatsPanel.setOpaque(false);
+        primaryStatsPanel.add(realizedPnlWidget);
+        primaryStatsPanel.add(winRateWidget);
+        primaryStatsPanel.add(tradeEfficiencyWidget);
+        primaryStatsPanel.add(avgRrWidget);
+        
+        JPanel secondaryStatsPanel = new JPanel(new GridLayout(1, 0, 15, 15));
+        secondaryStatsPanel.setOpaque(false);
+        profitFactorValueLabel = createStatCard(secondaryStatsPanel, "Profit Factor", "Gross profits divided by gross losses. A value > 1 indicates a profitable system.");
+        expectedValueValueLabel = createStatCard(secondaryStatsPanel, "Expected Value", "The average amount you can expect to win or lose per trade.");
+        avgTradeTimeValueLabel = createStatCard(secondaryStatsPanel, "Average Trade Time", "The average duration of a single trade from entry to exit.");
+        
+        statsContainer.add(primaryStatsPanel, BorderLayout.NORTH);
+        statsContainer.add(secondaryStatsPanel, BorderLayout.CENTER);
+        headerPanel.add(statsContainer, BorderLayout.CENTER);
+
+
+        JPanel chartsContainer = new JPanel(new GridBagLayout());
+        chartsContainer.setOpaque(false);
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.fill = GridBagConstraints.BOTH;
+        gbc.insets = new Insets(0, 8, 0, 8);
+        gbc.weighty = 1.0;
+
+        gbc.gridx = 0; gbc.weightx = 0.40; chartsContainer.add(finishedTradesPnlWidget, gbc);
+        gbc.gridx = 1; gbc.weightx = 0.20; chartsContainer.add(coachingCardPanel, gbc);
+        gbc.gridx = 2; gbc.weightx = 0.20; chartsContainer.add(streakProgressCard, gbc);
+        gbc.gridx = 3; gbc.weightx = 0.20; chartsContainer.add(dailyDisciplineWidget, gbc);
+
+        add(headerPanel, BorderLayout.NORTH);
+        add(chartsContainer, BorderLayout.CENTER);
+
+
+        coachingCardPanel.addInsightsButtonListener(e -> {
+            Window owner = SwingUtilities.getWindowAncestor(this);
+            if (owner instanceof InsightsDialog) { owner.toFront(); return; }
+            InsightsDialog insightsDialog = new InsightsDialog((Frame) owner);
+            if (this.currentSessionState != null) { insightsDialog.loadSessionData(this.currentSessionState); }
+            insightsDialog.setVisible(true);
+        });
+        
+        streakProgressCard.addInsightsButtonListener(e -> {
+            Window owner = SwingUtilities.getWindowAncestor(this);
+            new AchievementsDialog((Frame) owner).setVisible(true);
+        });
+        
+        this.cosmeticRotationTimer = new Timer(WIDGET_VIEW_ROTATION_MS, e -> rotateCosmeticDisplay());
+        this.cosmeticRotationTimer.setInitialDelay(WIDGET_VIEW_ROTATION_MS);
+        this.cosmeticRotationTimer.start();
+        
+        this.liveViewRotationTimer = new Timer(WIDGET_VIEW_ROTATION_MS, e -> rotateLiveDisplay());
+    }
+    
+    private void rotateCosmeticDisplay() {
+        if (!coachingViewModels.isEmpty()) {
+            currentCoachingIndex = (currentCoachingIndex + 1) % coachingViewModels.size();
+            coachingCardPanel.updateViewModel(coachingViewModels.get(currentCoachingIndex));
+        }
+
+        if (!streakViewModels.isEmpty()) {
+            currentStreakIndex = (currentStreakIndex + 1) % streakViewModels.size();
+            streakProgressCard.updateViewModel(streakViewModels.get(currentStreakIndex));
+        }
+    }
+    
+    private void rotateLiveDisplay() {
+        isShowingLiveView = !isShowingLiveView;
+        realizedPnlWidget.toggleView(isShowingLiveView);
+        winRateWidget.toggleView(isShowingLiveView);
+        avgRrWidget.toggleView(isShowingLiveView);
+        finishedTradesPnlWidget.toggleView(isShowingLiveView);
+        dailyDisciplineWidget.toggleView(isShowingLiveView);
+    }
+
+    private void refreshStats() {
+        // Refresh logic...
+    }
+    
+    public void updateData(ReplaySessionState state) {
+        if (state == null || state.tradeHistory() == null) {
+            return;
+        }
+        this.currentSessionState = state;
+        JournalAnalysisService service = new JournalAnalysisService();
+        BigDecimal totalPnl = state.tradeHistory().stream()
+            .map(Trade::profitAndLoss).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal initialBalance = state.accountBalance().subtract(totalPnl);
+        
+        OverallStats stats = service.analyzeOverallPerformance(state.tradeHistory(), initialBalance);
+        updateData(stats, service, state);
+    }
+    
+    public void updateData(OverallStats stats, JournalAnalysisService service, ReplaySessionState state) {
+        cosmeticRotationTimer.stop();
+        
+        if (stats == null || service == null || state == null) {
+            cosmeticRotationTimer.start();
+            return;
+        }
+        this.currentSessionState = state;
+
+        // --- Update Overall (Static) Widget Data ---
+        DecimalFormat pnlFormat = new DecimalFormat("+$#,##0.00;-$#,##0.00");
+        DecimalFormat percentFormat = new DecimalFormat("0.0'%'");
+        DecimalFormat decimalFormat = new DecimalFormat("0.00");
+
+        realizedPnlWidget.setOverallValue(pnlFormat.format(stats.totalPnl()), stats.totalPnl().signum() >= 0 ? UIManager.getColor("app.color.accent") : UIManager.getColor("app.color.negative"));
+        GaugeChart winRateGauge = new GaugeChart(GaugeChart.GaugeType.FULL_CIRCLE);
+        winRateGauge.setData(stats.winRate());
+        winRateWidget.setOverallValue(percentFormat.format(stats.winRate() * 100), UIManager.getColor("Label.foreground"));
+        winRateWidget.setOverallGraphic(winRateGauge);
+        avgRrWidget.setOverallValue(decimalFormat.format(stats.avgRiskReward()), stats.avgRiskReward() >= 1.0 ? UIManager.getColor("app.color.positive") : UIManager.getColor("app.color.negative"));
+        
+        profitFactorValueLabel.setText(decimalFormat.format(stats.profitFactor()));
+        expectedValueValueLabel.setText(pnlFormat.format(stats.expectancy()));
+        avgTradeTimeValueLabel.setText(formatDuration(stats.avgTradeDuration()));
+        
+        finishedTradesPnlWidget.setOverallData(stats.equityCurve(), stats.maxDrawdown(), stats.maxRunup());
+        
+        Optional<DataSourceManager.ChartDataSource> sourceOpt = DataSourceManager.getInstance().getAvailableSources().stream()
+                .filter(s -> s.symbol().equalsIgnoreCase(state.dataSourceSymbol()))
+                .findFirst();
+
+        if (sourceOpt.isPresent()) {
+            JournalAnalysisService.TradeEfficiencyStats efficiencyStats = service.calculateTradeEfficiency(stats.trades(), sourceOpt.get());
+            BigDecimal efficiency = efficiencyStats.averageWinningTradeEfficiency();
+            GaugeChart efficiencyGauge = new GaugeChart(GaugeChart.GaugeType.FULL_CIRCLE);
+            efficiencyGauge.setData(efficiency.doubleValue());
+            tradeEfficiencyWidget.setOverallValue(percentFormat.format(efficiency.multiply(BigDecimal.valueOf(100))), UIManager.getColor("Label.foreground"));
+            tradeEfficiencyWidget.setOverallGraphic(efficiencyGauge);
+        } else {
+            tradeEfficiencyWidget.setOverallValue("-", UIManager.getColor("Label.foreground"));
+            tradeEfficiencyWidget.setOverallGraphic(null);
+        }
+
+        // Update gamification services which drive the cosmetic rotation content
+        GamificationService.getInstance().updateProgression(stats.trades());
+        populateStreakViewModels();
+        populateCoachingViewModels(stats.trades(), sourceOpt);
+        
+        if (!streakViewModels.isEmpty()) {
+            currentStreakIndex = 0;
+            streakProgressCard.updateViewModel(streakViewModels.get(0));
+        }
+        if (!coachingViewModels.isEmpty()) {
+            currentCoachingIndex = 0;
+            coachingCardPanel.updateViewModel(coachingViewModels.get(0));
+        }
+
+        updateOverallDisciplineWidget(stats.trades());
+        cosmeticRotationTimer.start();
+    }
+    
+    // --- Live Mode Methods ---
+
+    public void activateLiveMode(LiveSessionTrackerService tracker) {
+        this.isLiveMode = true;
+        this.isShowingLiveView = true;
+        this.liveSessionTracker = tracker;
+        this.liveSessionTracker.addPropertyChangeListener(this);
+        cosmeticRotationTimer.stop();
+        liveViewRotationTimer.start();
+        clearAllWidgetsForLiveMode();
+        logger.info("Dashboard report panel switched to LIVE mode.");
+    }
+    
+    public void deactivateLiveMode() {
+        if (this.liveSessionTracker != null) {
+            this.liveSessionTracker.removePropertyChangeListener(this);
+        }
+        this.isLiveMode = false;
+        this.liveSessionTracker = null;
+        liveViewRotationTimer.stop();
+        cosmeticRotationTimer.start();
+        logger.info("Dashboard report panel switched to STATIC mode.");
+    }
+    
+    @Override
+    public void propertyChange(PropertyChangeEvent evt) {
+        if (!isLiveMode) return;
+        
+        SwingUtilities.invokeLater(() -> {
+            switch (evt.getPropertyName()) {
+                case "sessionStatsUpdated":
+                    if (evt.getNewValue() instanceof LiveSessionTrackerService.SessionStats stats) {
+                        updateLiveStatsWidgets(stats);
+                    }
+                    break;
+                case "disciplineScoreUpdated":
+                    if (evt.getNewValue() instanceof Integer score) {
+                        dailyDisciplineWidget.setLiveData(score, 100);
+                    }
+                    break;
+            }
+        });
+    }
+
+    private void updateLiveStatsWidgets(LiveSessionTrackerService.SessionStats stats) {
+        DecimalFormat pnlFormat = new DecimalFormat("+$#,##0.00;-$#,##0.00");
+        DecimalFormat percentFormat = new DecimalFormat("0.0'%'");
+        DecimalFormat decimalFormat = new DecimalFormat("0.00");
+
+        realizedPnlWidget.setLiveValue(pnlFormat.format(stats.realizedPnl()), stats.realizedPnl().signum() >= 0 ? UIManager.getColor("app.color.accent") : UIManager.getColor("app.color.negative"));
+        
+        GaugeChart liveWinRateGauge = new GaugeChart(GaugeChart.GaugeType.FULL_CIRCLE);
+        liveWinRateGauge.setData(stats.winRate());
+        winRateWidget.setLiveValue(percentFormat.format(stats.winRate() * 100), UIManager.getColor("Label.foreground"));
+        winRateWidget.setLiveGraphic(liveWinRateGauge);
+
+        avgRrWidget.setLiveValue(decimalFormat.format(stats.avgRiskReward()), stats.avgRiskReward().compareTo(BigDecimal.ONE) >= 0 ? UIManager.getColor("app.color.positive") : UIManager.getColor("app.color.negative"));
+        
+        finishedTradesPnlWidget.setLiveData(stats.equityCurve());
+    }
+    
+    private void clearAllWidgetsForLiveMode() {
+        // Set initial live values to zero/default
+        realizedPnlWidget.setLiveValue("+$0.00", UIManager.getColor("Label.foreground"));
+        winRateWidget.setLiveValue("0.0%", UIManager.getColor("Label.foreground"));
+        winRateWidget.setLiveGraphic(new GaugeChart(GaugeChart.GaugeType.FULL_CIRCLE));
+        avgRrWidget.setLiveValue("0.00", UIManager.getColor("Label.foreground"));
+        tradeEfficiencyWidget.setLiveValue("N/A", UIManager.getColor("Label.foreground"));
+        tradeEfficiencyWidget.setLiveGraphic(null);
+        
+        finishedTradesPnlWidget.setLiveData(Collections.emptyList());
+        dailyDisciplineWidget.setLiveData(100, 100); 
+
+        // Make sure all widgets are showing the live view initially
+        isShowingLiveView = true;
+        rotateLiveDisplay();
+    }
+
+    private void updateOverallDisciplineWidget(List<Trade> allTrades) {
+        int optimalCount = GamificationService.getInstance().getOptimalTradeCount();
+        if (allTrades.isEmpty()) {
+            dailyDisciplineWidget.setOverallData(0, optimalCount);
+            return;
+        }
+        Optional<LocalDate> lastTradeDateOpt = allTrades.stream().map(trade -> trade.exitTime().atZone(ZoneOffset.UTC).toLocalDate()).max(LocalDate::compareTo);
+        if (lastTradeDateOpt.isPresent()) {
+            LocalDate lastTradeDate = lastTradeDateOpt.get();
+            long tradesOnLastDay = allTrades.stream().filter(trade -> trade.exitTime().atZone(ZoneOffset.UTC).toLocalDate().equals(lastTradeDate)).count();
+            dailyDisciplineWidget.setOverallData((int) tradesOnLastDay, optimalCount);
+        } else {
+            dailyDisciplineWidget.setOverallData(0, optimalCount);
+        }
+    }
+    
+    private void populateStreakViewModels() {
+        streakViewModels.clear();
+        GamificationService service = GamificationService.getInstance();
+        
+        if (service.wasStreakPaused()) {
+            streakViewModels.add(new ProgressCardViewModel(
+                ProgressCardViewModel.CardType.STREAK_PAUSED, "Streak Paused",
+                "0 Days", "Consistency is key!", 0.0, "",
+                quotes.get(random.nextInt(quotes.size()))
+            ));
+        } else {
+            int[] streakGoals = {3, 7, 14, 30, 60, 90};
+            int currentStreak = service.getCurrentPositiveStreak();
+            int goal = 3;
+            for (int g : streakGoals) {
+                if (currentStreak < g) { goal = g; break; }
+            }
+            if (currentStreak >= streakGoals[streakGoals.length - 1]) {
+                goal = currentStreak + 1;
+            }
+
+            if (currentStreak > 0) {
+                streakViewModels.add(new ProgressCardViewModel(
+                    ProgressCardViewModel.CardType.POSITIVE_STREAK, "Discipline Streak",
+                    currentStreak + " Days", "Best: " + service.getBestPositiveStreak() + " Days",
+                    (double) currentStreak / goal, "Goal: " + goal + " Days",
+                    "Excellent discipline builds confidence."
+                ));
+            } else {
+                 streakViewModels.add(new ProgressCardViewModel(
+                    ProgressCardViewModel.CardType.EMPTY, "Daily Discipline",
+                    "No Active Streak", "Best: " + service.getBestPositiveStreak() + " Days",
+                    0.0, "Goal: " + goal + " Days",
+                    "Start a new streak by trading without mistakes."
+                ));
+            }
+        }
+
+        AchievementService.getInstance().getNextLockedAchievement().ifPresent(nextAchievement -> {
+             streakViewModels.add(new ProgressCardViewModel(
+                ProgressCardViewModel.CardType.NEXT_ACHIEVEMENT, "Next Goal",
+                nextAchievement.title(), "Unlock Your Next Achievement",
+                0.0, "",
+                nextAchievement.description()
+            ));
+        });
+    }
+
+    private void populateCoachingViewModels(List<Trade> allTrades, Optional<DataSourceManager.ChartDataSource> sourceOpt) {
+        coachingViewModels.clear();
+        GamificationService gamificationService = GamificationService.getInstance();
+        CoachingService coachingService = CoachingService.getInstance();
+
+        gamificationService.getActiveDailyChallenge().ifPresent(challenge -> {
+            if (!challenge.isComplete()) {
+                coachingViewModels.add(new ProgressCardViewModel(
+                    ProgressCardViewModel.CardType.DAILY_CHALLENGE, "Daily Challenge: " + challenge.title(),
+                    "", "+" + challenge.xpReward() + " XP", 0.0, "",
+                    challenge.description()
+                ));
+            }
+        });
+        
+        int optimalCount = gamificationService.getOptimalTradeCount();
+        List<Integer> peakHours = gamificationService.getPeakPerformanceHours();
+        List<CoachingInsight> insights = coachingService.analyze(allTrades, optimalCount, peakHours, sourceOpt);
+        
+        for (CoachingInsight insight : insights) {
+             coachingViewModels.add(new ProgressCardViewModel(
+                insight.severity() == InsightSeverity.HIGH ? ProgressCardViewModel.CardType.CRITICAL_MISTAKE : ProgressCardViewModel.CardType.COACHING_INSIGHT,
+                "Coaching Insight: " + insight.title(),
+                "", "View Details", 0.0, "",
+                insight.description()
+            ));
+        }
+
+        if (coachingViewModels.isEmpty()) {
+            coachingViewModels.add(new ProgressCardViewModel(
+                ProgressCardViewModel.CardType.EMPTY, null, null, null, 0.0, null, null
+            ));
+        }
+    }
+
+    private JLabel createStatCard(JPanel parent, String title, String tooltip) {
+        JPanel card = new JPanel(new BorderLayout(0, 2));
+        card.setOpaque(true);
+        card.setBackground(UIManager.getColor("Panel.background"));
+        card.setBorder(BorderFactory.createEmptyBorder(8, 10, 8, 10));
+        JLabel titleLabel = new JLabel(title);
+        titleLabel.setFont(UIManager.getFont("app.font.widget_content"));
+        titleLabel.setForeground(UIManager.getColor("Label.disabledForeground"));
+        titleLabel.setToolTipText(tooltip);
+        JLabel valueLabel = new JLabel("-");
+        valueLabel.setFont(UIManager.getFont("app.font.widget_title").deriveFont(Font.BOLD, 15f));
+        valueLabel.setForeground(UIManager.getColor("Label.foreground"));
+        card.add(titleLabel, BorderLayout.NORTH);
+        card.add(valueLabel, BorderLayout.CENTER);
+        parent.add(card);
+        return valueLabel;
+    }
+
+    private String formatDuration(Duration duration) {
+        long seconds = duration.toSeconds();
+        long absSeconds = Math.abs(seconds);
+        String positive = String.format("%d H, %d M, %d S",
+                TimeUnit.SECONDS.toHours(absSeconds),
+                TimeUnit.SECONDS.toMinutes(absSeconds) % 60,
+                absSeconds % 60);
+        return seconds < 0 ? "-" + positive : positive;
+    }
+
+    @Override
+    public Dimension getPreferredScrollableViewportSize() {
+        return getPreferredSize();
+    }
+
+    @Override
+    public int getScrollableUnitIncrement(Rectangle visibleRect, int orientation, int direction) {
+        return 16;
+    }
+
+    @Override
+    public int getScrollableBlockIncrement(Rectangle visibleRect, int orientation, int direction) {
+        return 16;
+    }
+
+    @Override
+    public boolean getScrollableTracksViewportHeight() {
+        return false;
+    }
+
+    @Override
+    public boolean getScrollableTracksViewportWidth() {
+        return true;
+    }
+}

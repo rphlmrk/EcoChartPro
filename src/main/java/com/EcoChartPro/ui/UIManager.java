@@ -1,0 +1,99 @@
+package com.EcoChartPro.ui;
+
+import com.EcoChartPro.core.state.ReplaySessionState;
+import com.EcoChartPro.core.trading.PaperTradingService;
+import com.EcoChartPro.ui.dialogs.AchievementsDialog;
+import com.EcoChartPro.ui.dialogs.InsightsDialog;
+import com.EcoChartPro.ui.dialogs.PositionSizeCalculatorDialog;
+import com.EcoChartPro.ui.dialogs.SettingsDialog;
+import com.EcoChartPro.ui.editor.JavaEditorDialog;
+import javax.swing.*;
+
+/**
+ * Manages the creation and display of UI dialogs and windows.
+ */
+public class UIManager {
+
+    private final MainWindow owner;
+    private JavaEditorDialog javaEditorDialog;
+    private SettingsDialog settingsDialog;
+    private PositionSizeCalculatorDialog positionSizeCalculatorDialog;
+    private InsightsDialog insightsDialog; // Managed single instance
+    private AchievementsDialog achievementsDialog;
+
+    public UIManager(MainWindow owner) {
+        this.owner = owner;
+    }
+
+    public void openJavaEditor() {
+        if (javaEditorDialog == null || !javaEditorDialog.isDisplayable()) {
+            javaEditorDialog = new JavaEditorDialog(owner);
+        }
+        javaEditorDialog.setVisible(true);
+        javaEditorDialog.toFront();
+        javaEditorDialog.requestFocus();
+    }
+
+    public void openPositionSizeCalculator() {
+        if (positionSizeCalculatorDialog == null || !positionSizeCalculatorDialog.isDisplayable()) {
+            positionSizeCalculatorDialog = new PositionSizeCalculatorDialog(owner);
+        }
+        positionSizeCalculatorDialog.setVisible(true);
+        positionSizeCalculatorDialog.toFront();
+        positionSizeCalculatorDialog.requestFocus();
+    }
+
+    public void openInsightsDialog() {
+        if (insightsDialog == null || !insightsDialog.isDisplayable()) {
+            insightsDialog = new InsightsDialog(owner);
+            // Load the initial data from the current session upon creation
+            ReplaySessionState currentState = PaperTradingService.getInstance().getCurrentSessionState();
+            if (currentState != null) {
+                insightsDialog.loadSessionData(currentState);
+            }
+        }
+        insightsDialog.setVisible(true);
+        insightsDialog.toFront(); // Bring existing instance to front if already open
+        insightsDialog.requestFocus();
+    }
+
+    public void openSettingsDialog() {
+        if (settingsDialog == null || !settingsDialog.isDisplayable()) {
+            settingsDialog = new SettingsDialog(owner);
+        }
+        settingsDialog.setVisible(true);
+        settingsDialog.toFront();
+        settingsDialog.requestFocus();
+    }
+    
+    /**
+     * method to open the achievements dialog.
+     */
+    public void openAchievementsDialog() {
+        if (achievementsDialog == null || !achievementsDialog.isDisplayable()) {
+            achievementsDialog = new AchievementsDialog(owner);
+        }
+        achievementsDialog.setVisible(true);
+        achievementsDialog.toFront();
+        achievementsDialog.requestFocus();
+    }
+    
+    public void disposeDialogs() {
+        if (javaEditorDialog != null) {
+            javaEditorDialog.dispose();
+        }
+        if (settingsDialog != null) {
+            settingsDialog.dispose();
+        }
+        if (positionSizeCalculatorDialog != null) {
+            positionSizeCalculatorDialog.dispose();
+        }
+        if (insightsDialog != null) { // Dispose of the InsightsDialog as well
+            insightsDialog.dispose();
+        }
+        // Dispose of the achievements dialog as well
+        if (achievementsDialog != null) {
+            achievementsDialog.dispose();
+        }
+    }
+}

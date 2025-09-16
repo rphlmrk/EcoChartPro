@@ -1,0 +1,57 @@
+// --- Create in Java Editor ---
+package com.EcoChartPro.plugins.inapp;
+
+import com.EcoChartPro.api.indicator.*;
+import com.EcoChartPro.api.indicator.drawing.DataPoint;
+import com.EcoChartPro.api.indicator.drawing.DrawableObject;
+import com.EcoChartPro.api.indicator.drawing.DrawablePolyline;
+import com.EcoChartPro.core.indicator.IndicatorContext;
+import com.EcoChartPro.model.KLine;
+import java.awt.Color;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+
+public class MovingAverageIndicator implements CustomIndicator {
+    @Override public String getName() { return "Moving Average"; }
+    @Override public IndicatorType getType() { return IndicatorType.OVERLAY; }
+
+    @Override
+    public List<Parameter> getParameters() {
+        return List.of(
+            new Parameter("period", ParameterType.INTEGER, 20),
+            new Parameter("color", ParameterType.COLOR, Color.ORANGE)
+        );
+    }
+
+    @Override
+    public List<DrawableObject> calculate(IndicatorContext context) {
+        List<KLine> data = context.klineData();
+        int period = (int) context.settings().get("period");
+        Color color = (Color) context.settings().get("color");
+
+        if (data.size() < period) return Collections.emptyList();
+
+        List<DataPoint> maPoints = new ArrayList<>();
+        BigDecimal periodDecimal = BigDecimal.valueOf(period);
+        
+        BigDecimal windowSum = BigDecimal.ZERO;
+        for (int i = 0; i < period; i++) {
+            windowSum = windowSum.add(data.get(i).close());
+        }
+        
+        BigDecimal firstSma = windowSum.divide(periodDecimal, 8, RoundingMode.HALF_UP);
+        maPoints.add(new DataPoint(data.get(period - 1).timestamp(), firstSma));
+
+        for (int i = period; i < data.size(); i++) {
+            windowSum = windowSum.add(data.get(i).close()).subtract(data.get(i - period).close());
+            BigDecimal newSma = windowSum.divide(periodDecimal, 8, RoundingMode.HALF_UP);
+            maPoints.add(new DataPoint(data.get(i).timestamp(), newSma));
+        }
+
+        return List.of(new DrawablePolyline(maPoints, color, 1.5f));
+    }
+}

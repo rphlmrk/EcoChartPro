@@ -1,0 +1,299 @@
+package com.EcoChartPro.core.controller;
+
+import com.EcoChartPro.core.state.ReplaySessionState;
+import com.EcoChartPro.core.trading.PaperTradingService;
+import com.EcoChartPro.model.Symbol;
+import com.EcoChartPro.model.Trade;
+import com.EcoChartPro.model.TradeDirection;
+import com.EcoChartPro.ui.MainWindow;
+import com.EcoChartPro.ui.dashboard.DashboardFrame;
+import com.EcoChartPro.utils.DataSourceManager;
+import com.EcoChartPro.utils.SessionManager;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import javax.swing.*;
+import javax.swing.filechooser.FileNameExtensionFilter;
+import java.awt.*;
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
+import java.io.File;
+import java.io.FileReader;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.UUID;
+import java.util.stream.Collectors;
+
+/**
+ * Manages the lifecycle of replay sessions, including starting, loading,
+ * and handling window closing logic.
+ */
+public class SessionController {
+
+    private static final Logger logger = LoggerFactory.getLogger(SessionController.class);
+    private static volatile SessionController instance;
+
+    private SessionController() {}
+
+    public static SessionController getInstance() {
+        if (instance == null) {
+            synchronized (SessionController.class) {
+                if (instance == null) {
+                    instance = new SessionController();
+                }
+            }
+        }
+        return instance;
+    }
+
+    public void startNewSession(DataSourceManager.ChartDataSource source, int startIndex, BigDecimal startingBalance, BigDecimal leverage) {
+        SwingUtilities.invokeLater(() -> {
+            // Hide the dashboard instead of closing it
+            findAndSetDashboardVisible(false);
+            PaperTradingService.getInstance().resetSession(startingBalance, leverage);
+            MainWindow mainWindow = new MainWindow(true);
+            mainWindow.startReplaySession(source, startIndex);
+        });
+    }
+
+    public void loadSession(ReplaySessionState state, Frame parentFrame) {
+        SwingUtilities.invokeLater(() -> {
+            if (parentFrame instanceof DashboardFrame) {
+                ((DashboardFrame) parentFrame).getReportPanel().activateLiveMode(LiveSessionTrackerService.getInstance());
+            }
+            // Hide the dashboard instead of closing it
+            findAndSetDashboardVisible(false);
+            MainWindow mainWindow = new MainWindow(true);
+            mainWindow.loadReplaySession(state);
+        });
+    }
+
+    public void handleWindowClose(MainWindow window, boolean isReplayMode) {
+        if (!isReplayMode) {
+            window.dispose();
+            return;
+        }
+
+        PaperTradingService service = PaperTradingService.getInstance();
+        if (service.getTradeHistory().isEmpty() && service.getOpenPositions().isEmpty()) {
+            cleanupAndShowDashboard(window);
+            return;
+        }
+
+        int choice = JOptionPane.showConfirmDialog(
+                window,
+                "Do you want to save the current replay session before closing?",
+                "Save Session",
+                JOptionPane.YES_NO_CANCEL_OPTION,
+                JOptionPane.QUESTION_MESSAGE
+        );
+
+        if (choice == JOptionPane.CANCEL_OPTION) {
+            return; // User cancelled, do not close the window
+        }
+
+        if (choice == JOptionPane.YES_OPTION) {
+            saveSessionWithUI(window);
+        }
+
+        cleanupAndShowDashboard(window);
+    }
+
+    /**
+     * Cleans up session artifacts and makes the dashboard visible again.
+     * @param window The MainWindow that is being closed.
+     */
+    private void cleanupAndShowDashboard(Window window) {
+        SessionManager.getInstance().deleteAutoSaveFile();
+        window.dispose();
+        findAndSetDashboardVisible(true);
+    }
+
+    public boolean saveSessionWithUI(MainWindow window) {
+        ReplaySessionState state = PaperTradingService.getInstance().getCurrentSessionState();
+        if (state == null) {
+            JOptionPane.showMessageDialog(window, "There is no active session state to save.", "Save Error", JOptionPane.ERROR_MESSAGE);
+            return false;
+        }
+
+        JFileChooser fileChooser = new JFileChooser();
+        try {
+            fileChooser.setCurrentDirectory(SessionManager.getInstance().getSessionsDirectory().toFile());
+        } catch (IOException ex) {
+            fileChooser.setCurrentDirectory(new File(System.getProperty("user.home")));
+        }
+        fileChooser.setDialogTitle("Save Replay Session");
+        String defaultFileName = state.dataSourceSymbol() + "_session_" + System.currentTimeMillis() + ".json";
+        fileChooser.setSelectedFile(new File(defaultFileName));
+        fileChooser.setFileFilter(new FileNameExtensionFilter("Replay Session (*.json)", "json"));
+
+        if (fileChooser.showSaveDialog(window) == JFileChooser.APPROVE_OPTION) {
+            File fileToSave = fileChooser.getSelectedFile();
+            if (!fileToSave.getName().toLowerCase().endsWith(".json")) {
+                fileToSave = new File(fileToSave.getParentFile(), fileToSave.getName() + ".json");
+            }
+            try {
+                SessionManager.getInstance().saveSession(state, fileToSave);
+                JOptionPane.showMessageDialog(window, "Session saved successfully!", "Success", JOptionPane.INFORMATION_MESSAGE);
+                return true;
+            } catch (IOException ex) {
+                logger.error("Failed to save session via UI", ex);
+                JOptionPane.showMessageDialog(window, "Failed to save session: " + ex.getMessage(), "Save Error", JOptionPane.ERROR_MESSAGE);
+            }
+        }
+        return false;
+    }
+    
+    public boolean exportTradeHistory(MainWindow owner) {
+        PaperTradingService tradingService = PaperTradingService.getInstance();
+        List<Trade> tradeHistory = tradingService.getTradeHistory();
+        if (tradeHistory.isEmpty()) {
+            JOptionPane.showMessageDialog(owner, "There is no trade history to export.", "Export Trades", JOptionPane.INFORMATION_MESSAGE);
+            return false;
+        }
+        JFileChooser fileChooser = new JFileChooser();
+        try {
+            fileChooser.setCurrentDirectory(SessionManager.getInstance().getSessionsDirectory().toFile());
+        } catch (IOException ex) {
+            fileChooser.setCurrentDirectory(new File(System.getProperty("user.home")));
+        }
+        fileChooser.setDialogTitle("Export Trade History to CSV");
+        fileChooser.setFileFilter(new FileNameExtensionFilter("CSV Files (*.csv)", "csv"));
+        DataSourceManager.ChartDataSource source = ReplaySessionManager.getInstance().getCurrentSource();
+        String symbol = (source != null) ? source.symbol() : "trades";
+        String defaultFileName = String.format("%s_export_%s.csv", symbol,
+            DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss").withZone(ZoneId.systemDefault()).format(Instant.now()));
+        fileChooser.setSelectedFile(new File(defaultFileName));
+        if (fileChooser.showSaveDialog(owner) == JFileChooser.APPROVE_OPTION) {
+            File fileToSave = fileChooser.getSelectedFile();
+            if (!fileToSave.getName().toLowerCase().endsWith(".csv")) {
+                fileToSave = new File(fileToSave.getParentFile(), fileToSave.getName() + ".csv");
+            }
+            String header = "id,symbol,direction,entryTime,entryPrice,exitTime,exitPrice,quantity,profitAndLoss,planFollowed,notes,tags,checklistId\n";
+            try (BufferedWriter writer = new BufferedWriter(new FileWriter(fileToSave))) {
+                writer.write(header);
+                for (Trade trade : tradeHistory) {
+                    writer.write(formatTradeAsCsvRow(trade));
+                    writer.newLine();
+                }
+                JOptionPane.showMessageDialog(owner, "Trade history exported successfully!", "Export Complete", JOptionPane.INFORMATION_MESSAGE);
+                return true;
+            } catch (IOException ex) {
+                JOptionPane.showMessageDialog(owner, "Failed to export trade history: " + ex.getMessage(), "Export Error", JOptionPane.ERROR_MESSAGE);
+                logger.error("Error exporting trade history to CSV", ex);
+            }
+        }
+        return false;
+    }
+    
+    public void importTradeHistory(MainWindow owner) {
+        JFileChooser fileChooser = new JFileChooser();
+        try {
+            fileChooser.setCurrentDirectory(SessionManager.getInstance().getSessionsDirectory().toFile());
+        } catch (IOException ex) {
+            fileChooser.setCurrentDirectory(new File(System.getProperty("user.home")));
+        }
+        fileChooser.setDialogTitle("Import Trade History from CSV");
+        fileChooser.setFileFilter(new FileNameExtensionFilter("CSV Files (*.csv)", "csv"));
+        if (fileChooser.showOpenDialog(owner) == JFileChooser.APPROVE_OPTION) {
+            if (JOptionPane.showConfirmDialog(owner, "Warning: This will overwrite the current session's trade history.", "Confirm Import", JOptionPane.OK_CANCEL_OPTION, JOptionPane.WARNING_MESSAGE) != JOptionPane.OK_OPTION) {
+                return;
+            }
+            File fileToImport = fileChooser.getSelectedFile();
+            List<Trade> importedTrades = new ArrayList<>();
+            try (BufferedReader reader = new BufferedReader(new FileReader(fileToImport))) {
+                reader.readLine(); // Skip header
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (!line.trim().isEmpty()) {
+                        importedTrades.add(parseCsvRowAsTrade(line));
+                    }
+                }
+                PaperTradingService.getInstance().importTradeHistory(importedTrades, new BigDecimal("100000"));
+                JOptionPane.showMessageDialog(owner, "Successfully imported " + importedTrades.size() + " trades.", "Import Complete", JOptionPane.INFORMATION_MESSAGE);
+            } catch (Exception ex) {
+                JOptionPane.showMessageDialog(owner, "Failed to import trades: " + ex.getMessage(), "Import Error", JOptionPane.ERROR_MESSAGE);
+                logger.error("Error importing trade history from CSV", ex);
+            }
+        }
+    }
+
+    private Trade parseCsvRowAsTrade(String line) throws IllegalArgumentException {
+        try {
+            String[] parts = line.split(",(?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)", -1);
+            if (parts.length < 12) throw new IllegalArgumentException("Incorrect number of columns. Expected at least 12, got " + parts.length);
+            
+            // Handle optional checklistId at the end
+            UUID checklistId = null;
+            if (parts.length > 12 && parts[12] != null && !parts[12].trim().isEmpty()) {
+                checklistId = UUID.fromString(parts[12].trim());
+            }
+
+            return new Trade(
+                UUID.fromString(parts[0].trim()), new Symbol(parts[1].trim()), TradeDirection.valueOf(parts[2].trim().toUpperCase()),
+                Instant.parse(parts[3].trim()), new BigDecimal(parts[4].trim()), Instant.parse(parts[5].trim()),
+                new BigDecimal(parts[6].trim()), new BigDecimal(parts[7].trim()), new BigDecimal(parts[8].trim()),
+                Boolean.parseBoolean(parts[9].trim()), unquote(parts[10].trim()),
+                Arrays.asList(unquote(parts[11].trim()).split("\\|")),
+                checklistId
+            );
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Failed to parse trade row. Error: " + e.getMessage(), e);
+        }
+    }
+
+    private String formatTradeAsCsvRow(Trade trade) {
+        String notes = trade.notes() == null ? "" : trade.notes();
+        String tags = (trade.tags() == null || trade.tags().isEmpty()) ? "" : trade.tags().stream().collect(Collectors.joining("|"));
+        String checklistId = trade.checklistId() == null ? "" : trade.checklistId().toString();
+        
+        return String.join(",",
+            trade.id().toString(), trade.symbol().name(), trade.direction().toString(),
+            trade.entryTime().toString(), trade.entryPrice().toPlainString(),
+            trade.exitTime().toString(), trade.exitPrice().toPlainString(),
+            trade.quantity().toPlainString(), trade.profitAndLoss().toPlainString(),
+            String.valueOf(trade.planFollowed()),
+            quote(notes), quote(tags), checklistId
+        );
+    }
+
+    private String quote(String s) {
+        if (s == null) return "\"\"";
+        return "\"" + s.replace("\"", "\"\"") + "\"";
+    }
+    
+    private String unquote(String s) {
+        if (s != null && s.length() >= 2 && s.startsWith("\"") && s.endsWith("\"")) {
+            return s.substring(1, s.length() - 1).replace("\"\"", "\"");
+        }
+        return s;
+    }
+
+    /**
+     * Finds the first available DashboardFrame and sets its visibility.
+     * @param visible true to show the dashboard, false to hide it.
+     */
+    private void findAndSetDashboardVisible(boolean visible) {
+        for (Frame frame : Frame.getFrames()) {
+            if (frame instanceof DashboardFrame) {
+                if (visible) {
+                    // When showing, also bring it to the front and request focus.
+                    frame.setVisible(true);
+                    frame.toFront();
+                    frame.requestFocus();
+                } else {
+                    frame.setVisible(false);
+                }
+                // Assuming only one dashboard frame exists, we can break after finding it.
+                break; 
+            }
+        }
+    }
+}
