@@ -2,7 +2,7 @@
 
 **Eco Chart Pro** is a professional, high-performance desktop charting and backtesting application built with Java Swing. It provides a feature-rich environment for financial market analysis, custom indicator development, and disciplined trade journaling.
 
-![Eco Chart Pro Screenshot](./docs/images/screenshot.png)
+![Eco Chart Pro Screenshot](./docs/images/screenshot.png) <!-- TODO: Replace this with an actual screenshot of your application! -->
 
 ---
 
@@ -15,6 +15,30 @@
 -   **Custom Indicator Engine:** A robust plugin system that supports loading indicators from external JARs or live-compiling them from the powerful in-app Java editor with code completion.
 -   **Gamification & Coaching:** An innovative system that tracks performance, offers unlockable achievements, and provides actionable coaching insights to help traders identify behavioral patterns and improve discipline.
 -   **Modern Themed UI:** A clean, themeable user interface built on the FlatLaf look and feel, featuring a polished dashboard and non-intrusive notifications.
+
+## Roadmap & Future Development
+
+This project is under active development. The roadmap is divided into several key phases focused on architectural improvements, feature expansion, and usability enhancements.
+
+### Phase 1: Core Architecture Refinement
+-   **[In Progress] Polymorphic Drawing Tool Settings:** Refactor the drawing tool settings logic to use a polymorphic approach, removing `instanceof` checks and allowing each drawing tool to manage its own settings dialog. This will make the system more extensible and easier to maintain.
+-   **[Planned] Info Cursor Tool:** Introduce a new cursor mode that displays an information panel with details about the candle, indicators, and drawings under the cursor.
+
+### Phase 2: Advanced Analysis & Trading Features
+-   **[Planned] P&L Calculation Service:** Refactor all unrealized P&L calculations into a dedicated, centralized service to ensure consistency and eliminate logic duplication across the UI.
+-   **[Planned] Drawing Tool Templates:** Implement a system for users to create, save, and apply multiple named style templates for each drawing tool, allowing for rapid customization of charts.
+
+### Phase 3: Live Data & Trading
+-   **[Planned] Multi-Source Data Integration:** Expand data handling to support multiple live and historical data providers (e.g., Binance, OKX, Yahoo Finance), allowing users to select their preferred source.
+-   **[Planned] Live Data Integration:** Connect the charting engine to a live WebSocket data feed for real-time market data.
+-   **[Planned] Live Trading Integration:** Implement a `TradingService` for live brokerage APIs (e.g., Binance) to enable real-money trading directly from the platform.
+
+### Phase 4: Usability & Polish
+-   **[Planned] Right-Click Context Menus:** Provide faster access to common actions (e.g., delete drawing, modify order) via right-click menus on the chart.
+-   **[Planned] Enhanced Chart Interaction:** Implement zoom-to-cursor and click-and-drag axis scaling for a more fluid and intuitive chart navigation experience.
+-   **[Planned] Onboarding & Help System:** Add a "Help" menu and an "About" dialog with application information and links to documentation.
+
+---
 
 ## Technology Stack
 
@@ -40,7 +64,7 @@
 
 1.  Clone the repository to your local machine:
     ```bash
-    git clone https://github.com/YourUsername/EcoChartPro.git
+    git clone https://github.com/rphlmrk/EcoChartPro.git
     cd EcoChartPro
     ```
 2.  Build and run the application using the included Gradle wrapper:
@@ -52,21 +76,9 @@
     ./gradlew run
     ```
 
-### Building an Executable
+## Support the Project ❤️
 
-You can build a standalone "fat JAR" or a native installer for your operating system.
-
--   **To build the JAR:**
-    ```bash
-    ./gradlew shadowJar
-    ```
-    The executable JAR will be located in `build/libs/`.
-
--   **To build a native installer (.exe, .pkg, .deb):**
-    ```bash
-    ./gradlew jpackage
-    ```
-    The installer will be located in `build/jpackage/`.
+If you find Eco Chart Pro useful, please consider starring the repository. Your support helps motivate continued development and new features!
 
 ## Author
 
