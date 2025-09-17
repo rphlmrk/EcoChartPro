@@ -108,7 +108,7 @@ You can send a one-time donation via PayPal.
 
 Scan the QR code below with your Binance App to send a crypto donation.
 
-![Binance Pay QR Code](./docs/images/binance-pay-qr.png)
+<img src="./docs/images/binance-pay-qr.png" alt="Binance Pay QR Code" width="200">
 
 ### Crypto (USDT)
 
@@ -119,7 +119,7 @@ TCnAh8RH9dyeAwe4deWLPRKEASmct6QUpR
 
 **QR Code:**
 
-![USDT TRC20 QR Code](./docs/images/usdt-trc20-qr.png)
+<img src="./docs/images/usdt-trc20-qr.png" alt="USDT TRC20 QR Code" width="200">
 
 ## Author
 
