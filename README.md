@@ -107,24 +107,16 @@ You can send a one-time donation via PayPal.
 ### Binance Pay
 
 Scan the QR code below with your Binance App to send a crypto donation.
-
-![Binance Pay QR Code](./docs/images/binance-pay-qr.png)
-
-### Crypto (USDT)
-
-You can send USDT to the following address on the **Tron (TRC20)** network.
-
-**Address:**
+![alt text](./docs/images/binance-pay-qr.png)
+Crypto (USDT)
+You can send USDT to the following address on the Tron (TRC20) network.
+Address:
+code
+Code
 TCnAh8RH9dyeAwe4deWLPRKEASmct6QUpR
-
-**QR Code:**
-
-![USDT TRC20 QR Code](./docs/images/usdt-trc20-qr.png)
-
-## Author
-
--   **Raphael Mark**
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+QR Code:
+![alt text](./docs/images/usdt-trc20-qr.png)
+Author
+Raphael Mark
+License
+This project is licensed under the MIT License - see the LICENSE file for details.
