@@ -8,6 +8,7 @@ import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.Timeframe;
 import com.EcoChartPro.model.drawing.FibonacciRetracementObject.FibLevelProperties;
 import com.EcoChartPro.ui.chart.axis.ChartAxis;
+import com.EcoChartPro.ui.dialogs.FibonacciSettingsDialog;
 
 import java.awt.*;
 import java.math.BigDecimal;
@@ -18,6 +19,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.Consumer;
 
 public record FibonacciExtensionObject(
     UUID id,
@@ -86,6 +88,25 @@ public record FibonacciExtensionObject(
         if (id.equals(DrawingManager.getInstance().getSelectedDrawingId()) && !isLocked) {
             getHandles(axis, klines, tf).forEach(h -> drawHandle(g, h.position()));
         }
+    }
+    
+    @Override
+    public void showSettingsDialog(Frame owner, DrawingManager dm) {
+        Consumer<FibonacciSettingsDialog.SaveResult> onSave = result -> {
+            DrawingObject updatedDrawing = this.withLevels(result.levels())
+                                                        .withVisibility(result.visibility())
+                                                        .withShowPriceLabel(result.showPriceLabel());
+            dm.updateDrawing(updatedDrawing);
+        };
+        new FibonacciSettingsDialog(
+            owner, 
+            "Fibonacci Extension Settings", 
+            this.getClass().getSimpleName(), 
+            this.fibLevels(), 
+            this.visibility(), 
+            this.showPriceLabel(), 
+            onSave
+        ).setVisible(true);
     }
 
     @Override

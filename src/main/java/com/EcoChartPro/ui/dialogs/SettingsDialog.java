@@ -968,19 +968,12 @@ public class SettingsDialog extends JDialog {
                     if (className.equals("FibonacciRetracementObject")) {
                         Map<Double, FibLevelProperties> currentDefaults = settingsManager.getFibRetracementDefaultLevels();
                         boolean currentShowLabel = settingsManager.getToolDefaultShowPriceLabel(className, true);
-                        Consumer<FibonacciSettingsDialog.SaveResult> onSave = result -> {
-                            settingsManager.setFibRetracementDefaultLevels(result.levels());
-                            settingsManager.setToolDefaultShowPriceLabel(className, result.showPriceLabel());
-                        };
-                        new FibonacciSettingsDialog(this, "Default Fib. Retracement Levels", className, currentDefaults, null, currentShowLabel, onSave).setVisible(true);
+                        // The onSave callback here is null because the dialog's internal "Save as Default" handles it.
+                        new FibonacciSettingsDialog(this, "Default Fib. Retracement Levels", className, currentDefaults, null, currentShowLabel, (result) -> {}).setVisible(true);
                     } else { // FibonacciExtensionObject
                         Map<Double, FibLevelProperties> currentDefaults = settingsManager.getFibExtensionDefaultLevels();
                         boolean currentShowLabel = settingsManager.getToolDefaultShowPriceLabel(className, true);
-                        Consumer<FibonacciSettingsDialog.SaveResult> onSave = result -> {
-                            settingsManager.setFibExtensionDefaultLevels(result.levels());
-                            settingsManager.setToolDefaultShowPriceLabel(className, result.showPriceLabel());
-                        };
-                        new FibonacciSettingsDialog(this, "Default Fib. Extension Levels", className, currentDefaults, null, currentShowLabel, onSave).setVisible(true);
+                        new FibonacciSettingsDialog(this, "Default Fib. Extension Levels", className, currentDefaults, null, currentShowLabel, (result) -> {}).setVisible(true);
                     }
                 });
 

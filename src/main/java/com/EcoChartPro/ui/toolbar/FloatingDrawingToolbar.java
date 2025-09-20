@@ -448,9 +448,9 @@ public class FloatingDrawingToolbar extends JDialog implements PropertyChangeLis
     }
 
     /**
-    method to programmatically select a tool button.
-     * @param toolName The base name of the tool, e.g., "Trendline".
-     */
+    * Programmatically selects a tool button.
+    * @param toolName The base name of the tool, e.g., "Trendline".
+    */
     public void activateToolByName(String toolName) {
         if (mainWindow.getActiveChartPanel() == null) return;
         

@@ -353,34 +353,7 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
             DrawingObject drawing = drawingManager.getDrawingById(selectedId);
             if (drawing == null || drawing.isLocked()) return;
 
-            if (drawing instanceof TextObject textObject) {
-                TextSettingsDialog dialog = new TextSettingsDialog(this, textObject);
-                dialog.setVisible(true);
-                TextObject result = dialog.getUpdatedTextObject();
-                if (result != null) {
-                    TextObject updated = new TextObject(textObject.id(), textObject.anchor(), result.text(), result.font(), result.color(), result.properties(), result.visibility(), textObject.isLocked());
-                    drawingManager.updateDrawing(updated);
-                }
-            } else if (drawing instanceof FibonacciRetracementObject fib) {
-                Consumer<FibonacciSettingsDialog.SaveResult> onSave = result -> {
-                    DrawingObject updatedDrawing = fib.withLevels(result.levels())
-                                                      .withVisibility(result.visibility())
-                                                      .withShowPriceLabel(result.showPriceLabel()); // MODIFICATION
-                    drawingManager.updateDrawing(updatedDrawing);
-                };
-                new FibonacciSettingsDialog(this, "Fibonacci Retracement Settings", fib.getClass().getSimpleName(), fib.fibLevels(), fib.visibility(), fib.showPriceLabel(), onSave).setVisible(true); // FIX
-            } else if (drawing instanceof FibonacciExtensionObject fibEx) {
-                Consumer<FibonacciSettingsDialog.SaveResult> onSave = result -> {
-                    DrawingObject updatedDrawing = fibEx.withLevels(result.levels())
-                                                        .withVisibility(result.visibility())
-                                                        .withShowPriceLabel(result.showPriceLabel()); // MODIFICATION
-                    drawingManager.updateDrawing(updatedDrawing);
-                };
-                new FibonacciSettingsDialog(this, "Fibonacci Extension Settings", fibEx.getClass().getSimpleName(), fibEx.fibLevels(), fibEx.visibility(), fibEx.showPriceLabel(), onSave).setVisible(true); // FIX
-            } else {
-                // Open the generic dialog for all other tool types
-                new DrawingToolSettingsDialog(this, drawing, drawingManager).setVisible(true);
-            }
+            drawing.showSettingsDialog(this, drawingManager);
         });
     }
 

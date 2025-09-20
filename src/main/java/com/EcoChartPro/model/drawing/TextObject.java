@@ -7,6 +7,7 @@ import com.EcoChartPro.core.settings.SettingsManager;
 import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.Timeframe;
 import com.EcoChartPro.ui.chart.axis.ChartAxis;
+import com.EcoChartPro.ui.dialogs.TextSettingsDialog;
 
 import java.awt.*;
 import java.math.BigDecimal;
@@ -92,6 +93,27 @@ public record TextObject(
 
         if (id.equals(DrawingManager.getInstance().getSelectedDrawingId()) && !isLocked) {
             getHandles(axis, klines, tf).forEach(h -> drawHandle(g, h.position()));
+        }
+    }
+    
+    @Override
+    public void showSettingsDialog(Frame owner, DrawingManager dm) {
+        TextSettingsDialog dialog = new TextSettingsDialog(owner, this);
+        dialog.setVisible(true);
+        TextObject result = dialog.getUpdatedTextObject();
+        if (result != null) {
+            TextObject updated = new TextObject(
+                this.id(),
+                this.anchor(),
+                result.text(),
+                result.font(),
+                result.color(),
+                result.properties(),
+                result.visibility(),
+                this.isLocked(),
+                this.showPriceLabel()
+            );
+            dm.updateDrawing(updated);
         }
     }
     

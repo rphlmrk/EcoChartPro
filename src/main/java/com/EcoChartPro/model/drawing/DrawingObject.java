@@ -1,15 +1,18 @@
 package com.EcoChartPro.model.drawing;
 
+import com.EcoChartPro.core.manager.DrawingManager;
 import com.EcoChartPro.core.manager.PriceRange;
 import com.EcoChartPro.core.manager.TimeRange;
 import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.Timeframe;
 import com.EcoChartPro.ui.chart.axis.ChartAxis;
+import com.EcoChartPro.ui.dialogs.DrawingToolSettingsDialog;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 
 import java.awt.BasicStroke;
 import java.awt.Color;
+import java.awt.Frame;
 import java.awt.Graphics2D;
 import java.awt.Point;
 import java.util.List;
@@ -52,4 +55,8 @@ public interface DrawingObject {
     DrawingObject withLocked(boolean locked);
     boolean showPriceLabel();
     DrawingObject withShowPriceLabel(boolean show);
+
+    default void showSettingsDialog(Frame owner, DrawingManager dm) {
+        new DrawingToolSettingsDialog(owner, this, dm).setVisible(true);
+    }
 }
