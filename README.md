@@ -36,14 +36,14 @@ Go beyond built-in indicators. Eco Chart Pro features a complete in-app Java edi
 This project is under active development. The roadmap is divided into several key phases focused on architectural improvements, feature expansion, and usability enhancements.
 
 ### Phase 1: Core Architecture & UI Refinement
--   **[In Progress] Polymorphic Drawing Tool Settings:** Refactor the drawing tool settings logic to use a polymorphic approach, allowing each drawing tool to manage its own settings dialog for better extensibility.
+-   **[Done] Polymorphic Drawing Tool Settings:** Refactor the drawing tool settings logic to use a polymorphic approach, allowing each drawing tool to manage its own settings dialog for better extensibility.
 -   **[Planned] Info Cursor Tool:** Introduce a new cursor mode that displays a detailed information panel about the candle and indicator values under the cursor.
 -   **[Planned] Right-Click Context Menus:** Provide faster access to common actions (e.g., delete drawing, modify order) via context-sensitive right-click menus on the chart.
 -   **[Planned] Enhanced Chart Interaction:** Implement zoom-to-cursor and click-and-drag axis scaling for a more fluid and intuitive chart navigation experience.
 
 ### Phase 2: Advanced Analysis & Trading Features
 -   **[Planned] P&L Calculation Service:** Refactor all unrealized P&L calculations into a dedicated, centralized service to ensure consistency and eliminate logic duplication.
--   **[Planned] Drawing Tool Templates:** Implement a system for users to create, save, and apply multiple named style templates for each drawing tool.
+-   **[Done] Drawing Tool Templates:** Implement a system for users to create, save, and apply multiple named style templates for each drawing tool.
 
 ### Phase 3: Live Data & Trading
 -   **[Planned] Multi-Source Data Integration:** Expand data handling to support multiple live and historical data providers (e.g., Binance, OKX, Yahoo Finance), allowing users to select their preferred source.

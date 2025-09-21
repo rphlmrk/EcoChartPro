@@ -4,18 +4,28 @@ import com.EcoChartPro.core.commands.UpdateDrawingCommand;
 import com.EcoChartPro.core.manager.DrawingManager;
 import com.EcoChartPro.core.manager.UndoManager;
 import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.core.settings.SettingsManager.DrawingToolTemplate;
 import com.EcoChartPro.core.tool.DrawingTool;
 import com.EcoChartPro.model.drawing.DrawingHandle;
 import com.EcoChartPro.model.drawing.DrawingObject;
 import com.EcoChartPro.model.drawing.DrawingObjectPoint;
+import com.EcoChartPro.model.drawing.FibonacciExtensionObject;
+import com.EcoChartPro.model.drawing.FibonacciRetracementObject;
 import com.EcoChartPro.ui.chart.ChartPanel;
+import com.EcoChartPro.ui.dialogs.SettingsDialog;
+import com.EcoChartPro.ui.toolbar.FloatingPropertiesToolbar;
 
-import javax.swing.SwingUtilities;
+import javax.swing.*;
+import java.awt.Component;
 import java.awt.Cursor;
+import java.awt.Frame;
 import java.awt.Point;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.math.BigDecimal;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.function.Consumer;
 
@@ -36,6 +46,91 @@ public class DrawingController extends MouseAdapter {
         this.onToolStateChange = onToolStateChange;
         chartPanel.addMouseListener(this);
         chartPanel.addMouseMotionListener(this);
+        
+        FloatingPropertiesToolbar propsToolbar = chartPanel.getPropertiesToolbar();
+        propsToolbar.getTemplateButton().addActionListener(e -> showTemplateMenuForSelectedDrawing((Component) e.getSource()));
+    }
+
+    private void showTemplateMenuForSelectedDrawing(Component anchor) {
+        DrawingObject selectedDrawing = drawingManager.getSelectedDrawing();
+        if (selectedDrawing == null) return;
+
+        String toolClassName = selectedDrawing.getClass().getSimpleName();
+        SettingsManager sm = SettingsManager.getInstance();
+        JPopupMenu menu = new JPopupMenu();
+
+        // 1. Save as Template
+        JMenuItem saveItem = new JMenuItem("Save as New Template...");
+        saveItem.addActionListener(e -> {
+            String name = JOptionPane.showInputDialog(chartPanel, "Enter template name:", "New Template", JOptionPane.PLAIN_MESSAGE);
+            if (name != null && !name.isBlank()) {
+                Map<String, Object> specificProps = new HashMap<>();
+                if (selectedDrawing instanceof FibonacciRetracementObject fibro) {
+                    specificProps.put("levels", fibro.fibLevels());
+                } else if (selectedDrawing instanceof FibonacciExtensionObject fibex) {
+                    specificProps.put("levels", fibex.fibLevels());
+                }
+
+                DrawingToolTemplate newTemplate = new DrawingToolTemplate(
+                    UUID.randomUUID(), name, selectedDrawing.color(), selectedDrawing.stroke(),
+                    selectedDrawing.showPriceLabel(), specificProps
+                );
+                sm.addTemplate(toolClassName, newTemplate);
+                
+                int choice = JOptionPane.showConfirmDialog(chartPanel, "Template '" + name + "' saved. Make it active for new drawings?", "Set Active", JOptionPane.YES_NO_OPTION);
+                if (choice == JOptionPane.YES_OPTION) {
+                    sm.setActiveTemplate(toolClassName, newTemplate.id());
+                }
+            }
+        });
+        menu.add(saveItem);
+
+        // 2. Manage Templates
+        JMenuItem manageItem = new JMenuItem("Manage Templates...");
+        manageItem.addActionListener(e -> new SettingsDialog((Frame) SwingUtilities.getWindowAncestor(chartPanel)).setVisible(true));
+        menu.add(manageItem);
+        
+        menu.addSeparator();
+
+        // 3. List of Saved Templates
+        List<DrawingToolTemplate> templates = sm.getTemplatesForTool(toolClassName);
+        if (templates.isEmpty()) {
+            JMenuItem noTemplatesItem = new JMenuItem("No Saved Templates");
+            noTemplatesItem.setEnabled(false);
+            menu.add(noTemplatesItem);
+        } else {
+            for (DrawingToolTemplate template : templates) {
+                JMenuItem templateItem = new JMenuItem(template.name());
+                templateItem.addActionListener(e -> {
+                    // Apply the template to the selected drawing
+                    DrawingObject updatedDrawing = selectedDrawing.withColor(template.color())
+                                                                  .withStroke(template.stroke())
+                                                                  .withShowPriceLabel(template.showPriceLabel());
+                    
+                    // Apply specific properties
+                    if (updatedDrawing instanceof FibonacciRetracementObject fibro) {
+                        @SuppressWarnings("unchecked")
+                        Map<Double, FibonacciRetracementObject.FibLevelProperties> levels = 
+                            (Map<Double, FibonacciRetracementObject.FibLevelProperties>) template.specificProps().get("levels");
+                        if (levels != null) {
+                            updatedDrawing = fibro.withLevels(levels);
+                        }
+                    } else if (updatedDrawing instanceof FibonacciExtensionObject fibex) {
+                        @SuppressWarnings("unchecked")
+                        Map<Double, FibonacciRetracementObject.FibLevelProperties> levels = 
+                            (Map<Double, FibonacciRetracementObject.FibLevelProperties>) template.specificProps().get("levels");
+                        if (levels != null) {
+                            updatedDrawing = fibex.withLevels(levels);
+                        }
+                    }
+                    
+                    drawingManager.updateDrawing(updatedDrawing);
+                });
+                menu.add(templateItem);
+            }
+        }
+        
+        menu.show(anchor, 0, anchor.getHeight());
     }
 
     public void setActiveTool(DrawingTool tool) {

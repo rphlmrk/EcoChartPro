@@ -1,6 +1,7 @@
 package com.EcoChartPro.core.tool;
 
 import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.core.settings.SettingsManager.DrawingToolTemplate;
 import com.EcoChartPro.model.Timeframe;
 import com.EcoChartPro.model.drawing.DrawingObject;
 import com.EcoChartPro.model.drawing.DrawingObjectPoint;
@@ -20,10 +21,10 @@ public class HorizontalRayTool implements DrawingTool {
     private final boolean defaultShowPriceLabel;
 
     public HorizontalRayTool() {
-        SettingsManager sm = SettingsManager.getInstance();
-        this.defaultColor = sm.getToolDefaultColor("HorizontalRayObject", new Color(33, 150, 243, 180));
-        this.defaultStroke = sm.getToolDefaultStroke("HorizontalRayObject", new BasicStroke(2));
-        this.defaultShowPriceLabel = sm.getToolDefaultShowPriceLabel("HorizontalRayObject", true);
+        DrawingToolTemplate activeTemplate = SettingsManager.getInstance().getActiveTemplateForTool("HorizontalRayObject");
+        this.defaultColor = activeTemplate.color();
+        this.defaultStroke = activeTemplate.stroke();
+        this.defaultShowPriceLabel = activeTemplate.showPriceLabel();
     }
     
     @Override

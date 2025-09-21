@@ -48,6 +48,7 @@ public final class UITheme {
         public static final String PROTECTED_LEVEL = "/icons/protected-level.svg";
         public static final String FIB_RETRACEMENT = "/icons/fib-retracement.svg";
         public static final String FIB_EXTENSION = "/icons/fib-extension.svg";
+        public static final String TEMPLATE = "/icons/template.svg"; // New Icon
 
         // --- Editor & API ---
         public static final String SCRIPT_JS = "/icons/js.svg";
@@ -69,6 +70,7 @@ public final class UITheme {
         public static final String FAST_FORWARD = "/icons/fast-forward.svg";
         public static final String CHEVRON_DOUBLE_LEFT = "/icons/chevron-double-left.svg";
         public static final String CHEVRON_DOUBLE_RIGHT = "/icons/chevron-double-right.svg";
+        public static final String CHEVRON_DOWN = "/icons/chevron-down.svg"; 
         public static final String DRAG_HANDLE = "/icons/drag-handle.svg";
         public static final String VISIBILITY_ON = "/icons/visibility-on.svg";
         public static final String DROPDOWN_ARROW_DOWN = "/icons/dropdown-arrow-down.svg";

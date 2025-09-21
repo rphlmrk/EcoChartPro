@@ -9,7 +9,6 @@ import com.EcoChartPro.core.settings.SettingsManager.ToolbarPosition;
 import com.EcoChartPro.core.settings.SettingsManager.TradingSession;
 import com.EcoChartPro.core.theme.ThemeManager.Theme;
 import com.EcoChartPro.model.Timeframe;
-import com.EcoChartPro.model.drawing.FibonacciRetracementObject.FibLevelProperties;
 import com.EcoChartPro.ui.components.CustomColorChooserPanel;
 
 import javax.swing.*;
@@ -926,11 +925,10 @@ public class SettingsDialog extends JDialog {
         return panel;
     }
     
-    private JScrollPane createDrawingToolsSettingsPanel() {
-        JPanel container = new JPanel();
-        container.setLayout(new BoxLayout(container, BoxLayout.Y_AXIS));
-        container.setBorder(BorderFactory.createTitledBorder("Default Drawing Tool Properties"));
+    private JComponent createDrawingToolsSettingsPanel() {
+        JTabbedPane tabbedPane = new JTabbedPane();
 
+        // The display name and the tool's class name (used as a key in SettingsManager)
         Map<String, String> tools = new LinkedHashMap<>();
         tools.put("Trendline", "Trendline");
         tools.put("Ray", "RayObject");
@@ -941,81 +939,17 @@ public class SettingsDialog extends JDialog {
         tools.put("Fib Retracement", "FibonacciRetracementObject");
         tools.put("Fib Extension", "FibonacciExtensionObject");
         tools.put("Measure Tool", "MeasureToolObject");
-        tools.put("Protected Level Pattern", "ProtectedLevelPatternObject");
+        tools.put("Protected Level", "ProtectedLevelPatternObject");
+        tools.put("Text", "TextObject");
 
-        JPanel gridPanel = new JPanel(new GridBagLayout());
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = new Insets(5, 5, 5, 5);
-        gbc.anchor = GridBagConstraints.WEST;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        
-        int row = 0;
         for (Map.Entry<String, String> entry : tools.entrySet()) {
             String displayName = entry.getKey();
             String className = entry.getValue();
-
-            gbc.gridx = 0;
-            gbc.gridy = row;
-            gridPanel.add(new JLabel(displayName + ":"), gbc);
-            
-            if (className.startsWith("Fibonacci")) {
-                JButton configureButton = new JButton("Configure Levels...");
-                gbc.gridx = 1;
-                gbc.gridwidth = 2;
-                gridPanel.add(configureButton, gbc);
-
-                configureButton.addActionListener(e -> {
-                    if (className.equals("FibonacciRetracementObject")) {
-                        Map<Double, FibLevelProperties> currentDefaults = settingsManager.getFibRetracementDefaultLevels();
-                        boolean currentShowLabel = settingsManager.getToolDefaultShowPriceLabel(className, true);
-                        // The onSave callback here is null because the dialog's internal "Save as Default" handles it.
-                        new FibonacciSettingsDialog(this, "Default Fib. Retracement Levels", className, currentDefaults, null, currentShowLabel, (result) -> {}).setVisible(true);
-                    } else { // FibonacciExtensionObject
-                        Map<Double, FibLevelProperties> currentDefaults = settingsManager.getFibExtensionDefaultLevels();
-                        boolean currentShowLabel = settingsManager.getToolDefaultShowPriceLabel(className, true);
-                        new FibonacciSettingsDialog(this, "Default Fib. Extension Levels", className, currentDefaults, null, currentShowLabel, (result) -> {}).setVisible(true);
-                    }
-                });
-
-            } else {
-                Color initialColor = settingsManager.getToolDefaultColor(className, Color.WHITE);
-                JButton colorButton = createColorPickerButton(
-                    "Default color for " + displayName,
-                    initialColor,
-                    newColor -> settingsManager.setToolDefaultColor(className, newColor)
-                );
-                gbc.gridx = 1;
-                gbc.gridwidth = 1;
-                gridPanel.add(colorButton, gbc);
-                
-                BasicStroke initialStroke = settingsManager.getToolDefaultStroke(className, new BasicStroke(1));
-                JSpinner thicknessSpinner = new JSpinner(new SpinnerNumberModel((int)initialStroke.getLineWidth(), 1, 10, 1));
-                thicknessSpinner.addChangeListener(e -> {
-                    int newWidth = (Integer) thicknessSpinner.getValue();
-                    settingsManager.setToolDefaultStroke(className, new BasicStroke(newWidth));
-                });
-                gbc.gridx = 2;
-                gridPanel.add(thicknessSpinner, gbc);
-
-                if (className.equals("HorizontalLineObject") || className.equals("HorizontalRayObject") || className.equals("RectangleObject") || className.equals("Trendline")) {
-                    JCheckBox showLabelCheck = new JCheckBox("Show Label");
-                    showLabelCheck.setSelected(settingsManager.getToolDefaultShowPriceLabel(className, true));
-                    showLabelCheck.addActionListener(ae -> settingsManager.setToolDefaultShowPriceLabel(className, showLabelCheck.isSelected()));
-                    gbc.gridx = 3;
-                    gridPanel.add(showLabelCheck, gbc);
-                }
-            }
-            
-            row++;
+            TemplateManagerPanel panel = new TemplateManagerPanel(className, displayName);
+            tabbedPane.addTab(displayName, panel);
         }
 
-        gbc.gridx = 4; gbc.weightx = 1.0; gbc.gridy = 0;
-        gridPanel.add(new JLabel(), gbc); // Glue to push columns left
-
-        container.add(gridPanel);
-        container.add(Box.createVerticalGlue());
-
-        return new JScrollPane(container);
+        return tabbedPane;
     }
     
     private JPanel createSessionSettingsPanel() {

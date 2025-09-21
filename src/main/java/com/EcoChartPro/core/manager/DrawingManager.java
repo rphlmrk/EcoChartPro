@@ -63,6 +63,11 @@ public final class DrawingManager {
     public UUID getSelectedDrawingId() {
         return selectedDrawingId;
     }
+    
+    public DrawingObject getSelectedDrawing() {
+        if (selectedDrawingId == null) return null;
+        return drawings.get(selectedDrawingId);
+    }
 
     public void setSelectedDrawingId(UUID id) {
         UUID oldId = this.selectedDrawingId;

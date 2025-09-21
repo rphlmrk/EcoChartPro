@@ -6,8 +6,15 @@ import com.EcoChartPro.model.drawing.FibonacciRetracementObject.FibLevelProperti
 import com.EcoChartPro.model.drawing.TextProperties;
 import com.EcoChartPro.utils.AppDataManager;
 import com.EcoChartPro.utils.SessionManager;
+import com.fasterxml.jackson.core.JsonGenerator;
+import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.DeserializationContext;
+import com.fasterxml.jackson.databind.JsonDeserializer;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.JsonSerializer;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializerProvider;
 import com.fasterxml.jackson.databind.module.SimpleModule;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,12 +32,15 @@ import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.EnumMap;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
-import java.util.List;
 import java.util.TreeMap;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
@@ -44,10 +54,34 @@ public final class SettingsManager {
     private final Properties properties = new Properties();
     private static final ObjectMapper jsonMapper = new ObjectMapper();
 
+    public static class BasicStrokeSerializer extends JsonSerializer<BasicStroke> {
+        @Override
+        public void serialize(BasicStroke value, JsonGenerator gen, SerializerProvider serializers) throws IOException {
+            gen.writeStartObject();
+            gen.writeNumberField("width", value.getLineWidth());
+            gen.writeNumberField("cap", value.getEndCap());
+            gen.writeNumberField("join", value.getLineJoin());
+            gen.writeEndObject();
+        }
+    }
+
+    public static class BasicStrokeDeserializer extends JsonDeserializer<BasicStroke> {
+        @Override
+        public BasicStroke deserialize(JsonParser p, DeserializationContext ctxt) throws IOException {
+            JsonNode node = p.getCodec().readTree(p);
+            float width = (float) node.get("width").asDouble();
+            int cap = node.get("cap").asInt();
+            int join = node.get("join").asInt();
+            return new BasicStroke(width, cap, join);
+        }
+    }
+
     static {
         SimpleModule module = new SimpleModule();
         module.addSerializer(Color.class, new SessionManager.ColorSerializer());
         module.addDeserializer(Color.class, new SessionManager.ColorDeserializer());
+        module.addSerializer(BasicStroke.class, new BasicStrokeSerializer());
+        module.addDeserializer(BasicStroke.class, new BasicStrokeDeserializer());
         jsonMapper.registerModule(module);
     }
 
@@ -78,6 +112,15 @@ public final class SettingsManager {
         private final String displayName; PeakHoursDisplayStyle(String s) { this.displayName = s; } @Override public String toString() { return displayName; }
     }
 
+    public record DrawingToolTemplate(
+        UUID id,
+        String name,
+        Color color,
+        BasicStroke stroke,
+        boolean showPriceLabel,
+        Map<String, Object> specificProps
+    ) {}
+
 
     // --- Settings Fields ---
     private Theme currentTheme;
@@ -105,7 +148,8 @@ public final class SettingsManager {
     private boolean priceAxisLabelsShowDrawings;
     private boolean priceAxisLabelsShowFibonaccis;
     private PriceAxisLabelPosition priceAxisLabelPosition;
-    private final Map<String, Properties> toolDefaults = new ConcurrentHashMap<>();
+    private final Map<String, List<DrawingToolTemplate>> toolTemplates = new ConcurrentHashMap<>();
+    private final Map<String, UUID> activeToolTemplates = new ConcurrentHashMap<>();
     private List<String> tradeReplayAvailableTimeframes;
     private boolean disciplineCoachEnabled;
     private int optimalTradeCountOverride;
@@ -276,18 +320,29 @@ public final class SettingsManager {
         for (TradingSession session : TradingSession.values()) {
             sessionEnabled.put(session, Boolean.parseBoolean(properties.getProperty("session." + session.name() + ".enabled", "true")));
         }
-
-        properties.stringPropertyNames().forEach(key -> {
-            if (key.startsWith("tool.")) {
-                String[] parts = key.split("\\.", 3);
-                if (parts.length == 3) {
-                    String toolName = parts[1];
-                    String propName = parts[2];
-                    String value = properties.getProperty(key);
-                    toolDefaults.computeIfAbsent(toolName, k -> new Properties()).setProperty(propName, value);
-                }
+        
+        // --- Load Tool Templates ---
+        String templatesJson = properties.getProperty("tool.templates.v2.json");
+        if (templatesJson != null && !templatesJson.isBlank()) {
+            try {
+                Map<String, List<DrawingToolTemplate>> loadedTemplates = jsonMapper.readValue(templatesJson, new TypeReference<>() {});
+                this.toolTemplates.clear();
+                this.toolTemplates.putAll(loadedTemplates);
+            } catch (IOException e) {
+                logger.error("Failed to parse tool templates from settings.", e);
             }
-        });
+        }
+
+        String activeTemplatesJson = properties.getProperty("tool.activeTemplates.v2.json");
+        if (activeTemplatesJson != null && !activeTemplatesJson.isBlank()) {
+            try {
+                Map<String, UUID> loadedActiveTemplates = jsonMapper.readValue(activeTemplatesJson, new TypeReference<>() {});
+                this.activeToolTemplates.clear();
+                this.activeToolTemplates.putAll(loadedActiveTemplates);
+            } catch (IOException e) {
+                logger.error("Failed to parse active tool templates from settings.", e);
+            }
+        }
     }
     
     private synchronized void saveSettings() {
@@ -366,12 +421,16 @@ public final class SettingsManager {
                     properties.setProperty("session." + session.name() + ".enabled", String.valueOf(sessionEnabled.get(session)));
                 }
 
-                toolDefaults.forEach((toolName, props) -> {
-                    props.forEach((propName, propValue) -> {
-                        String key = "tool." + toolName + "." + propName;
-                        properties.setProperty(key, (String) propValue);
-                    });
-                });
+                // --- Save Tool Templates ---
+                try {
+                    String templatesJson = jsonMapper.writeValueAsString(toolTemplates);
+                    properties.setProperty("tool.templates.v2.json", templatesJson);
+
+                    String activeTemplatesJson = jsonMapper.writeValueAsString(activeToolTemplates);
+                    properties.setProperty("tool.activeTemplates.v2.json", activeTemplatesJson);
+                } catch (IOException e) {
+                    logger.error("Failed to serialize tool templates to settings.", e);
+                }
 
                 properties.store(out, "Eco Chart Pro Application Settings");
             } catch (IOException e) {
@@ -847,53 +906,220 @@ public final class SettingsManager {
             return defaultColor;
         }
     }
+    
+    // --- START: New Template Management Methods ---
 
-    public Color getToolDefaultColor(String toolName, Color fallback) {
-        Properties props = toolDefaults.get(toolName);
-        if (props != null) {
-            return parseColor(props.getProperty("color", formatColor(fallback)), fallback);
+    public List<DrawingToolTemplate> getTemplatesForTool(String toolName) {
+        return toolTemplates.getOrDefault(toolName, Collections.emptyList());
+    }
+
+    public UUID getActiveTemplateId(String toolName) {
+        return activeToolTemplates.get(toolName);
+    }
+    
+    public DrawingToolTemplate getActiveTemplateForTool(String toolName) {
+        UUID activeTemplateId = activeToolTemplates.get(toolName);
+        List<DrawingToolTemplate> templates = toolTemplates.get(toolName);
+
+        if (templates != null && !templates.isEmpty()) {
+            if (activeTemplateId != null) {
+                // Find the active template by its ID
+                Optional<DrawingToolTemplate> activeTemplate = templates.stream()
+                        .filter(t -> t.id().equals(activeTemplateId))
+                        .findFirst();
+                if (activeTemplate.isPresent()) {
+                    return activeTemplate.get();
+                }
+            }
+            // If active ID is not set or not found, fall back to the first template
+            return templates.get(0);
         }
-        return fallback;
+        
+        // If no templates exist for this tool, create and return a hardcoded default
+        return createDefaultTemplateForTool(toolName);
+    }
+
+    public void addTemplate(String toolName, DrawingToolTemplate template) {
+        toolTemplates.computeIfAbsent(toolName, k -> new ArrayList<>()).add(template);
+        saveSettings();
+        pcs.firePropertyChange("toolDefaultsChanged", null, toolName);
+    }
+
+    public void updateTemplate(String toolName, DrawingToolTemplate template) {
+        List<DrawingToolTemplate> templates = toolTemplates.get(toolName);
+        if (templates != null) {
+            templates.removeIf(t -> t.id().equals(template.id()));
+            templates.add(template);
+            saveSettings();
+            pcs.firePropertyChange("toolDefaultsChanged", null, toolName);
+        }
+    }
+
+    public void deleteTemplate(String toolName, UUID templateId) {
+        List<DrawingToolTemplate> templates = toolTemplates.get(toolName);
+        if (templates != null) {
+            templates.removeIf(t -> t.id().equals(templateId));
+            if (templateId.equals(activeToolTemplates.get(toolName))) {
+                activeToolTemplates.remove(toolName); // It will default to the first in the list on next get
+            }
+            saveSettings();
+            pcs.firePropertyChange("toolDefaultsChanged", null, toolName);
+        }
+    }
+
+    public void setActiveTemplate(String toolName, UUID templateId) {
+        activeToolTemplates.put(toolName, templateId);
+        saveSettings();
+        pcs.firePropertyChange("toolDefaultsChanged", null, toolName);
+    }
+
+    private DrawingToolTemplate createDefaultTemplateForTool(String toolName) {
+        // This method provides hardcoded defaults if no templates are saved
+        Color color;
+        BasicStroke stroke;
+        boolean showPriceLabel = true;
+        Map<String, Object> specificProps = new HashMap<>();
+
+        switch (toolName) {
+            case "Trendline":
+            case "TrendlineObject":
+                color = new Color(255, 140, 40);
+                stroke = new BasicStroke(2);
+                break;
+            case "RayObject":
+                 color = new Color(255, 140, 40);
+                 stroke = new BasicStroke(2);
+                 showPriceLabel = false;
+                 break;
+            case "HorizontalLineObject":
+                color = new Color(33, 150, 243, 180);
+                stroke = new BasicStroke(2);
+                break;
+            case "HorizontalRayObject":
+                 color = new Color(33, 150, 243, 180);
+                 stroke = new BasicStroke(2);
+                 break;
+            case "VerticalLineObject":
+                color = new Color(33, 150, 243, 180);
+                stroke = new BasicStroke(2);
+                showPriceLabel = false;
+                break;
+            case "RectangleObject":
+                color = new Color(33, 150, 243);
+                stroke = new BasicStroke(2);
+                break;
+            case "FibonacciRetracementObject":
+                color = new Color(0, 150, 136, 200);
+                stroke = new BasicStroke(1);
+                specificProps.put("levels", createDefaultFibRetracementLevels());
+                break;
+            case "FibonacciExtensionObject":
+                 color = new Color(76, 175, 80, 200);
+                 stroke = new BasicStroke(1);
+                 specificProps.put("levels", createDefaultFibExtensionLevels());
+                 break;
+            case "MeasureToolObject":
+                color = new Color(0, 150, 136);
+                stroke = new BasicStroke(1);
+                showPriceLabel = false;
+                break;
+            case "ProtectedLevelPatternObject":
+                color = new Color(33, 150, 243);
+                stroke = new BasicStroke(2);
+                showPriceLabel = false;
+                break;
+            case "TextObject":
+                color = Color.WHITE;
+                stroke = new BasicStroke(1);
+                showPriceLabel = false;
+                specificProps.put("font", new Font("SansSerif", Font.PLAIN, 14));
+                specificProps.put("textProperties", new TextProperties(false, new Color(33, 150, 243, 80), false, new Color(33, 150, 243), true, false));
+                break;
+            default:
+                color = Color.GRAY;
+                stroke = new BasicStroke(1);
+                break;
+        }
+        return new DrawingToolTemplate(UUID.randomUUID(), "Default", color, stroke, showPriceLabel, specificProps);
+    }
+    
+    // --- END: New Template Management Methods ---
+
+
+    // --- START: Refactored Legacy Accessors ---
+    public Color getToolDefaultColor(String toolName, Color fallback) {
+        return getActiveTemplateForTool(toolName).color();
     }
 
     public BasicStroke getToolDefaultStroke(String toolName, BasicStroke fallback) {
-        Properties props = toolDefaults.get(toolName);
-        if (props == null) return fallback;
-        try {
-            float width = Float.parseFloat(props.getProperty("stroke.width", String.valueOf(fallback.getLineWidth())));
-            return new BasicStroke(width, fallback.getEndCap(), fallback.getLineJoin());
-        } catch (Exception e) {
-            return fallback;
-        }
+        return getActiveTemplateForTool(toolName).stroke();
     }
 
-    public void setToolDefaultColor(String toolName, Color color) {
-        toolDefaults.computeIfAbsent(toolName, k -> new Properties()).setProperty("color", formatColor(color));
-        saveSettings();
-        pcs.firePropertyChange("toolDefaultsChanged", null, toolName);
-    }
-
-    public void setToolDefaultStroke(String toolName, BasicStroke stroke) {
-        Properties props = toolDefaults.computeIfAbsent(toolName, k -> new Properties());
-        props.setProperty("stroke.width", String.valueOf(stroke.getLineWidth()));
-        saveSettings();
-        pcs.firePropertyChange("toolDefaultsChanged", null, toolName);
-    }
-    
     public boolean getToolDefaultShowPriceLabel(String toolName, boolean fallback) {
-        Properties props = toolDefaults.get(toolName);
-        if (props != null) {
-            return Boolean.parseBoolean(props.getProperty("showPriceLabel", String.valueOf(fallback)));
+        return getActiveTemplateForTool(toolName).showPriceLabel();
+    }
+
+    @SuppressWarnings("unchecked")
+    public Map<Double, FibLevelProperties> getFibRetracementDefaultLevels() {
+        DrawingToolTemplate template = getActiveTemplateForTool("FibonacciRetracementObject");
+        return (Map<Double, FibLevelProperties>) template.specificProps().get("levels");
+    }
+
+    @SuppressWarnings("unchecked")
+    public Map<Double, FibLevelProperties> getFibExtensionDefaultLevels() {
+        DrawingToolTemplate template = getActiveTemplateForTool("FibonacciExtensionObject");
+        return (Map<Double, FibLevelProperties>) template.specificProps().get("levels");
+    }
+
+    public Font getToolDefaultFont(String toolName, Font fallback) {
+        DrawingToolTemplate template = getActiveTemplateForTool(toolName);
+        // Deserialization from JSON might turn this into a Map, so we handle that case.
+        Object fontProp = template.specificProps().get("font");
+        if (fontProp instanceof Font) {
+            return (Font) fontProp;
+        } else if (fontProp instanceof Map) {
+            try {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> fontMap = (Map<String, Object>) fontProp;
+                String name = (String) fontMap.get("name");
+                int style = (Integer) fontMap.get("style");
+                int size = (Integer) fontMap.get("size");
+                return new Font(name, style, size);
+            } catch (Exception e) {
+                logger.warn("Could not deserialize Font from map for tool {}", toolName);
+                return fallback;
+            }
+        }
+        return (Font) template.specificProps().getOrDefault("font", fallback);
+    }
+
+    public TextProperties getToolDefaultTextProperties(String toolName, TextProperties fallback) {
+        DrawingToolTemplate template = getActiveTemplateForTool(toolName);
+        Object props = template.specificProps().get("textProperties");
+        if (props instanceof TextProperties) {
+            return (TextProperties) props;
+        } else if (props instanceof Map) {
+             try {
+                // Manually deserialize from map if Jackson couldn't infer the type
+                return jsonMapper.convertValue(props, TextProperties.class);
+            } catch (Exception e) {
+                 logger.warn("Could not deserialize TextProperties from map for tool {}", toolName);
+                return fallback;
+            }
         }
         return fallback;
     }
 
-    public void setToolDefaultShowPriceLabel(String toolName, boolean show) {
-        toolDefaults.computeIfAbsent(toolName, k -> new Properties()).setProperty("showPriceLabel", String.valueOf(show));
-        saveSettings();
-        pcs.firePropertyChange("toolDefaultsChanged", null, toolName);
-    }
+    public void setToolDefaultColor(String toolName, Color color) { /* Obsolete */ }
+    public void setToolDefaultStroke(String toolName, BasicStroke stroke) { /* Obsolete */ }
+    public void setToolDefaultShowPriceLabel(String toolName, boolean show) { /* Obsolete */ }
+    public void setFibRetracementDefaultLevels(Map<Double, FibLevelProperties> levels) { /* Obsolete - Handled by template manager */ }
+    public void setFibExtensionDefaultLevels(Map<Double, FibLevelProperties> levels) { /* Obsolete - Handled by template manager */ }
+    public void setToolDefaultFont(String toolName, Font font) { /* Obsolete */ }
+    public void setToolDefaultTextProperties(String toolName, TextProperties textProps) { /* Obsolete */ }
 
+    // --- END: Refactored Legacy Accessors ---
+    
     private Map<Double, FibLevelProperties> createDefaultFibRetracementLevels() {
         Map<Double, FibLevelProperties> levels = new TreeMap<>();
         Color defaultColor = new Color(0, 150, 136, 200);
@@ -922,96 +1148,5 @@ public final class SettingsManager {
         levels.put(1.618, new FibLevelProperties(true, defaultColor.darker()));
         levels.put(2.618, new FibLevelProperties(true, defaultColor.darker()));
         return levels;
-    }
-
-    public Map<Double, FibLevelProperties> getFibRetracementDefaultLevels() {
-        Properties props = toolDefaults.get("FibonacciRetracementObject");
-        if (props != null && props.containsKey("levels")) {
-            try {
-                return jsonMapper.readValue(props.getProperty("levels"), new TypeReference<>() {});
-            } catch (IOException e) {
-                logger.error("Failed to parse Fibonacci Retracement default levels from settings.", e);
-            }
-        }
-        return createDefaultFibRetracementLevels();
-    }
-    
-    public void setFibRetracementDefaultLevels(Map<Double, FibLevelProperties> levels) {
-        try {
-            String json = jsonMapper.writeValueAsString(levels);
-            toolDefaults.computeIfAbsent("FibonacciRetracementObject", k -> new Properties()).setProperty("levels", json);
-            saveSettings();
-            pcs.firePropertyChange("toolDefaultsChanged", null, "FibonacciRetracementObject");
-        } catch (IOException e) {
-            logger.error("Failed to serialize Fibonacci Retracement default levels to settings.", e);
-        }
-    }
-    
-    public Map<Double, FibLevelProperties> getFibExtensionDefaultLevels() {
-        Properties props = toolDefaults.get("FibonacciExtensionObject");
-        if (props != null && props.containsKey("levels")) {
-            try {
-                return jsonMapper.readValue(props.getProperty("levels"), new TypeReference<>() {});
-            } catch (IOException e) {
-                logger.error("Failed to parse Fibonacci Extension default levels from settings.", e);
-            }
-        }
-        return createDefaultFibExtensionLevels();
-    }
-
-    public void setFibExtensionDefaultLevels(Map<Double, FibLevelProperties> levels) {
-        try {
-            String json = jsonMapper.writeValueAsString(levels);
-            toolDefaults.computeIfAbsent("FibonacciExtensionObject", k -> new Properties()).setProperty("levels", json);
-            saveSettings();
-            pcs.firePropertyChange("toolDefaultsChanged", null, "FibonacciExtensionObject");
-        } catch (IOException e) {
-            logger.error("Failed to serialize Fibonacci Extension default levels to settings.", e);
-        }
-    }
-    
-    public Font getToolDefaultFont(String toolName, Font fallback) {
-        Properties props = toolDefaults.get(toolName);
-        if (props == null) return fallback;
-        try {
-            String name = props.getProperty("font.name", fallback.getName());
-            int style = Integer.parseInt(props.getProperty("font.style", String.valueOf(fallback.getStyle())));
-            int size = Integer.parseInt(props.getProperty("font.size", String.valueOf(fallback.getSize())));
-            return new Font(name, style, size);
-        } catch (Exception e) {
-            return fallback;
-        }
-    }
-    
-    public void setToolDefaultFont(String toolName, Font font) {
-        Properties props = toolDefaults.computeIfAbsent(toolName, k -> new Properties());
-        props.setProperty("font.name", font.getName());
-        props.setProperty("font.style", String.valueOf(font.getStyle()));
-        props.setProperty("font.size", String.valueOf(font.getSize()));
-        saveSettings();
-        pcs.firePropertyChange("toolDefaultsChanged", null, toolName);
-    }
-    
-    public TextProperties getToolDefaultTextProperties(String toolName, TextProperties fallback) {
-        Properties props = toolDefaults.get(toolName);
-        if (props != null && props.containsKey("text.properties")) {
-            try {
-                return jsonMapper.readValue(props.getProperty("text.properties"), TextProperties.class);
-            } catch (IOException e) {
-                logger.error("Failed to parse TextProperties for {} from settings.", toolName, e);
-            }
-        }
-        return fallback;
-    }
-    
-    public void setToolDefaultTextProperties(String toolName, TextProperties textProps) {
-        try {
-            String json = jsonMapper.writeValueAsString(textProps);
-            toolDefaults.computeIfAbsent(toolName, k -> new Properties()).setProperty("text.properties", json);
-            saveSettings();
-            pcs.firePropertyChange("toolDefaultsChanged", null, toolName);
-        } catch (IOException e) {
-            logger.error("Failed to serialize TextProperties for {} to settings.", toolName, e);
-        }
     }
 }

@@ -1,6 +1,7 @@
 package com.EcoChartPro.core.tool;
 
 import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.core.settings.SettingsManager.DrawingToolTemplate;
 import com.EcoChartPro.model.Timeframe;
 import com.EcoChartPro.model.drawing.DrawingObject;
 import com.EcoChartPro.model.drawing.DrawingObjectPoint;
@@ -28,10 +29,10 @@ public class TrendlineTool implements DrawingTool {
     private final boolean defaultShowPriceLabel;
 
     public TrendlineTool() {
-        SettingsManager sm = SettingsManager.getInstance();
-        this.defaultColor = sm.getToolDefaultColor("Trendline", new Color(255, 140, 40));
-        this.defaultStroke = sm.getToolDefaultStroke("Trendline", new BasicStroke(2));
-        this.defaultShowPriceLabel = sm.getToolDefaultShowPriceLabel("Trendline", true);
+        DrawingToolTemplate activeTemplate = SettingsManager.getInstance().getActiveTemplateForTool("Trendline");
+        this.defaultColor = activeTemplate.color();
+        this.defaultStroke = activeTemplate.stroke();
+        this.defaultShowPriceLabel = activeTemplate.showPriceLabel();
     }
 
     @Override

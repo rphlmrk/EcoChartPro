@@ -155,7 +155,7 @@ public class WorkspaceManager {
             }
         };
 
-        ChartPanel chartPanel = new ChartPanel(model, chartAxis, priceAxisPanel, timeAxisPanel, onToolStateChange);
+        ChartPanel chartPanel = new ChartPanel(model, chartAxis, priceAxisPanel, timeAxisPanel, onToolStateChange, owner.getPropertiesToolbar());
         model.setView(chartPanel);
         new ChartController(model, chartPanel, owner);
 

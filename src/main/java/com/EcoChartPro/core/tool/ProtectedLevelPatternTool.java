@@ -1,6 +1,7 @@
 package com.EcoChartPro.core.tool;
 
 import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.core.settings.SettingsManager.DrawingToolTemplate;
 import com.EcoChartPro.model.Timeframe;
 import com.EcoChartPro.model.TradeDirection;
 import com.EcoChartPro.model.drawing.DrawingObject;
@@ -26,9 +27,9 @@ public class ProtectedLevelPatternTool implements DrawingTool {
     private final BasicStroke defaultStroke;
 
     public ProtectedLevelPatternTool() {
-        SettingsManager sm = SettingsManager.getInstance();
-        this.defaultColor = sm.getToolDefaultColor("ProtectedLevelPatternObject", new Color(33, 150, 243));
-        this.defaultStroke = sm.getToolDefaultStroke("ProtectedLevelPatternObject", new BasicStroke(2));
+        DrawingToolTemplate activeTemplate = SettingsManager.getInstance().getActiveTemplateForTool("ProtectedLevelPatternObject");
+        this.defaultColor = activeTemplate.color();
+        this.defaultStroke = activeTemplate.stroke();
     }
 
     @Override

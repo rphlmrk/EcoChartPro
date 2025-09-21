@@ -1,6 +1,7 @@
 package com.EcoChartPro.core.tool;
 
 import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.core.settings.SettingsManager.DrawingToolTemplate;
 import com.EcoChartPro.model.Timeframe;
 import com.EcoChartPro.model.drawing.DrawingObject;
 import com.EcoChartPro.model.drawing.DrawingObjectPoint;
@@ -22,9 +23,9 @@ public class RayTool implements DrawingTool {
     private final BasicStroke defaultStroke;
 
     public RayTool() {
-        SettingsManager sm = SettingsManager.getInstance();
-        this.defaultColor = sm.getToolDefaultColor("RayObject", new Color(255, 140, 40));
-        this.defaultStroke = sm.getToolDefaultStroke("RayObject", new BasicStroke(2));
+        DrawingToolTemplate activeTemplate = SettingsManager.getInstance().getActiveTemplateForTool("RayObject");
+        this.defaultColor = activeTemplate.color();
+        this.defaultStroke = activeTemplate.stroke();
     }
 
     @Override

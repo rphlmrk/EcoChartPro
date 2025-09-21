@@ -1,6 +1,7 @@
 package com.EcoChartPro.core.tool;
 
 import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.core.settings.SettingsManager.DrawingToolTemplate;
 import com.EcoChartPro.model.Timeframe;
 import com.EcoChartPro.model.drawing.DrawingObject;
 import com.EcoChartPro.model.drawing.DrawingObjectPoint;
@@ -23,10 +24,10 @@ public class FibonacciRetracementTool implements DrawingTool {
     private final boolean defaultShowPriceLabel;
 
     public FibonacciRetracementTool() {
-        SettingsManager sm = SettingsManager.getInstance();
-        this.defaultColor = sm.getToolDefaultColor("FibonacciRetracementObject", new Color(0, 150, 136, 200));
-        this.defaultStroke = sm.getToolDefaultStroke("FibonacciRetracementObject", new BasicStroke(1));
-        this.defaultShowPriceLabel = sm.getToolDefaultShowPriceLabel("FibonacciRetracementObject", true);
+        DrawingToolTemplate activeTemplate = SettingsManager.getInstance().getActiveTemplateForTool("FibonacciRetracementObject");
+        this.defaultColor = activeTemplate.color();
+        this.defaultStroke = activeTemplate.stroke();
+        this.defaultShowPriceLabel = activeTemplate.showPriceLabel();
     }
 
     @Override

@@ -34,6 +34,7 @@ import com.EcoChartPro.ui.chart.render.trading.OrderRenderer;
 import com.EcoChartPro.ui.chart.render.trading.TradeSignalRenderer;
 import com.EcoChartPro.ui.dashboard.theme.UITheme;
 import com.EcoChartPro.ui.dialogs.TimeframeInputDialog;
+import com.EcoChartPro.ui.toolbar.FloatingPropertiesToolbar;
 import com.EcoChartPro.ui.trading.OrderPreview;
 import com.EcoChartPro.utils.DataSourceManager;
 
@@ -72,6 +73,7 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
     private final ChartDataModel dataModel;
     private final PriceAxisPanel priceAxisPanel;
     private final TimeAxisPanel timeAxisPanel;
+    private final FloatingPropertiesToolbar propertiesToolbar; // New field
     private List<KLine> localVisibleKLines;
     private static final Font SYMBOL_FONT = new Font("SansSerif", Font.BOLD, 16);
     private static final Border INACTIVE_BORDER = BorderFactory.createEmptyBorder(2, 2, 2, 2);
@@ -99,11 +101,12 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
     private final StringBuilder timeframeInputBuffer = new StringBuilder();
     private final Timer timeframeInputTimer;
 
-    public ChartPanel(ChartDataModel dataModel, ChartAxis chartAxis, PriceAxisPanel priceAxisPanel, TimeAxisPanel timeAxisPanel, Consumer<Boolean> onToolStateChange) {
+    public ChartPanel(ChartDataModel dataModel, ChartAxis chartAxis, PriceAxisPanel priceAxisPanel, TimeAxisPanel timeAxisPanel, Consumer<Boolean> onToolStateChange, FloatingPropertiesToolbar propertiesToolbar) {
         this.dataModel = dataModel;
         this.chartAxis = chartAxis;
         this.priceAxisPanel = priceAxisPanel;
         this.timeAxisPanel = timeAxisPanel;
+        this.propertiesToolbar = propertiesToolbar; // Assign new parameter
         this.chartRenderer = new ChartRenderer();
         this.drawingRenderer = new DrawingRenderer();
         this.orderRenderer = new OrderRenderer();
@@ -401,6 +404,7 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
     public ChartDataModel getDataModel() { return this.dataModel; }
     public DrawingController getDrawingController() { return this.drawingController; }
     public OrderRenderer getOrderRenderer() { return this.orderRenderer; }
+    public FloatingPropertiesToolbar getPropertiesToolbar() { return this.propertiesToolbar; } // New Getter
     public void setDragPreview(OrderRenderer.InteractiveZone preview) {
         this.dragPreview = preview;
         repaint();

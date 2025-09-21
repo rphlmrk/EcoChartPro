@@ -1,6 +1,7 @@
 package com.EcoChartPro.core.tool;
 
 import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.core.settings.SettingsManager.DrawingToolTemplate;
 import com.EcoChartPro.model.Timeframe;
 import com.EcoChartPro.model.drawing.DrawingObject;
 import com.EcoChartPro.model.drawing.DrawingObjectPoint;
@@ -19,9 +20,9 @@ public class VerticalLineTool implements DrawingTool {
     private final BasicStroke defaultStroke;
 
     public VerticalLineTool() {
-        SettingsManager sm = SettingsManager.getInstance();
-        this.defaultColor = sm.getToolDefaultColor("VerticalLineObject", new Color(33, 150, 243, 180));
-        this.defaultStroke = sm.getToolDefaultStroke("VerticalLineObject", new BasicStroke(2));
+        DrawingToolTemplate activeTemplate = SettingsManager.getInstance().getActiveTemplateForTool("VerticalLineObject");
+        this.defaultColor = activeTemplate.color();
+        this.defaultStroke = activeTemplate.stroke();
     }
 
     @Override

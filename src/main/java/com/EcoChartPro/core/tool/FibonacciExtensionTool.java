@@ -1,6 +1,7 @@
 package com.EcoChartPro.core.tool;
 
 import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.core.settings.SettingsManager.DrawingToolTemplate;
 import com.EcoChartPro.model.Timeframe;
 import com.EcoChartPro.model.drawing.*;
 
@@ -20,10 +21,10 @@ public class FibonacciExtensionTool implements DrawingTool {
     private final boolean defaultShowPriceLabel;
 
     public FibonacciExtensionTool() {
-        SettingsManager sm = SettingsManager.getInstance();
-        this.defaultColor = sm.getToolDefaultColor("FibonacciExtensionObject", new Color(76, 175, 80, 200));
-        this.defaultStroke = sm.getToolDefaultStroke("FibonacciExtensionObject", new BasicStroke(1));
-        this.defaultShowPriceLabel = sm.getToolDefaultShowPriceLabel("FibonacciExtensionObject", true);
+        DrawingToolTemplate activeTemplate = SettingsManager.getInstance().getActiveTemplateForTool("FibonacciExtensionObject");
+        this.defaultColor = activeTemplate.color();
+        this.defaultStroke = activeTemplate.stroke();
+        this.defaultShowPriceLabel = activeTemplate.showPriceLabel();
     }
 
     @Override

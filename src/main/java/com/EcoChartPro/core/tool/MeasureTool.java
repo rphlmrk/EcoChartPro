@@ -1,6 +1,7 @@
 package com.EcoChartPro.core.tool;
 
 import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.core.settings.SettingsManager.DrawingToolTemplate;
 import com.EcoChartPro.model.Timeframe;
 import com.EcoChartPro.model.drawing.DrawingObject;
 import com.EcoChartPro.model.drawing.DrawingObjectPoint;
@@ -29,9 +30,9 @@ public class MeasureTool implements DrawingTool {
 
     public MeasureTool(ToolType toolType) {
         this.toolType = toolType;
-        SettingsManager sm = SettingsManager.getInstance();
-        this.defaultColor = sm.getToolDefaultColor("MeasureToolObject", new Color(0, 150, 136));
-        this.defaultStroke = sm.getToolDefaultStroke("MeasureToolObject", new BasicStroke(1));
+        DrawingToolTemplate activeTemplate = SettingsManager.getInstance().getActiveTemplateForTool("MeasureToolObject");
+        this.defaultColor = activeTemplate.color();
+        this.defaultStroke = activeTemplate.stroke();
     }
 
     @Override

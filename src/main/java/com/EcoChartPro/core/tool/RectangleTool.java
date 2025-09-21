@@ -1,6 +1,7 @@
 package com.EcoChartPro.core.tool;
 
 import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.core.settings.SettingsManager.DrawingToolTemplate;
 import com.EcoChartPro.model.Timeframe;
 import com.EcoChartPro.model.drawing.DrawingObject;
 import com.EcoChartPro.model.drawing.DrawingObjectPoint;
@@ -27,10 +28,10 @@ public class RectangleTool implements DrawingTool {
     private final boolean defaultShowPriceLabel;
 
     public RectangleTool() {
-        SettingsManager sm = SettingsManager.getInstance();
-        this.defaultColor = sm.getToolDefaultColor("RectangleObject", new Color(33, 150, 243));
-        this.defaultStroke = sm.getToolDefaultStroke("RectangleObject", new BasicStroke(2));
-        this.defaultShowPriceLabel = sm.getToolDefaultShowPriceLabel("RectangleObject", true);
+        DrawingToolTemplate activeTemplate = SettingsManager.getInstance().getActiveTemplateForTool("RectangleObject");
+        this.defaultColor = activeTemplate.color();
+        this.defaultStroke = activeTemplate.stroke();
+        this.defaultShowPriceLabel = activeTemplate.showPriceLabel();
     }
 
     @Override

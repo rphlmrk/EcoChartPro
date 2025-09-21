@@ -19,6 +19,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import javax.swing.Timer; // Explicitly import the Swing Timer
 import java.util.function.Supplier;
 
 public class FloatingDrawingToolbar extends JDialog implements PropertyChangeListener {

@@ -15,6 +15,7 @@ public class FloatingPropertiesToolbar extends JDialog {
     private final JSpinner thicknessSpinner;
     private final JToggleButton lockButton;
     private final JButton moreOptionsButton;
+    private final JButton templateButton; // New button
     private final JButton deleteButton;
 
     private final Icon lockOnIcon = UITheme.getIcon("/icons/lock_on.svg", 18, 18);
@@ -70,6 +71,11 @@ public class FloatingPropertiesToolbar extends JDialog {
         moreOptionsButton.setToolTipText("More Options...");
         configureToolbarButton(moreOptionsButton);
 
+        // --- NEW: Template Button ---
+        templateButton = new JButton(UITheme.getIcon(UITheme.Icons.TEMPLATE, 18, 18));
+        templateButton.setToolTipText("Drawing Templates...");
+        configureToolbarButton(templateButton);
+
         // Delete Button
         deleteButton = new JButton(UITheme.getIcon(UITheme.Icons.DELETE, 18, 18));
         deleteButton.setToolTipText("Delete Drawing");
@@ -79,6 +85,7 @@ public class FloatingPropertiesToolbar extends JDialog {
         contentPanel.add(thicknessSpinner);
         contentPanel.add(lockButton);
         contentPanel.add(moreOptionsButton);
+        contentPanel.add(templateButton);
         contentPanel.add(deleteButton);
 
         pack();
@@ -96,6 +103,7 @@ public class FloatingPropertiesToolbar extends JDialog {
     public JSpinner getThicknessSpinner() { return thicknessSpinner; }
     public JToggleButton getLockButton() { return lockButton; }
     public JButton getMoreOptionsButton() { return moreOptionsButton; }
+    public JButton getTemplateButton() { return templateButton; }
     public JButton getDeleteButton() { return deleteButton; }
 
     public void setCurrentColor(Color color) {
@@ -110,5 +118,6 @@ public class FloatingPropertiesToolbar extends JDialog {
         colorButton.setEnabled(isEditable);
         thicknessSpinner.setEnabled(isEditable);
         moreOptionsButton.setEnabled(isEditable);
+        templateButton.setEnabled(isEditable);
     }
 }
