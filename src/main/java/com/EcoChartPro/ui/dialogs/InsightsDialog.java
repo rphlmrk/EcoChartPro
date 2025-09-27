@@ -9,6 +9,7 @@ import com.EcoChartPro.core.trading.PaperTradingService;
 import com.EcoChartPro.data.DataResampler;
 import com.EcoChartPro.model.*;
 import com.EcoChartPro.ui.Analysis.HistoryViewPanel;
+import com.EcoChartPro.ui.Analysis.MistakeAnalysisPanel; 
 import com.EcoChartPro.ui.Analysis.TitledContentPanel;
 import com.EcoChartPro.ui.Analysis.TradeReplayChartPanel;
 import com.EcoChartPro.ui.dashboard.ComprehensiveReportPanel;
@@ -46,6 +47,7 @@ public class InsightsDialog extends JDialog implements PropertyChangeListener {
     private final EquityCurveChart equityCurveChart;
     private final JList<CoachingInsight> coachingInsightsList;
     private final PerformanceAnalyticsPanel performanceAnalyticsPanel;
+    private final MistakeAnalysisPanel mistakeAnalysisPanel; 
 
     private final HistoryViewPanel leftHistoryPanel;
     private final HistoryViewPanel rightHistoryPanel;
@@ -147,11 +149,15 @@ public class InsightsDialog extends JDialog implements PropertyChangeListener {
         comparativePanel.add(comparisonSplitPane, BorderLayout.CENTER);
         tabbedPane.addTab("Comparative Insights", comparativePanel);
 
-        // --- TAB 4: PERFORMANCE ANALYTICS (NEW) ---
+        // --- TAB 4: PERFORMANCE ANALYTICS ---
         this.performanceAnalyticsPanel = new PerformanceAnalyticsPanel();
         tabbedPane.addTab("Performance Analytics", this.performanceAnalyticsPanel);
 
-        // --- TAB 5: COACHING ---
+        // --- TAB 5: MISTAKE ANALYSIS (NEW) ---
+        this.mistakeAnalysisPanel = new MistakeAnalysisPanel();
+        tabbedPane.addTab("Mistake Analysis", this.mistakeAnalysisPanel);
+
+        // --- TAB 6: COACHING ---
         this.coachingInsightsList = new JList<>();
         tabbedPane.addTab("Coaching", createCoachingPanel());
 
@@ -604,6 +610,10 @@ public class InsightsDialog extends JDialog implements PropertyChangeListener {
         rightHistoryPanel.updateTradeHistory(trades);
         
         this.performanceAnalyticsPanel.loadSessionData(state);
+
+        // --- Load data for Mistake Analysis panel ---
+        Map<String, MistakeStats> mistakeData = service.analyzeMistakes(trades);
+        this.mistakeAnalysisPanel.updateData(mistakeData);
 
         GamificationService gamificationService = GamificationService.getInstance();
         Optional<DataSourceManager.ChartDataSource> sourceOpt = (state != null)

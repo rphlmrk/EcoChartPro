@@ -5,6 +5,7 @@ import com.EcoChartPro.core.journal.JournalAnalysisService;
 import com.EcoChartPro.core.state.ReplaySessionState;
 import com.EcoChartPro.model.Trade;
 import com.EcoChartPro.ui.Analysis.TitledContentPanel;
+import com.EcoChartPro.ui.dashboard.widgets.HistogramChart;
 import com.EcoChartPro.ui.dashboard.widgets.MfeMaeScatterPlot;
 import com.EcoChartPro.ui.dashboard.widgets.MonthlyPerformanceChart;
 import com.EcoChartPro.utils.DataSourceManager;
@@ -35,6 +36,7 @@ public class PerformanceAnalyticsPanel extends JPanel {
     private final MonthlyPerformanceChart performanceByHourChart;
     private final JTextPane keyTakeawaysPane;
     private final MfeMaeScatterPlot mfeMaeScatterPlot;
+    private final HistogramChart pnlDistributionChart; // <-- NEW CHART INSTANCE
 
     public PerformanceAnalyticsPanel() {
         setOpaque(false);
@@ -44,6 +46,7 @@ public class PerformanceAnalyticsPanel extends JPanel {
         this.tradesPerDayChart = new MonthlyPerformanceChart();
         this.performanceByHourChart = new MonthlyPerformanceChart();
         this.mfeMaeScatterPlot = new MfeMaeScatterPlot();
+        this.pnlDistributionChart = new HistogramChart(); // <-- INSTANTIATE
         this.keyTakeawaysPane = new JTextPane();
         this.keyTakeawaysPane.setEditorKit(new HTMLEditorKit());
         this.keyTakeawaysPane.setEditable(false);
@@ -54,7 +57,7 @@ public class PerformanceAnalyticsPanel extends JPanel {
         gbc.fill = GridBagConstraints.BOTH;
         gbc.insets = new Insets(5, 5, 5, 5);
 
-        // --- Key Takeaways ---
+        // --- Row 0: Key Takeaways ---
         gbc.gridx = 0;
         gbc.gridy = 0;
         gbc.gridwidth = 3; // Span all 3 columns
@@ -62,20 +65,26 @@ public class PerformanceAnalyticsPanel extends JPanel {
         gbc.weighty = 0.2;
         add(new TitledContentPanel("Key Takeaways", new JScrollPane(keyTakeawaysPane)), gbc);
 
-        // --- Performance vs. Trades per Day ---
+        // --- Row 1: Top Charts ---
         gbc.gridy = 1;
         gbc.gridwidth = 1;
         gbc.weightx = 0.33;
-        gbc.weighty = 0.8;
+        gbc.weighty = 0.4; // Adjusted weighty
         add(new TitledContentPanel("Performance vs. Trades per Day (by Expectancy)", tradesPerDayChart), gbc);
 
-        // --- Performance by Hour of Day ---
         gbc.gridx = 1;
         add(new TitledContentPanel("Performance by Hour of Day (by Win Rate %)", performanceByHourChart), gbc);
 
-        // --- MFE vs MAE Scatter Plot ---
         gbc.gridx = 2;
         add(new TitledContentPanel("MFE vs. MAE Scatter Plot", mfeMaeScatterPlot), gbc);
+        
+        // --- Row 2: P&L Distribution Histogram (NEW) ---
+        gbc.gridy = 2;
+        gbc.gridx = 0;
+        gbc.gridwidth = 3; // Span all columns
+        gbc.weightx = 1.0;
+        gbc.weighty = 0.4; // Adjusted weighty
+        add(new TitledContentPanel("P&L Distribution (# of Trades)", pnlDistributionChart), gbc);
     }
 
     public void loadSessionData(ReplaySessionState state) {
@@ -83,6 +92,7 @@ public class PerformanceAnalyticsPanel extends JPanel {
             tradesPerDayChart.updateData(Collections.emptyMap());
             performanceByHourChart.updateData(Collections.emptyMap());
             mfeMaeScatterPlot.updateData(Collections.emptyList());
+            pnlDistributionChart.updateData(Collections.emptyList()); // <-- CLEAR CHART
             keyTakeawaysPane.setText("Not enough data available for analysis.");
             return;
         }
@@ -91,6 +101,10 @@ public class PerformanceAnalyticsPanel extends JPanel {
         GamificationService gamificationService = GamificationService.getInstance();
         int optimalCount = gamificationService.getOptimalTradeCount();
         List<Integer> peakHours = gamificationService.getPeakPerformanceHours();
+
+        // --- Update P&L Distribution Chart ---
+        List<JournalAnalysisService.PnlDistributionBin> pnlDistribution = analysisService.getPnlDistribution(trades, 20);
+        pnlDistributionChart.updateData(pnlDistribution);
 
         // --- Update MFE vs MAE Chart ---
         Optional<DataSourceManager.ChartDataSource> sourceOpt = DataSourceManager.getInstance().getAvailableSources().stream()

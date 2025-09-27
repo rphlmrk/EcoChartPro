@@ -51,6 +51,11 @@ public class JournalAnalysisService {
         BigDecimal profitFactor,
         BigDecimal expectancy
     ) {}
+    
+    /**
+     * A DTO representing a single bin in a P&L distribution histogram.
+     */
+    public record PnlDistributionBin(String label, int count, BigDecimal lowerBound, BigDecimal upperBound) {}
 
     public record OverallStats(
             List<Trade> trades,
@@ -76,6 +81,99 @@ public class JournalAnalysisService {
 
 
     // --- Public Analysis Methods ---
+
+    /**
+     * Analyzes a list of trades to aggregate statistics about identified trading mistakes.
+     *
+     * @param trades The list of trades to analyze.
+     * @return A map where the key is the mistake name and the value contains the aggregated stats for that mistake.
+     */
+    public Map<String, MistakeStats> analyzeMistakes(List<Trade> trades) {
+        if (trades == null || trades.isEmpty()) {
+            return Collections.emptyMap();
+        }
+
+        // A temporary mutable class to hold stats during calculation
+        class MutableMistakeStats {
+            int frequency = 0;
+            BigDecimal totalPnl = BigDecimal.ZERO;
+        }
+
+        Map<String, MutableMistakeStats> tempStats = new HashMap<>();
+
+        for (Trade trade : trades) {
+            List<String> mistakes = trade.identifiedMistakes();
+            if (mistakes != null && !mistakes.isEmpty()) {
+                for (String mistake : mistakes) {
+                    if (mistake != null && !mistake.isBlank()) {
+                        MutableMistakeStats stats = tempStats.computeIfAbsent(mistake, k -> new MutableMistakeStats());
+                        stats.frequency++;
+                        stats.totalPnl = stats.totalPnl.add(trade.profitAndLoss());
+                    }
+                }
+            }
+        }
+
+        // Convert mutable stats to the final immutable record, calculating the average PNL
+        Map<String, MistakeStats> finalStats = new HashMap<>();
+        for (Map.Entry<String, MutableMistakeStats> entry : tempStats.entrySet()) {
+            String mistakeName = entry.getKey();
+            MutableMistakeStats stats = entry.getValue();
+            if (stats.frequency > 0) {
+                BigDecimal averagePnl = stats.totalPnl.divide(BigDecimal.valueOf(stats.frequency), 2, RoundingMode.HALF_UP);
+                finalStats.put(mistakeName, new MistakeStats(mistakeName, stats.frequency, stats.totalPnl, averagePnl));
+            }
+        }
+
+        return finalStats;
+    }
+    
+    /**
+     * Calculates the distribution of Profit and Loss across a number of bins.
+     * @param trades The list of trades to analyze.
+     * @param numBins The desired number of bins for the distribution.
+     * @return A list of {@link PnlDistributionBin} objects, each representing a bin with its label and trade count.
+     */
+    public List<PnlDistributionBin> getPnlDistribution(List<Trade> trades, int numBins) {
+        if (trades == null || trades.isEmpty() || numBins <= 0) {
+            return Collections.emptyList();
+        }
+
+        List<BigDecimal> pnlValues = trades.stream().map(Trade::profitAndLoss).collect(Collectors.toList());
+        BigDecimal minPnl = Collections.min(pnlValues);
+        BigDecimal maxPnl = Collections.max(pnlValues);
+
+        if (minPnl.compareTo(maxPnl) == 0) {
+            return List.of(new PnlDistributionBin(String.format("$%.2f", minPnl), trades.size(), minPnl, maxPnl));
+        }
+
+        BigDecimal range = maxPnl.subtract(minPnl);
+        // Add a small epsilon to the range to ensure the max value falls into the last bin
+        BigDecimal binWidth = range.add(new BigDecimal("0.0001")).divide(BigDecimal.valueOf(numBins), 4, RoundingMode.CEILING);
+        
+        if (binWidth.signum() == 0) {
+             return List.of(new PnlDistributionBin(String.format("$%.2f", minPnl), trades.size(), minPnl, maxPnl));
+        }
+
+        int[] counts = new int[numBins];
+        for (BigDecimal pnl : pnlValues) {
+            int binIndex = pnl.subtract(minPnl).divide(binWidth, 0, RoundingMode.FLOOR).intValue();
+            if (binIndex >= 0 && binIndex < numBins) {
+                counts[binIndex]++;
+            }
+        }
+
+        List<PnlDistributionBin> result = new ArrayList<>();
+        java.text.DecimalFormat df = new java.text.DecimalFormat("#,##0.00");
+        for (int i = 0; i < numBins; i++) {
+            BigDecimal lowerBound = minPnl.add(binWidth.multiply(BigDecimal.valueOf(i)));
+            BigDecimal upperBound = lowerBound.add(binWidth);
+            String label = String.format("%s to %s", df.format(lowerBound), df.format(upperBound));
+            result.add(new PnlDistributionBin(label, counts[i], lowerBound, upperBound));
+        }
+
+        return result;
+    }
 
     /**
      * Analyzes performance metrics for each unique tag found in the provided list of trades.

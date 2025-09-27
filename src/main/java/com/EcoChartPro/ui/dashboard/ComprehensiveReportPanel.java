@@ -19,10 +19,13 @@ import com.EcoChartPro.ui.dialogs.InsightsDialog;
 import com.EcoChartPro.ui.dashboard.widgets.*;
 import com.EcoChartPro.utils.DataSourceManager;
 import com.EcoChartPro.utils.SessionManager;
+import com.EcoChartPro.utils.report.HtmlReportGenerator;
+import com.EcoChartPro.utils.report.PdfReportGenerator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.swing.*;
+import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.*;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
@@ -89,11 +92,10 @@ public class ComprehensiveReportPanel extends JPanel implements Scrollable, Prop
         streakProgressCard = new ProgressCardPanel();
         dailyDisciplineWidget = new DailyDisciplineWidget();
 
-        // Setup Panel Structure... (Code is identical to previous version, omitted for brevity)
-        // ...
         JPanel headerPanel = new JPanel(new BorderLayout());
         headerPanel.setOpaque(false);
         
+        // --- Button Bar for Refresh and Export ---
         JButton refreshButton = new JButton(UITheme.getIcon(UITheme.Icons.REFRESH, 18, 18));
         refreshButton.setToolTipText("Reload and recalculate all stats from the last session file");
         refreshButton.setOpaque(false);
@@ -102,10 +104,33 @@ public class ComprehensiveReportPanel extends JPanel implements Scrollable, Prop
         refreshButton.setCursor(new Cursor(Cursor.HAND_CURSOR));
         refreshButton.addActionListener(e -> refreshStats());
 
-        JPanel refreshPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
-        refreshPanel.setOpaque(false);
-        refreshPanel.add(refreshButton);
-        headerPanel.add(refreshPanel, BorderLayout.NORTH);
+        JButton exportButton = new JButton(UITheme.getIcon(UITheme.Icons.EXPORT, 18, 18));
+        exportButton.setToolTipText("Export report to a file");
+        exportButton.setOpaque(false);
+        exportButton.setContentAreaFilled(false);
+        exportButton.setBorderPainted(false);
+        exportButton.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        
+        JPopupMenu exportMenu = new JPopupMenu();
+        JMenuItem exportHtmlItem = new JMenuItem("Export to HTML...");
+        exportHtmlItem.addActionListener(e -> exportReportToHtml());
+        JMenuItem exportPdfItem = new JMenuItem("Export to PDF...");
+        exportPdfItem.addActionListener(e -> exportReportToPdf());
+        exportMenu.add(exportHtmlItem);
+        exportMenu.add(exportPdfItem);
+        
+        exportButton.addActionListener(e -> exportMenu.show(exportButton, 0, exportButton.getHeight()));
+
+
+        JPanel buttonBar = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+        buttonBar.setOpaque(false);
+        buttonBar.add(exportButton);
+        buttonBar.add(refreshButton);
+
+        JPanel actionPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+        actionPanel.setOpaque(false);
+        actionPanel.add(buttonBar);
+        headerPanel.add(actionPanel, BorderLayout.NORTH);
         
         JPanel statsContainer = new JPanel(new BorderLayout(0, 15));
         statsContainer.setOpaque(false);
@@ -162,6 +187,92 @@ public class ComprehensiveReportPanel extends JPanel implements Scrollable, Prop
         this.cosmeticRotationTimer.start();
         
         this.liveViewRotationTimer = new Timer(WIDGET_VIEW_ROTATION_MS, e -> rotateLiveDisplay());
+    }
+    
+    private void exportReportToHtml() {
+        if (this.currentSessionState == null || this.currentSessionState.tradeHistory().isEmpty()) {
+            JOptionPane.showMessageDialog(this, "No session data available to export.", "Export Error", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        JFileChooser fileChooser = new JFileChooser();
+        fileChooser.setDialogTitle("Save HTML Report");
+        fileChooser.setFileFilter(new FileNameExtensionFilter("HTML Files (*.html)", "html"));
+
+        String defaultFilename = String.format("EcoChartPro_Report_%s_%s.html",
+                this.currentSessionState.dataSourceSymbol(),
+                LocalDate.now().toString());
+        fileChooser.setSelectedFile(new File(defaultFilename));
+
+        if (fileChooser.showSaveDialog(this) == JFileChooser.APPROVE_OPTION) {
+            File fileToSave = fileChooser.getSelectedFile();
+            if (!fileToSave.getName().toLowerCase().endsWith(".html")) {
+                fileToSave = new File(fileToSave.getParentFile(), fileToSave.getName() + ".html");
+            }
+            final File finalFile = fileToSave;
+            
+            new SwingWorker<Void, Void>() {
+                @Override protected Void doInBackground() throws Exception {
+                    HtmlReportGenerator.generate(currentSessionState, finalFile);
+                    return null;
+                }
+                @Override protected void done() {
+                    handleExportCompletion(this, finalFile);
+                }
+            }.execute();
+        }
+    }
+    
+    private void exportReportToPdf() {
+        if (this.currentSessionState == null || this.currentSessionState.tradeHistory().isEmpty()) {
+            JOptionPane.showMessageDialog(this, "No session data available to export.", "Export Error", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        JFileChooser fileChooser = new JFileChooser();
+        fileChooser.setDialogTitle("Save PDF Report");
+        fileChooser.setFileFilter(new FileNameExtensionFilter("PDF Documents (*.pdf)", "pdf"));
+
+        String defaultFilename = String.format("EcoChartPro_Report_%s_%s.pdf",
+                this.currentSessionState.dataSourceSymbol(),
+                LocalDate.now().toString());
+        fileChooser.setSelectedFile(new File(defaultFilename));
+
+        if (fileChooser.showSaveDialog(this) == JFileChooser.APPROVE_OPTION) {
+            File fileToSave = fileChooser.getSelectedFile();
+            if (!fileToSave.getName().toLowerCase().endsWith(".pdf")) {
+                fileToSave = new File(fileToSave.getParentFile(), fileToSave.getName() + ".pdf");
+            }
+            final File finalFile = fileToSave;
+
+            new SwingWorker<Void, Void>() {
+                @Override protected Void doInBackground() throws Exception {
+                    PdfReportGenerator.generate(currentSessionState, finalFile);
+                    return null;
+                }
+                @Override protected void done() {
+                    handleExportCompletion(this, finalFile);
+                }
+            }.execute();
+        }
+    }
+    
+    private void handleExportCompletion(SwingWorker<Void, Void> worker, File outputFile) {
+        try {
+            worker.get(); // check for exceptions
+            int choice = JOptionPane.showConfirmDialog(this,
+                    "Report successfully exported to:\n" + outputFile.getAbsolutePath() + "\n\nDo you want to open it now?",
+                    "Export Successful",
+                    JOptionPane.YES_NO_OPTION, JOptionPane.INFORMATION_MESSAGE);
+            if (choice == JOptionPane.YES_OPTION && Desktop.isDesktopSupported()) {
+                Desktop.getDesktop().open(outputFile);
+            }
+        } catch (Exception ex) {
+            logger.error("Failed to export report to {}", outputFile.getName(), ex);
+            JOptionPane.showMessageDialog(this,
+                    "An error occurred while exporting the report:\n" + ex.getMessage(),
+                    "Export Failed", JOptionPane.ERROR_MESSAGE);
+        }
     }
     
     private void rotateCosmeticDisplay() {

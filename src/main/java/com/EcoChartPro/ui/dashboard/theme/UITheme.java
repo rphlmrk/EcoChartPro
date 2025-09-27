@@ -58,6 +58,7 @@ public final class UITheme {
         public static final String API_FIELD = "/icons/field.svg";
         public static final String NEW_FILE = "/icons/new-file.svg";
         public static final String SAVE = "/icons/save.svg";
+        public static final String EXPORT = "/icons/export.svg"; // NEW ICON
         public static final String DELETE = "/icons/delete.svg";
         public static final String APPLY = "/icons/checkmark.svg";
         public static final String FOLDER = "/icons/folder.svg";
