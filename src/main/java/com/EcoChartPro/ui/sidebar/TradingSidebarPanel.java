@@ -17,6 +17,8 @@ import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 
 public class TradingSidebarPanel extends JPanel implements PropertyChangeListener {
 
@@ -105,9 +107,10 @@ public class TradingSidebarPanel extends JPanel implements PropertyChangeListene
                     List<Trade> updatedTrades = (List<Trade>) evt.getNewValue();
                     journalModeView.updateJournalData(updatedTrades);
                     break;
-                case "livePnlUpdated":
-                    KLine lastBar = (KLine) evt.getNewValue();
-                    positionsView.updateLivePnl(lastBar);
+                case "unrealizedPnlCalculated":
+                    @SuppressWarnings("unchecked")
+                    Map<UUID, BigDecimal> pnlMap = (Map<UUID, BigDecimal>) evt.getNewValue();
+                    positionsView.updateLivePnl(pnlMap);
                     break;
             }
         });

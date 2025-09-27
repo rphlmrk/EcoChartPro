@@ -2,6 +2,7 @@ package com.EcoChartPro.core.trading;
 
 import com.EcoChartPro.core.controller.ReplaySessionManager;
 import com.EcoChartPro.core.journal.AutomatedTaggingService;
+import com.EcoChartPro.core.service.PnlCalculationService;
 import com.EcoChartPro.core.settings.SettingsManager;
 import com.EcoChartPro.core.manager.DrawingManager;
 import com.EcoChartPro.core.state.ReplaySessionState;
@@ -116,7 +117,9 @@ public class PaperTradingService implements TradingService {
         updateTrailingStops(newBar);
         checkOpenPositions(newBar);
         if (!openPositions.isEmpty()) {
-            pcs.firePropertyChange("livePnlUpdated", null, newBar);
+            Map<UUID, BigDecimal> pnlMap = PnlCalculationService.getInstance()
+                    .calculateUnrealizedPnl(new ArrayList<>(openPositions.values()), newBar);
+            pcs.firePropertyChange("unrealizedPnlCalculated", null, pnlMap);
         }
     }
 

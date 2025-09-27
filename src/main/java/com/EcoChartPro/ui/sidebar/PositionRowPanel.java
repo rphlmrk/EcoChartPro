@@ -188,16 +188,11 @@ public class PositionRowPanel extends JPanel {
         dialog.setVisible(true);
     }
     
-    public BigDecimal updatePnl(KLine lastBar) {
-        if (lastBar == null) return null;
-        
-        BigDecimal pnl;
-        if (position.direction() == TradeDirection.LONG) {
-            pnl = lastBar.close().subtract(position.entryPrice()).multiply(position.size());
-        } else {
-            pnl = position.entryPrice().subtract(lastBar.close()).multiply(position.size());
-        }
-        
+    public Position getPosition() {
+        return position;
+    }
+    
+    public void updatePnl(BigDecimal pnl) {
         pnlLabel.setText(PNL_FORMAT.format(pnl));
         Color pnlColor = pnl.compareTo(BigDecimal.ZERO) >= 0 ? UIManager.getColor("app.color.positive") : UIManager.getColor("app.color.negative");
         pnlLabel.setForeground(pnlColor);
@@ -211,7 +206,5 @@ public class PositionRowPanel extends JPanel {
             pnlPercentageLabel.setText("N/A");
             pnlPercentageLabel.setForeground(UIManager.getColor("Label.disabledForeground"));
         }
-        
-        return pnl;
     }
 }

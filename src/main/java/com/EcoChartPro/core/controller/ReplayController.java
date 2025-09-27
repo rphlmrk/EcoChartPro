@@ -1,6 +1,7 @@
 package com.EcoChartPro.core.controller;
 
 import com.EcoChartPro.core.gamification.GamificationService;
+import com.EcoChartPro.core.service.PnlCalculationService;
 import com.EcoChartPro.core.settings.SettingsManager;
 import com.EcoChartPro.core.trading.PaperTradingService;
 import com.EcoChartPro.model.KLine;
@@ -21,7 +22,9 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 public class ReplayController implements ReplayStateListener, PropertyChangeListener {
@@ -73,7 +76,7 @@ public class ReplayController implements ReplayStateListener, PropertyChangeList
     public void propertyChange(PropertyChangeEvent evt) {
         if ("displayZoneId".equals(evt.getPropertyName())) {
             updateDateTimeLabel();
-        } else if ("livePnlUpdated".equals(evt.getPropertyName()) || "openPositionsUpdated".equals(evt.getPropertyName()) || "tradeHistoryUpdated".equals(evt.getPropertyName())) {
+        } else if ("unrealizedPnlCalculated".equals(evt.getPropertyName()) || "openPositionsUpdated".equals(evt.getPropertyName()) || "tradeHistoryUpdated".equals(evt.getPropertyName())) {
             updateAccountBalanceDisplay();
         }
     }
@@ -221,13 +224,10 @@ public class ReplayController implements ReplayStateListener, PropertyChangeList
         BigDecimal unrealizedPnl = BigDecimal.ZERO;
         KLine currentBar = (activeChartPanel != null) ? activeChartPanel.getDataModel().getCurrentReplayKLine() : this.lastSeenBar;
 
-        if (currentBar != null) {
-            for (Position position : service.getOpenPositions()) {
-                BigDecimal pnl = (position.direction() == com.EcoChartPro.model.TradeDirection.LONG)
-                    ? currentBar.close().subtract(position.entryPrice()).multiply(position.size())
-                    : position.entryPrice().subtract(currentBar.close()).multiply(position.size());
-                unrealizedPnl = unrealizedPnl.add(pnl);
-            }
+        if (currentBar != null && !service.getOpenPositions().isEmpty()) {
+            Map<UUID, BigDecimal> pnlMap = PnlCalculationService.getInstance()
+                    .calculateUnrealizedPnl(service.getOpenPositions(), currentBar);
+            unrealizedPnl = pnlMap.values().stream().reduce(BigDecimal.ZERO, BigDecimal::add);
         }
         BigDecimal displayBalance = realizedBalance.add(unrealizedPnl);
         pcs.firePropertyChange("balanceUpdated", null, displayBalance);

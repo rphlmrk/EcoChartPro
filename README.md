@@ -42,7 +42,7 @@ This project is under active development. The roadmap is divided into several ke
 -   **[Planned] Enhanced Chart Interaction:** Implement zoom-to-cursor and click-and-drag axis scaling for a more fluid and intuitive chart navigation experience.
 
 ### Phase 2: Advanced Analysis & Trading Features
--   **[Planned] P&L Calculation Service:** Refactor all unrealized P&L calculations into a dedicated, centralized service to ensure consistency and eliminate logic duplication.
+-   **[Done] P&L Calculation Service:** Refactor all unrealized P&L calculations into a dedicated, centralized service to ensure consistency and eliminate logic duplication.
 -   **[Done] Drawing Tool Templates:** Implement a system for users to create, save, and apply multiple named style templates for each drawing tool.
 
 ### Phase 3: Live Data & Trading

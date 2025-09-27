@@ -14,6 +14,8 @@ import java.math.RoundingMode;
 import java.text.DecimalFormat;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 
 public class PositionsViewPanel extends JPanel {
     private final JPanel contentPanel;
@@ -219,13 +221,14 @@ public class PositionsViewPanel extends JPanel {
     }
 
 
-    public void updateLivePnl(KLine lastBar) {
+    public void updateLivePnl(Map<UUID, BigDecimal> pnlMap) {
         BigDecimal totalPnl = BigDecimal.ZERO;
 
         for (Component comp : contentPanel.getComponents()) {
             if (comp instanceof PositionRowPanel row) {
-                BigDecimal pnl = row.updatePnl(lastBar);
+                BigDecimal pnl = pnlMap.get(row.getPosition().id());
                 if (pnl != null) {
+                    row.updatePnl(pnl);
                     totalPnl = totalPnl.add(pnl);
                 }
             }
