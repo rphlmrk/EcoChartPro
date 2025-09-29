@@ -11,6 +11,7 @@ import com.EcoChartPro.core.gamification.GamificationService;
 import com.EcoChartPro.core.gamification.ProgressCardViewModel;
 import com.EcoChartPro.core.journal.JournalAnalysisService;
 import com.EcoChartPro.core.journal.JournalAnalysisService.OverallStats;
+import com.EcoChartPro.core.service.ReviewReminderService;
 import com.EcoChartPro.core.state.ReplaySessionState;
 import com.EcoChartPro.model.Trade;
 import com.EcoChartPro.ui.dashboard.theme.UITheme;
@@ -187,6 +188,8 @@ public class ComprehensiveReportPanel extends JPanel implements Scrollable, Prop
         this.cosmeticRotationTimer.start();
         
         this.liveViewRotationTimer = new Timer(WIDGET_VIEW_ROTATION_MS, e -> rotateLiveDisplay());
+
+        ReviewReminderService.getInstance().addPropertyChangeListener(this);
     }
     
     private void exportReportToHtml() {
@@ -372,6 +375,11 @@ public class ComprehensiveReportPanel extends JPanel implements Scrollable, Prop
         }
 
         updateOverallDisciplineWidget(stats.trades());
+
+        // Check for performance review reminder
+        boolean isReviewDue = ReviewReminderService.getInstance().isReviewDue(stats.trades());
+        coachingCardPanel.setReviewDue(isReviewDue);
+
         cosmeticRotationTimer.start();
     }
     
@@ -401,6 +409,12 @@ public class ComprehensiveReportPanel extends JPanel implements Scrollable, Prop
     
     @Override
     public void propertyChange(PropertyChangeEvent evt) {
+        if (evt.getSource() instanceof ReviewReminderService && "reviewStateChanged".equals(evt.getPropertyName())) {
+            // The review service told us the state changed (it was completed), so turn off the reminder.
+            coachingCardPanel.setReviewDue(false);
+            return;
+        }
+
         if (!isLiveMode) return;
         
         SwingUtilities.invokeLater(() -> {

@@ -19,6 +19,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.YearMonth;
 import java.util.Optional;
 import java.util.Properties;
 
@@ -34,6 +35,7 @@ public final class SessionManager {
     private final ObjectMapper objectMapper;
     private static final String SESSIONS_DIR_NAME = "sessions";
     private static final String LAST_SESSION_PATH_KEY = "lastSessionPath";
+    private static final String LAST_REVIEWED_MONTH_KEY = "lastReviewedMonth";
 
     private SessionManager() {
         this.objectMapper = new ObjectMapper();
@@ -117,15 +119,51 @@ public final class SessionManager {
      * @param path The path of the session file that was just saved.
      */
     public void setLastSessionPath(Path path) {
+        updateProperty(LAST_SESSION_PATH_KEY, path.toAbsolutePath().toString());
+    }
+    
+    /**
+     * Sets the last month the user reviewed in their performance analysis.
+     * @param month The YearMonth to save.
+     */
+    public void setLastReviewedMonth(YearMonth month) {
+        updateProperty(LAST_REVIEWED_MONTH_KEY, month.toString()); // Stores as "YYYY-MM"
+    }
+
+    /**
+     * New method to get the last session path from the properties file.
+     * @return An Optional containing the path if it exists and is valid, otherwise empty.
+     */
+    public Optional<Path> getLastSessionPath() {
+        Optional<String> pathStrOpt = readProperty(LAST_SESSION_PATH_KEY);
+        if (pathStrOpt.isPresent()) {
+            Path sessionPath = Paths.get(pathStrOpt.get());
+            if (Files.exists(sessionPath)) {
+                return Optional.of(sessionPath);
+            } else {
+                logger.warn("Last session path found in config, but file no longer exists: {}", sessionPath);
+            }
+        }
+        return Optional.empty();
+    }
+    
+    /**
+     * Gets the last month the user reviewed in their performance analysis.
+     * @return An Optional containing the YearMonth if it exists, otherwise empty.
+     */
+    public Optional<YearMonth> getLastReviewedMonth() {
+        return readProperty(LAST_REVIEWED_MONTH_KEY).map(YearMonth::parse);
+    }
+    
+    private void updateProperty(String key, String value) {
         Optional<Path> configPathOpt = AppDataManager.getAppConfigPath();
         if (configPathOpt.isEmpty()) {
-            logger.error("Cannot set last session path, config file path is not available.");
+            logger.error("Cannot set property '{}', config file path is not available.", key);
             return;
         }
         Path configPath = configPathOpt.get();
         Properties props = new Properties();
 
-        // Read existing properties first to not overwrite others
         if (Files.exists(configPath)) {
             try (FileInputStream in = new FileInputStream(configPath.toFile())) {
                 props.load(in);
@@ -134,47 +172,35 @@ public final class SessionManager {
             }
         }
 
-        props.setProperty(LAST_SESSION_PATH_KEY, path.toAbsolutePath().toString());
+        props.setProperty(key, value);
 
         try (FileOutputStream out = new FileOutputStream(configPath.toFile())) {
             props.store(out, "Eco Chart Pro Application State");
-            logger.info("Set last session path to: {}", path.toAbsolutePath());
+            logger.info("Updated property '{}' to: {}", key, value);
         } catch (IOException e) {
             logger.error("Failed to save application state to properties file.", e);
         }
     }
 
-    /**
-     * New method to get the last session path from the properties file.
-     * @return An Optional containing the path if it exists and is valid, otherwise empty.
-     */
-    public Optional<Path> getLastSessionPath() {
+    private Optional<String> readProperty(String key) {
         Optional<Path> configPathOpt = AppDataManager.getAppConfigPath();
         if (configPathOpt.isEmpty() || Files.notExists(configPathOpt.get())) {
-            logger.info("No config file found, cannot get last session path.");
             return Optional.empty();
         }
 
         Properties props = new Properties();
         try (FileInputStream in = new FileInputStream(configPathOpt.get().toFile())) {
             props.load(in);
-            String pathStr = props.getProperty(LAST_SESSION_PATH_KEY);
-            if (pathStr != null && !pathStr.trim().isEmpty()) {
-                Path sessionPath = Paths.get(pathStr);
-                if (Files.exists(sessionPath)) {
-                    logger.info("Found last session path: {}", sessionPath);
-                    return Optional.of(sessionPath);
-                } else {
-                    logger.warn("Last session path found in config, but file no longer exists: {}", sessionPath);
-                    return Optional.empty();
-                }
+            String value = props.getProperty(key);
+            if (value != null && !value.trim().isEmpty()) {
+                return Optional.of(value);
             }
         } catch (IOException e) {
             logger.error("Failed to load application state from properties file.", e);
         }
         return Optional.empty();
     }
-    
+
     /**
      * New method to delete the auto-save file.
      */

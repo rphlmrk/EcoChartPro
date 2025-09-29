@@ -4,10 +4,12 @@ import com.EcoChartPro.core.coaching.CoachingInsight;
 import com.EcoChartPro.core.coaching.CoachingService;
 import com.EcoChartPro.core.gamification.GamificationService;
 import com.EcoChartPro.core.journal.JournalAnalysisService;
+import com.EcoChartPro.core.service.ReviewReminderService;
 import com.EcoChartPro.core.state.ReplaySessionState;
 import com.EcoChartPro.core.trading.PaperTradingService;
 import com.EcoChartPro.data.DataResampler;
 import com.EcoChartPro.model.*;
+import com.EcoChartPro.ui.Analysis.ComparativeAnalysisPanel;
 import com.EcoChartPro.ui.Analysis.HistoryViewPanel;
 import com.EcoChartPro.ui.Analysis.MistakeAnalysisPanel; 
 import com.EcoChartPro.ui.Analysis.TitledContentPanel;
@@ -18,6 +20,8 @@ import com.EcoChartPro.utils.DatabaseManager;
 import com.EcoChartPro.utils.DataSourceManager;
 
 import javax.swing.*;
+import javax.swing.event.ChangeEvent;
+import javax.swing.event.ChangeListener;
 import javax.swing.tree.DefaultMutableTreeNode;
 import java.awt.*;
 import java.awt.event.WindowAdapter;
@@ -48,9 +52,11 @@ public class InsightsDialog extends JDialog implements PropertyChangeListener {
     private final JList<CoachingInsight> coachingInsightsList;
     private final PerformanceAnalyticsPanel performanceAnalyticsPanel;
     private final MistakeAnalysisPanel mistakeAnalysisPanel; 
+    private final ComparativeAnalysisPanel comparativeAnalysisPanel;
 
-    private final HistoryViewPanel leftHistoryPanel;
-    private final HistoryViewPanel rightHistoryPanel;
+    private List<Trade> allTrades; // Store trades for reminder service
+    private boolean reviewReminderReset = false;
+
 
     private final JLabel symbolLabel = createValueLabel();
     private final JLabel sideLabel = createValueLabel();
@@ -129,25 +135,8 @@ public class InsightsDialog extends JDialog implements PropertyChangeListener {
         tabbedPane.addTab("Trade Explorer", tradeExplorerPanel);
         
         // --- TAB 3: COMPARATIVE INSIGHTS ---
-        JPanel comparativePanel = new JPanel(new BorderLayout());
-        comparativePanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-
-        JSplitPane comparisonSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
-        comparisonSplitPane.setOpaque(false);
-        comparisonSplitPane.setResizeWeight(0.5);
-        comparisonSplitPane.setBorder(null);
-
-        this.leftHistoryPanel = new HistoryViewPanel();
-        this.rightHistoryPanel = new HistoryViewPanel();
-
-        TitledContentPanel leftWrapper = new TitledContentPanel("Comparison Set A", leftHistoryPanel);
-        TitledContentPanel rightWrapper = new TitledContentPanel("Comparison Set B", rightHistoryPanel);
-
-        comparisonSplitPane.setLeftComponent(leftWrapper);
-        comparisonSplitPane.setRightComponent(rightWrapper);
-        
-        comparativePanel.add(comparisonSplitPane, BorderLayout.CENTER);
-        tabbedPane.addTab("Comparative Insights", comparativePanel);
+        this.comparativeAnalysisPanel = new ComparativeAnalysisPanel();
+        tabbedPane.addTab("Comparative Insights", this.comparativeAnalysisPanel);
 
         // --- TAB 4: PERFORMANCE ANALYTICS ---
         this.performanceAnalyticsPanel = new PerformanceAnalyticsPanel();
@@ -163,6 +152,13 @@ public class InsightsDialog extends JDialog implements PropertyChangeListener {
 
         // --- FINAL ASSEMBLY & LISTENERS ---
         setContentPane(tabbedPane);
+
+        tabbedPane.addChangeListener(e -> {
+            if (!reviewReminderReset && tabbedPane.getSelectedIndex() == 2) { // 2 is the index for "Comparative Insights"
+                ReviewReminderService.getInstance().markReviewComplete(allTrades);
+                reviewReminderReset = true;
+            }
+        });
 
         historyViewPanel.getHistoryTree().addTreeSelectionListener(e -> {
             DefaultMutableTreeNode selectedNode = (DefaultMutableTreeNode) historyViewPanel.getHistoryTree().getLastSelectedPathComponent();
@@ -590,29 +586,27 @@ public class InsightsDialog extends JDialog implements PropertyChangeListener {
     }
 
     public void loadSessionData(ReplaySessionState state) {
-        List<Trade> trades;
         if (state == null || state.tradeHistory() == null) {
-            trades = Collections.emptyList();
+            this.allTrades = Collections.emptyList();
         } else {
-            trades = state.tradeHistory();
+            this.allTrades = state.tradeHistory();
         }
 
         JournalAnalysisService service = new JournalAnalysisService();
-        BigDecimal initialBalance = (state != null) ? state.accountBalance().subtract(trades.stream().map(Trade::profitAndLoss).reduce(BigDecimal.ZERO, BigDecimal::add)) : new BigDecimal("100000");
-        JournalAnalysisService.OverallStats stats = service.analyzeOverallPerformance(trades, initialBalance);
+        BigDecimal initialBalance = (state != null) ? state.accountBalance().subtract(allTrades.stream().map(Trade::profitAndLoss).reduce(BigDecimal.ZERO, BigDecimal::add)) : new BigDecimal("100000");
+        JournalAnalysisService.OverallStats stats = service.analyzeOverallPerformance(allTrades, initialBalance);
         
         this.reportPanel.updateData(stats, service, state);
         
-        historyViewPanel.updateTradeHistory(trades);
-        updateEquityCurveForFilter(trades);
+        historyViewPanel.updateTradeHistory(allTrades);
+        updateEquityCurveForFilter(allTrades);
         
-        leftHistoryPanel.updateTradeHistory(trades);
-        rightHistoryPanel.updateTradeHistory(trades);
+        this.comparativeAnalysisPanel.loadData(allTrades);
         
         this.performanceAnalyticsPanel.loadSessionData(state);
 
         // --- Load data for Mistake Analysis panel ---
-        Map<String, MistakeStats> mistakeData = service.analyzeMistakes(trades);
+        Map<String, MistakeStats> mistakeData = service.analyzeMistakes(allTrades);
         this.mistakeAnalysisPanel.updateData(mistakeData);
 
         GamificationService gamificationService = GamificationService.getInstance();
@@ -622,7 +616,7 @@ public class InsightsDialog extends JDialog implements PropertyChangeListener {
             : Optional.empty();
 
         List<CoachingInsight> insights = CoachingService.getInstance().analyze(
-            trades,
+            allTrades,
             gamificationService.getOptimalTradeCount(),
             gamificationService.getPeakPerformanceHours(),
             sourceOpt

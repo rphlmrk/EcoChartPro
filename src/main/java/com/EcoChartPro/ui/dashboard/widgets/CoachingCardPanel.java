@@ -19,6 +19,8 @@ public class CoachingCardPanel extends JPanel {
     private final JLabel rewardLabel;
     private final JButton viewInsightsButton;
     private Color accentColor = UIManager.getColor("app.color.neutral");
+    
+    private static final Icon REVIEW_ICON = UITheme.getIcon(UITheme.Icons.INFO, 16, 16);
 
     public CoachingCardPanel() {
         setOpaque(false);
@@ -63,7 +65,6 @@ public class CoachingCardPanel extends JPanel {
         // Create a sub-panel for the bottom elements to align them properly
         JPanel bottomPanel = new JPanel(new BorderLayout(10, 0));
         bottomPanel.setOpaque(false);
-        // FIX: Changed from BorderLayout.CENTER to BorderLayout.WEST to position the label on the left.
         bottomPanel.add(rewardLabel, BorderLayout.WEST);
         bottomPanel.add(viewInsightsButton, BorderLayout.EAST);
         
@@ -74,6 +75,18 @@ public class CoachingCardPanel extends JPanel {
     
     public void addInsightsButtonListener(ActionListener listener) {
         viewInsightsButton.addActionListener(listener);
+    }
+    
+    public void setReviewDue(boolean isDue) {
+        if (isDue) {
+            viewInsightsButton.setText("Review Performance");
+            viewInsightsButton.setIcon(REVIEW_ICON);
+            viewInsightsButton.setToolTipText("You've completed a new month of trading! Click to review your performance trends.");
+        } else {
+            viewInsightsButton.setText("View All Insights");
+            viewInsightsButton.setIcon(UITheme.getIcon(UITheme.Icons.REPORT, 14, 14));
+            viewInsightsButton.setToolTipText(null);
+        }
     }
 
     public void updateViewModel(ProgressCardViewModel model) {
@@ -127,7 +140,6 @@ public class CoachingCardPanel extends JPanel {
             descriptionArea.setForeground(UIManager.getColor("Label.foreground"));
             rewardLabel.setFont(UIManager.getFont("app.font.widget_title").deriveFont(Font.BOLD));
             rewardLabel.setForeground(UIManager.getColor("app.color.accent"));
-            // FIX: Changed from SwingConstants.RIGHT to SwingConstants.LEFT to align text within the label.
             rewardLabel.setHorizontalAlignment(SwingConstants.LEFT);
             viewInsightsButton.setForeground(UIManager.getColor("Button.foreground"));
         }

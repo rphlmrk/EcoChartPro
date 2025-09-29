@@ -12,6 +12,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.time.temporal.WeekFields;
 import java.util.*;
 import java.util.function.Function;
@@ -345,6 +346,39 @@ public class JournalAnalysisService {
                 .collect(Collectors.toMap(PerformanceByHour::hourOfDay, Function.identity()));
     }
 
+    /**
+     * Analyzes trading performance over user-defined periods (e.g., monthly, quarterly).
+     * @param allTrades The list of all trades to analyze.
+     * @param periodUnit The time unit for the period (e.g., ChronoUnit.MONTHS).
+     * @param periodAmount The number of units in each period (e.g., 1 for monthly, 3 for quarterly).
+     * @return A map where the key is the start date of the period and the value is the aggregated stats for that period.
+     */
+    public Map<LocalDate, OverallStats> analyzePerformanceByPeriod(List<Trade> allTrades, ChronoUnit periodUnit, long periodAmount) {
+        if (allTrades == null || allTrades.isEmpty()) {
+            return Collections.emptyMap();
+        }
+
+        // 1. Group trades by the calculated start date of their period.
+        Map<LocalDate, List<Trade>> tradesByPeriod = allTrades.stream()
+            .collect(Collectors.groupingBy(trade ->
+                getPeriodStart(trade.exitTime().atZone(ZoneOffset.UTC).toLocalDate(), periodUnit, periodAmount)
+            ));
+
+        // 2. Analyze each period's trades and collect the full OverallStats.
+        Map<LocalDate, OverallStats> statsByPeriod = new TreeMap<>(Comparator.reverseOrder()); // Sort by date descending.
+        for (Map.Entry<LocalDate, List<Trade>> entry : tradesByPeriod.entrySet()) {
+            LocalDate periodStart = entry.getKey();
+            List<Trade> periodTrades = entry.getValue();
+
+            // Starting balance is irrelevant for metrics like win rate, PF, expectancy.
+            // Total PnL is calculated from the trades themselves, so zero is a safe initial value.
+            OverallStats stats = analyzeOverallPerformance(periodTrades, BigDecimal.ZERO);
+            statsByPeriod.put(periodStart, stats);
+        }
+
+        return statsByPeriod;
+    }
+
 
     /**
      * Performs a comprehensive analysis of the entire trade history.
@@ -650,5 +684,30 @@ public class JournalAnalysisService {
         }
         
         return new MfeMaeResult(mfe.max(BigDecimal.ZERO), mae.max(BigDecimal.ZERO));
+    }
+
+    private LocalDate getPeriodStart(LocalDate date, ChronoUnit periodUnit, long periodAmount) {
+        if (periodUnit == ChronoUnit.MONTHS) {
+            if (periodAmount == 1) { // Monthly
+                return date.withDayOfMonth(1);
+            }
+            if (periodAmount == 3) { // Quarterly
+                int month = date.getMonthValue();
+                int startMonthOfQuarter = ((month - 1) / 3) * 3 + 1;
+                return date.withMonth(startMonthOfQuarter).withDayOfMonth(1);
+            }
+            if (periodAmount == 6) { // Semi-annually
+                int month = date.getMonthValue();
+                int startMonth = ((month - 1) / 6) * 6 + 1;
+                return date.withMonth(startMonth).withDayOfMonth(1);
+            }
+        }
+        if (periodUnit == ChronoUnit.YEARS && periodAmount == 1) { // Yearly
+            return date.withDayOfYear(1);
+        }
+
+        // Fallback for any unsupported period combinations.
+        logger.warn("Unsupported period analysis for unit {} and amount {}. Defaulting to monthly.", periodUnit, periodAmount);
+        return date.withDayOfMonth(1);
     }
 }
