@@ -178,6 +178,32 @@ public class ChartAxis {
         return (int) (firstBarX + (slotDelta * barWidth));
     }
 
+    /**
+     * Converts a timestamp to a slot index within the visible K-lines. This is the
+     * logical inverse of getting a timestamp from a slot index and is more robust
+     * than relying on exact timestamp equality.
+     * @param time The timestamp to convert.
+     * @param visibleKLines The list of visible candles to establish a time baseline.
+     * @param timeframe The chart's timeframe for calculating time deltas.
+     * @return The integer slot index, or -1 if the time is out of the visible range.
+     */
+    public int timeToSlotIndex(Instant time, List<KLine> visibleKLines, Timeframe timeframe) {
+        if (!isConfigured || visibleKLines == null || visibleKLines.isEmpty() || time == null || timeframe == null) {
+            return -1;
+        }
+
+        Instant firstVisibleTime = visibleKLines.get(0).timestamp();
+        Duration timePerBar = timeframe.getDuration();
+        if (timePerBar.isZero()) {
+            return -1;
+        }
+
+        Duration timeDelta = Duration.between(firstVisibleTime, time);
+        double slotDelta = (double) timeDelta.toMillis() / timePerBar.toMillis();
+        
+        return (int) Math.round(slotDelta);
+    }
+
     // Method signature changed to pass timeframe down to xToTime
     public DrawingObjectPoint screenToDataPoint(int x, int y, List<KLine> visibleKLines, Timeframe timeframe) {
         if (!isConfigured) return null;

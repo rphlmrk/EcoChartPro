@@ -37,7 +37,7 @@ This project is under active development. The roadmap is divided into several ke
 
 ### Phase 1: Core Architecture & UI Refinement
 -   **[Done] Polymorphic Drawing Tool Settings:** Refactor the drawing tool settings logic to use a polymorphic approach, allowing each drawing tool to manage its own settings dialog for better extensibility.
--   **[Planned] Info Cursor Tool:** Introduce a new cursor mode that displays a detailed information panel about the candle and indicator values under the cursor.
+-   **[Done] Info Cursor Tool:** Introduce a new cursor mode that displays a detailed information panel about the candle and indicator values under the cursor.
 -   **[Planned] Right-Click Context Menus:** Provide faster access to common actions (e.g., delete drawing, modify order) via context-sensitive right-click menus on the chart.
 -   **[Planned] Enhanced Chart Interaction:** Implement zoom-to-cursor and click-and-drag axis scaling for a more fluid and intuitive chart navigation experience.
 

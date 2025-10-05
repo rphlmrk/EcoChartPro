@@ -3,6 +3,7 @@ package com.EcoChartPro.core.controller;
 import com.EcoChartPro.core.manager.CrosshairManager;
 import com.EcoChartPro.core.manager.DrawingManager;
 import com.EcoChartPro.core.model.ChartDataModel;
+import com.EcoChartPro.core.tool.InfoTool;
 import com.EcoChartPro.core.trading.PaperTradingService;
 import com.EcoChartPro.model.drawing.DrawingObject;
 import com.EcoChartPro.model.drawing.DrawingObjectPoint;
@@ -88,11 +89,13 @@ public class ChartController {
 
                 DrawingManager dm = DrawingManager.getInstance();
 
-                // If no trading item was clicked, check for drawing interactions.
-                // This logic is now secondary to trading logic.
-                if (drawingController.getActiveTool() != null ||
-                    drawingController.findHandleAt(e.getPoint()) != null ||
-                    dm.findDrawingAt(e.getPoint(), view.getChartAxis(), model.getVisibleKLines(), model.getCurrentDisplayTimeframe()) != null) {
+                // Check if we are performing a drawing action that should prevent panning.
+                // The InfoTool is explicitly excluded here to allow panning.
+                boolean isDrawingAction = (drawingController.getActiveTool() != null && !(drawingController.getActiveTool() instanceof InfoTool)) ||
+                                           drawingController.findHandleAt(e.getPoint()) != null ||
+                                           dm.findDrawingAt(e.getPoint(), view.getChartAxis(), model.getVisibleKLines(), model.getCurrentDisplayTimeframe()) != null;
+
+                if (isDrawingAction) {
                     // Let the DrawingController's mousePressed handle it. We return so we don't start a pan.
                     return;
                 }
@@ -123,12 +126,14 @@ public class ChartController {
                     }
                     return;
                 }
-                
-                 // We must check if a tool is active OR if an object is selected to prevent panning.
-                 // The DrawingController will handle the drag for these cases.
-                 if (drawingController.getActiveTool() != null || DrawingManager.getInstance().getSelectedDrawingId() != null) {
-                     return;
-                 }
+
+                // Check if a drawing drag action is happening. InfoTool is excluded to allow panning.
+                boolean isDrawingDrag = (drawingController.getActiveTool() != null && !(drawingController.getActiveTool() instanceof InfoTool)) ||
+                                         DrawingManager.getInstance().getSelectedDrawingId() != null;
+
+                if (isDrawingDrag) {
+                    return;
+                }
 
                 // If we are not dragging a trade or drawing object, pan the chart.
                 if (lastMousePoint == null) {

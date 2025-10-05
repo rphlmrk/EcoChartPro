@@ -15,6 +15,7 @@ import com.EcoChartPro.core.manager.listener.DrawingListener;
 import com.EcoChartPro.core.model.ChartDataModel;
 import com.EcoChartPro.core.settings.SettingsManager;
 import com.EcoChartPro.core.tool.DrawingTool;
+import com.EcoChartPro.core.tool.InfoTool;
 import com.EcoChartPro.core.trading.PaperTradingService;
 import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.Timeframe;
@@ -74,6 +75,7 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
     private final PriceAxisPanel priceAxisPanel;
     private final TimeAxisPanel timeAxisPanel;
     private final FloatingPropertiesToolbar propertiesToolbar; // New field
+    private final InfoPanel infoPanel; // New field
     private List<KLine> localVisibleKLines;
     private static final Font SYMBOL_FONT = new Font("SansSerif", Font.BOLD, 16);
     private static final Border INACTIVE_BORDER = BorderFactory.createEmptyBorder(2, 2, 2, 2);
@@ -116,6 +118,7 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
         this.peakHoursRenderer = new PeakHoursRenderer();
         this.drawingController = new DrawingController(this, onToolStateChange);
         this.localVisibleKLines = new ArrayList<>();
+        this.infoPanel = new InfoPanel(); // Instantiate InfoPanel
         
         SettingsManager settings = SettingsManager.getInstance();
         setBackground(settings.getChartBackground());
@@ -506,6 +509,9 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
         
         drawCrosshair(g2d);
 
+        // Draw InfoPanel if InfoTool is active
+        drawInfoPanel(g2d);
+
         if (dataModel.isViewingLiveEdge()) {
             KLine lastKline = dataModel.getCurrentReplayKLine();
             if (lastKline != null) {
@@ -533,6 +539,59 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
 
         priceAxisPanel.repaint();
         timeAxisPanel.repaint();
+    }
+    
+    private void drawInfoPanel(Graphics2D g) {
+        DrawingTool activeTool = drawingController.getActiveTool();
+        if (!(activeTool instanceof InfoTool infoTool)) {
+            return;
+        }
+
+        DrawingObjectPoint dataPoint = infoTool.getCurrentPoint(); // This is the DATA point
+        if (dataPoint == null || dataPoint.timestamp() == null) {
+            infoPanel.updateData(null, null, null);
+            return;
+        }
+
+        KLine targetKline = null;
+        int slotIndex = chartAxis.timeToSlotIndex(dataPoint.timestamp(), localVisibleKLines, dataModel.getCurrentDisplayTimeframe());
+        if (slotIndex >= 0 && slotIndex < localVisibleKLines.size()) {
+            targetKline = localVisibleKLines.get(slotIndex);
+        }
+
+        // Update panel content and force it to calculate its new size
+        infoPanel.updateData(targetKline, dataModel.getIndicatorManager().getIndicators(), SettingsManager.getInstance().getDisplayZoneId());
+
+        // Get the reliable SCREEN position stored in the tool
+        Point screenPoint = infoTool.getScreenPoint();
+        if (screenPoint == null) {
+            return; // Mouse hasn't moved over the panel yet.
+        }
+
+        int panelWidth = infoPanel.getWidth();
+        int panelHeight = infoPanel.getHeight();
+        int padding = 20;
+
+        // Position below and to the right of the cursor by default
+        int x = screenPoint.x + padding;
+        int y = screenPoint.y + padding;
+
+        // Ensure it doesn't go off screen, flipping its position if needed
+        if (x + panelWidth > getWidth()) {
+            x = screenPoint.x - panelWidth - padding; // Flip to the left
+        }
+        if (y + panelHeight > getHeight()) {
+            y = screenPoint.y - panelHeight - padding; // Flip above
+        }
+        
+        // Final check to prevent going off the top-left edges
+        x = Math.max(5, x);
+        y = Math.max(5, y);
+
+        // Use SwingUtilities to handle the complexities of painting a component
+        // that is not part of the container hierarchy.
+        // We pass 'this' (the ChartPanel) as the parent, which is used for property lookups.
+        SwingUtilities.paintComponent(g, infoPanel, this, x, y, panelWidth, panelHeight);
     }
     
     private Color getHighContrastColor(Color background) {

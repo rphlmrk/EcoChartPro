@@ -2,6 +2,7 @@ package com.EcoChartPro.core.indicator;
 
 import com.EcoChartPro.api.indicator.IndicatorType;
 import com.EcoChartPro.api.indicator.drawing.DrawableObject;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -49,5 +50,37 @@ public abstract class Indicator {
 
     public void setSettings(Map<String, Object> settings) {
         this.settings = settings;
+    }
+
+    /**
+     * Searches through the indicator's calculated results to find a displayable
+     * value for a specific timestamp.
+     * <p>
+     * This implementation primarily looks for {@link com.EcoChartPro.api.indicator.drawing.DrawablePolyline}
+     * objects, as they are the common representation for line-based indicators like SMA or RSI.
+     *
+     * @param timestamp The timestamp of the K-line to find the value for.
+     * @return A formatted string of the indicator's value at that time, or null if not found.
+     */
+    public String getValueAsStringAt(Instant timestamp) {
+        if (timestamp == null || results.isEmpty()) {
+            return null;
+        }
+
+        for (DrawableObject drawable : results) {
+            if (drawable instanceof com.EcoChartPro.api.indicator.drawing.DrawablePolyline polyline) {
+                // Find the specific data point for the given timestamp
+                for (com.EcoChartPro.api.indicator.drawing.DataPoint point : polyline.getPoints()) {
+                    if (timestamp.equals(point.time())) {
+                        // Found the point, format its price (value)
+                        // Using a sensible default formatting
+                        return point.price().setScale(4, java.math.RoundingMode.HALF_UP).toPlainString();
+                    }
+                }
+            }
+            // Can add more handlers for other DrawableObject types here if needed
+        }
+
+        return null; // No value found for this timestamp
     }
 }
