@@ -109,7 +109,7 @@ public class FloatingDrawingToolbar extends JDialog implements PropertyChangeLis
     private void populateComponentList() {
         allToolbarComponents.clear();
 
-        addToolButton("Info Cursor (Alt+I)", UITheme.Icons.CROSSHAIR, new InfoTool());
+        addToolButton("Info Cursor (Alt+I)", UITheme.Icons.INFO_CURSOR, new InfoTool());
 
         addToolGroup(List.of(
             new FlyoutAction("Trendline (Alt+T)", UITheme.Icons.TRENDLINE, TrendlineTool::new),

@@ -27,6 +27,7 @@ public final class UITheme {
         public static final String SEARCH = "/icons/search.svg";
         public static final String CHECKMARK = "/icons/checkmark.svg";
         public static final String INFO = "/icons/info.svg";
+        public static final String INFO_CURSOR = "/icons/infocursor.svg"; // NEW ICON
         public static final String JUMP_TO = "/icons/jumpto.svg";
         public static final String INDICATORS = "/icons/function.svg";
         public static final String REFRESH = "/icons/refresh.svg";
