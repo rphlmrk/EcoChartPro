@@ -75,6 +75,7 @@ runtime {
         'java.xml',
         'java.naming',
         'java.compiler', // Required for the in-app JavaEditorDialog
+        'jdk.compiler',
         'jdk.unsupported'
     ]
 

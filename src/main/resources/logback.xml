@@ -1,16 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
 <configuration>
-  <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
-    <encoder>
-      <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
-    </encoder>
-  </appender>
 
-  <logger name="com.EcoChart" level="INFO"/>
-  <logger name="com.EcoChart.ui.FloatingStyleToolbarPanel" level="DEBUG"/>
-  <!-- You can set specific levels for specific packages -->
-  <!-- <logger name="com.EcoChart.indicators.IndicatorRegistry" level="DEBUG"/> -->
+    <!-- Define a system property for the log directory, set in Main.java -->
+    <property name="LOG_DIR" value="${ecochartpro.log.dir}"/>
 
-  <root level="WARN"> <!-- Default level for other libraries -->
-    <appender-ref ref="STDOUT" />
-  </root>
+    <!-- Appender to output to the console -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- Appender to output to a rolling file -->
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <!-- Log files will be created in the directory specified by LOG_DIR -->
+        <file>${LOG_DIR}/ecochartpro.log</file>
+
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <!-- Daily rollover -->
+            <fileNamePattern>${LOG_DIR}/ecochartpro.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <!-- Keep 7 days of history -->
+            <maxHistory>7</maxHistory>
+        </rollingPolicy>
+
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- Root logger configuration -->
+    <root level="INFO">
+        <appender-ref ref="CONSOLE" />
+        <appender-ref ref="FILE" />
+    </root>
+
+    <!-- Optionally, you can set specific log levels for certain packages -->
+    <!-- <logger name="com.EcoChartPro" level="DEBUG" /> -->
+    <!-- <logger name="com.formdev" level="WARN" /> -->
+
 </configuration>

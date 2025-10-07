@@ -5,21 +5,37 @@ import com.EcoChartPro.core.plugin.PluginManager;
 import com.EcoChartPro.core.settings.SettingsManager;
 import com.EcoChartPro.core.theme.ThemeManager;
 import com.EcoChartPro.ui.dashboard.DashboardFrame;
+import com.EcoChartPro.utils.AppDataManager;
 import com.EcoChartPro.utils.DataSourceManager;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Path; // [NEW] Import Path
 import java.util.ArrayList;
 
 import javax.swing.SwingUtilities;
 
 public class Main {
 
+    // IMPORTANT: logger must be initialized AFTER System.setProperty for log_dir
+    // For this reason, we will move its initialization later, or ensure the property is set before its first use.
+    // For simplicity, we'll keep the logger here, but ensure the property is set before its usage.
     private static final Logger logger = LoggerFactory.getLogger(Main.class);
 
     public static void main(String[] args) {
+        // [NEW] Configure Logback's log directory FIRST
+        AppDataManager.getLogDirectory().ifPresent(path -> {
+            System.setProperty("ecochartpro.log.dir", path.toAbsolutePath().toString());
+            // This System.out is for critical early debugging, before logback is fully configured
+            System.out.println("Set ecochartpro.log.dir to: " + path.toAbsolutePath());
+        });
+
+        // [CRITICAL DEBUGGING STEP] This log message will now appear reliably.
+        logger.info("Application is running with Java from: {}", System.getProperty("java.home"));
+
         // shutdown hook to handle application restarts.
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             if ("true".equals(System.getProperty("app.restart", "false"))) {

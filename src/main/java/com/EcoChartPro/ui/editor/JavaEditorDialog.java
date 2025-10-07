@@ -1,7 +1,6 @@
 package com.EcoChartPro.ui.editor;
 
 import com.EcoChartPro.api.indicator.CustomIndicator;
-import com.EcoChartPro.api.indicator.IndicatorType;
 import com.EcoChartPro.core.plugin.PluginManager;
 import com.EcoChartPro.core.service.CompilationService;
 import com.EcoChartPro.ui.MainWindow;
@@ -47,6 +46,8 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -57,6 +58,7 @@ public class JavaEditorDialog extends JDialog {
     private DefaultListModel<Path> fileListModel;
     private JTextArea consoleArea;
     private RTextScrollPane scrollPane;
+    private JButton compileButton; // Made into a field to enable/disable it
     private Icon errorIcon;
     private final DiagnosticParser compilerNoticeParser;
 
@@ -71,7 +73,7 @@ public class JavaEditorDialog extends JDialog {
         this.mainWindowOwner = owner;
         this.errorIcon = UITheme.getIcon(UITheme.Icons.ERROR_CIRCLE, 12, 12);
         this.compilerNoticeParser = new DiagnosticParser();
-        
+
         setupUI();
     }
 
@@ -83,7 +85,7 @@ public class JavaEditorDialog extends JDialog {
 
         JPanel editorPanel = createEditorPanel();
         JPanel consolePanel = createConsolePanel();
-        
+
         JSplitPane editorAndConsole = new JSplitPane(JSplitPane.VERTICAL_SPLIT, editorPanel, consolePanel);
         editorAndConsole.setResizeWeight(0.8);
 
@@ -124,7 +126,8 @@ public class JavaEditorDialog extends JDialog {
         toolBar.add(deleteButton);
         toolBar.add(Box.createHorizontalGlue());
 
-        JButton compileButton = new JButton("Compile & Apply", UITheme.getIcon(UITheme.Icons.APPLY, 18, 18));
+        // [MODIFIED] The button is now a field
+        compileButton = new JButton("Compile & Apply", UITheme.getIcon(UITheme.Icons.APPLY, 18, 18));
         compileButton.setToolTipText("Compile the current Java code and apply it to the active chart");
         compileButton.addActionListener(e -> compileAndApply());
         toolBar.add(compileButton);
@@ -165,14 +168,11 @@ public class JavaEditorDialog extends JDialog {
 
     private JPanel createExamplePanel() {
         JPanel panel = new JPanel(new BorderLayout());
-        
         DefaultMutableTreeNode root = new DefaultMutableTreeNode("Indicator Examples");
-        
         DefaultMutableTreeNode basic = new DefaultMutableTreeNode("Basic Patterns");
         basic.add(new DefaultMutableTreeNode("Simple Trend Flip"));
         basic.add(new DefaultMutableTreeNode("Moving Average"));
         root.add(basic);
-        
         DefaultMutableTreeNode advanced = new DefaultMutableTreeNode("Advanced Patterns");
         advanced.add(new DefaultMutableTreeNode("Smart Money Concepts"));
         advanced.add(new DefaultMutableTreeNode("Multi-TF Stdev"));
@@ -183,20 +183,15 @@ public class JavaEditorDialog extends JDialog {
         for (int i = 0; i < exampleTree.getRowCount(); i++) {
             exampleTree.expandRow(i);
         }
-        
         exampleTree.setCellRenderer(new DefaultTreeCellRenderer() {
             @Override
             public Component getTreeCellRendererComponent(JTree tree, Object value, boolean sel, boolean expanded, boolean leaf, int row, boolean hasFocus) {
                 super.getTreeCellRendererComponent(tree, value, sel, expanded, leaf, row, hasFocus);
-                if (leaf) {
-                    setIcon(UITheme.getIcon(UITheme.Icons.PLUGIN_JAVA, 16, 16));
-                } else {
-                    setIcon(null);
-                }
+                if (leaf) setIcon(UITheme.getIcon(UITheme.Icons.PLUGIN_JAVA, 16, 16));
+                else setIcon(null);
                 return this;
             }
         });
-        
         exampleTree.addTreeSelectionListener(e -> {
             TreePath path = e.getNewLeadSelectionPath();
             if (path != null) {
@@ -206,34 +201,27 @@ public class JavaEditorDialog extends JDialog {
                 }
             }
         });
-        
         panel.add(new JScrollPane(exampleTree), BorderLayout.CENTER);
         return panel;
     }
-    
+
     private JPanel createApiReferencePanel() {
         JTree apiTree = new JTree(ApiReflector.createApiTreeModel());
         apiTree.setCellRenderer(new ApiTreeCellRenderer());
-
         JEditorPane docPane = new JEditorPane();
         docPane.setContentType("text/html");
         docPane.setEditable(false);
         docPane.setBackground(new Color(0x313335));
         docPane.setText("<html><body style='font-family:sans-serif; color: #A9B7C6; padding: 5px;'>Select an API element to see details.</body></html>");
-        
         apiTree.addTreeSelectionListener(e -> {
             DefaultMutableTreeNode selectedNode = (DefaultMutableTreeNode) apiTree.getLastSelectedPathComponent();
-            if (selectedNode == null || !(selectedNode.getUserObject() instanceof ApiNode)) {
-                return;
+            if (selectedNode != null && selectedNode.getUserObject() instanceof ApiNode apiNode) {
+                docPane.setText(generateHtmlDocumentation(apiNode));
+                docPane.setCaretPosition(0);
             }
-            ApiNode apiNode = (ApiNode) selectedNode.getUserObject();
-            docPane.setText(generateHtmlDocumentation(apiNode));
-            docPane.setCaretPosition(0);
         });
-        
         JSplitPane splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, new JScrollPane(apiTree), new JScrollPane(docPane));
         splitPane.setResizeWeight(0.6);
-
         JPanel panel = new JPanel(new BorderLayout());
         panel.add(splitPane, BorderLayout.CENTER);
         return panel;
@@ -243,7 +231,6 @@ public class JavaEditorDialog extends JDialog {
         JPanel panel = new JPanel(new BorderLayout());
         textArea = new RSyntaxTextArea(20, 60);
         configureTextArea();
-
         this.scrollPane = new RTextScrollPane(textArea);
         this.scrollPane.setLineNumbersEnabled(true);
         panel.add(this.scrollPane, BorderLayout.CENTER);
@@ -257,48 +244,30 @@ public class JavaEditorDialog extends JDialog {
         textArea.setMarkOccurrences(true);
         textArea.setBracketMatchingEnabled(true);
 
-        CompletionProvider provider = new ApiCompletionProvider();
-        AutoCompletion ac = new AutoCompletion(provider);
+        AutoCompletion ac = new AutoCompletion(new ApiCompletionProvider());
         ac.setAutoActivationEnabled(true);
         ac.install(textArea);
 
         textArea.addParser(this.compilerNoticeParser);
-
         textArea.addHyperlinkListener(e -> {
-            if (e.getEventType() == HyperlinkEvent.EventType.ACTIVATED) {
-                // The URL is not needed, but the Description often holds the object we need
-                Object source = e.getSource(); // This will be the RSTA instance
-                
-                // RSTA's hyperlink events are complex. The simplest way to handle this
-                // is to just focus the line in the editor, since jumping to a specific
-                // candle doesn't make much sense for a static code error anyway.
-                if (e.getDescription() != null && e.getDescription().startsWith("Line ")) {
-                    try {
-                        String lineStr = e.getDescription().replaceAll("[^0-9]", "");
-                        int line = Integer.parseInt(lineStr) - 1;
-                        if (line >= 0 && line < textArea.getLineCount()) {
-                            textArea.setCaretPosition(textArea.getLineStartOffset(line));
-                        }
-                    } catch (Exception ex) {
-                        // Ignore parsing errors
+            if (e.getEventType() == HyperlinkEvent.EventType.ACTIVATED && e.getDescription() != null && e.getDescription().startsWith("Line ")) {
+                try {
+                    String lineStr = e.getDescription().replaceAll("[^0-9]", "");
+                    int line = Integer.parseInt(lineStr) - 1;
+                    if (line >= 0 && line < textArea.getLineCount()) {
+                        textArea.setCaretPosition(textArea.getLineStartOffset(line));
                     }
-                }
+                } catch (Exception ex) { /* Ignore parsing errors */ }
             }
         });
-
         textArea.getDocument().addDocumentListener(new DocumentListener() {
             @Override public void insertUpdate(DocumentEvent e) { setDirty(true); }
             @Override public void removeUpdate(DocumentEvent e) { setDirty(true); }
             @Override public void changedUpdate(DocumentEvent e) { setDirty(true); }
         });
 
-        try {
-            String themePath = "/org/fife/ui/rsyntaxtextarea/themes/dark.xml";
-            try (InputStream in = RSyntaxTextArea.class.getResourceAsStream(themePath)) {
-                if (in != null) {
-                    Theme.load(in).apply(textArea);
-                }
-            }
+        try (InputStream in = RSyntaxTextArea.class.getResourceAsStream("/org/fife/ui/rsyntaxtextarea/themes/dark.xml")) {
+            if (in != null) Theme.load(in).apply(textArea);
         } catch (IOException ioe) {
             ioe.printStackTrace();
         }
@@ -318,53 +287,98 @@ public class JavaEditorDialog extends JDialog {
         panel.add(new JScrollPane(consoleArea), BorderLayout.CENTER);
         return panel;
     }
-    
+
     // --- Business Logic ---
 
+    // [MODIFIED] This method now starts the background compilation process.
     private void compileAndApply() {
+        if (isDirty && currentlyOpenFile != null) {
+            saveCurrentFile();
+        }
         if (currentlyOpenFile == null) {
             JOptionPane.showMessageDialog(this, "Please save the file before compiling.", "Save Required", JOptionPane.INFORMATION_MESSAGE);
             return;
         }
-        if (isDirty) {
-            saveCurrentFile();
+
+        String sourceCode = textArea.getText();
+        String simpleClassName = extractSimpleClassName(sourceCode);
+        if (simpleClassName == null) {
+            JOptionPane.showMessageDialog(this, "Could not find a public class declaration in the code.", "Compilation Error", JOptionPane.ERROR_MESSAGE);
+            return;
         }
 
+        // UI updates before starting the worker
+        compileButton.setEnabled(false);
         clearErrorHighlights();
         clearConsole();
         logMessage("Starting compilation for " + currentlyOpenFile.getFileName() + "...");
 
-        String simpleClassName = currentlyOpenFile.getFileName().toString().replace(".java", "");
-        String fullClassName = IN_APP_PACKAGE + "." + simpleClassName;
-        String sourceCode = textArea.getText();
+        // Create and execute the SwingWorker
+        CompilationWorker worker = new CompilationWorker(simpleClassName, sourceCode);
+        worker.execute();
+    }
 
-        CompilationService.CompilationResult result = CompilationService.getInstance().compileAndWriteToDisk(fullClassName, sourceCode);
+    // [NEW] SwingWorker to handle compilation in the background.
+    private class CompilationWorker extends SwingWorker<CompilationService.CompilationResult, Void> {
+        private final String simpleClassName;
+        private final String fullClassName;
+        private final String sourceCode;
 
-        if (!result.success()) {
-            logMessage("Compilation failed!");
-            displayDiagnostics(result.diagnostics());
-            return;
+        public CompilationWorker(String simpleClassName, String sourceCode) {
+            this.simpleClassName = simpleClassName;
+            this.fullClassName = IN_APP_PACKAGE + "." + simpleClassName;
+            this.sourceCode = sourceCode;
         }
-        
-        logMessage("Compilation successful. Class file saved to disk.");
-        PluginManager.getInstance().rescanPlugins();
-        
-        Optional<CustomIndicator> newPluginOpt = PluginManager.getInstance().getLoadedIndicators().stream()
-                .filter(p -> p.getClass().getName().equals(fullClassName))
-                .findFirst();
 
-        if (newPluginOpt.isPresent()) {
-            mainWindowOwner.applyLiveIndicator(newPluginOpt.get());
-             JOptionPane.showMessageDialog(this, 
-                "Compilation Succeeded & Applied!\n" +
-                "The indicator has been hot-reloaded on the active chart.",
-                "Success", JOptionPane.INFORMATION_MESSAGE);
-        } else {
-            JOptionPane.showMessageDialog(this, 
-                "Compilation Succeeded, but could not apply to chart.\n" +
-                "Please add it from the 'Indicators' dialog.",
-                "Success", JOptionPane.INFORMATION_MESSAGE);
+        @Override
+        protected CompilationService.CompilationResult doInBackground() throws Exception {
+            // This runs on a background thread. The UI is NOT frozen.
+            return CompilationService.getInstance().compileAndWriteToDisk(fullClassName, sourceCode);
         }
+
+        @Override
+        protected void done() {
+            // This runs back on the EDT after doInBackground() is finished.
+            try {
+                CompilationService.CompilationResult result = get(); // Get the result
+
+                if (result.success()) {
+                    logMessage("Compilation successful. Rescanning plugins...");
+                    PluginManager.getInstance().rescanPlugins();
+
+                    Optional<CustomIndicator> newPluginOpt = PluginManager.getInstance().getLoadedIndicators().stream()
+                        .filter(p -> p.getClass().getName().equals(fullClassName))
+                        .findFirst();
+
+                    if (newPluginOpt.isPresent()) {
+                        mainWindowOwner.applyLiveIndicator(newPluginOpt.get());
+                        logMessage("Success! Indicator has been hot-reloaded on the active chart.");
+                        JOptionPane.showMessageDialog(JavaEditorDialog.this, "Compilation Succeeded & Applied!", "Success", JOptionPane.INFORMATION_MESSAGE);
+                    } else {
+                        logMessage("Compilation succeeded, but could not find the reloaded plugin.");
+                        JOptionPane.showMessageDialog(JavaEditorDialog.this, "Compilation Succeeded, but could not apply to chart.", "Warning", JOptionPane.WARNING_MESSAGE);
+                    }
+                } else {
+                    logMessage("Compilation failed!");
+                    displayDiagnostics(result.diagnostics());
+                }
+
+            } catch (Exception e) {
+                logMessage("An unexpected error occurred during compilation: " + e.getMessage());
+                e.printStackTrace();
+            } finally {
+                compileButton.setEnabled(true); // Always re-enable the button
+            }
+        }
+    }
+
+    private String extractSimpleClassName(String sourceCode) {
+        Pattern pattern = Pattern.compile("public\\s+class\\s+([A-Za-z0-9_]+)");
+        Matcher matcher = pattern.matcher(sourceCode);
+        if (matcher.find()) {
+            return matcher.group(1);
+        }
+        return null;
     }
 
     private void clearErrorHighlights() {
@@ -374,29 +388,22 @@ public class JavaEditorDialog extends JDialog {
     }
 
     private void displayDiagnostics(List<Diagnostic<? extends JavaFileObject>> diagnostics) {
-        compilerNoticeParser.setDiagnostics(diagnostics); // Set all diagnostics on the parser first
-        textArea.forceReparsing(compilerNoticeParser); // Force RSTA to create the notices and hyperlinks
-        
-        // Now add the gutter icons
+        compilerNoticeParser.setDiagnostics(diagnostics);
+        textArea.forceReparsing(compilerNoticeParser);
         for (Diagnostic<? extends JavaFileObject> diagnostic : diagnostics) {
             if (diagnostic.getKind() != Diagnostic.Kind.ERROR) continue;
-            
             String message = diagnostic.getMessage(null);
-            int line = (int) diagnostic.getLineNumber() - 1; 
+            int line = (int) diagnostic.getLineNumber() - 1;
             if (line < 0) continue;
-
-            logMessage(String.format("ERROR: Line %d, Col %d: %s",
-                diagnostic.getLineNumber(), diagnostic.getColumnNumber(), message));
-
+            logMessage(String.format("ERROR: Line %d, Col %d: %s", diagnostic.getLineNumber(), diagnostic.getColumnNumber(), message));
             try {
-                // The tooltip for the gutter icon becomes the description for the hyperlink event
-                scrollPane.getGutter().addLineTrackingIcon(line, errorIcon, "Line " + (line+1) + ": " + message);
+                scrollPane.getGutter().addLineTrackingIcon(line, errorIcon, "Line " + (line + 1) + ": " + message);
             } catch (BadLocationException e) {
                 logMessage("Could not add gutter icon for error: " + e.getMessage());
             }
         }
     }
-    
+
     private void loadFileContent(Path file) {
         if (isDirty) {
             int choice = JOptionPane.showConfirmDialog(this, "You have unsaved changes. Discard them?", "Unsaved Changes", JOptionPane.YES_NO_OPTION);
@@ -418,7 +425,7 @@ public class JavaEditorDialog extends JDialog {
             JOptionPane.showMessageDialog(this, "Could not read file: " + e.getMessage(), "File Error", JOptionPane.ERROR_MESSAGE);
         }
     }
-    
+
     private void loadExample(String exampleName) {
         if (isDirty) {
             int choice = JOptionPane.showConfirmDialog(this, "You have unsaved changes. Discard them?", "Unsaved Changes", JOptionPane.YES_NO_OPTION);
@@ -438,11 +445,9 @@ public class JavaEditorDialog extends JDialog {
             }
             clearErrorHighlights();
             String content = new String(is.readAllBytes(), StandardCharsets.UTF_8);
-            
             String originalClassName = exampleName.replace(" ", "") + "Indicator";
             String newClassName = "My" + originalClassName;
             content = content.replaceAll(originalClassName, newClassName);
-            
             textArea.setText(content);
             textArea.discardAllEdits();
             currentlyOpenFile = null;
@@ -450,7 +455,6 @@ public class JavaEditorDialog extends JDialog {
             setDirty(true);
             clearConsole();
             logMessage("Loaded '" + exampleName + "' example. Save it to 'My Scripts' to compile.");
-            
         } catch (IOException e) {
             logMessage("ERROR: Failed to read example file: " + e.getMessage());
             JOptionPane.showMessageDialog(this, "Could not read example file: " + e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
@@ -473,8 +477,7 @@ public class JavaEditorDialog extends JDialog {
         Optional<Path> scriptsDirOpt = AppDataManager.getScriptsDirectory();
         if (scriptsDirOpt.isPresent()) {
             try (Stream<Path> stream = Files.list(scriptsDirOpt.get())) {
-                stream
-                    .filter(p -> p.toString().toLowerCase().endsWith(".java"))
+                stream.filter(p -> p.toString().toLowerCase().endsWith(".java"))
                     .sorted(Comparator.comparing(p -> p.getFileName().toString().toLowerCase()))
                     .forEach(fileListModel::addElement);
             } catch (IOException e) {
@@ -485,6 +488,7 @@ public class JavaEditorDialog extends JDialog {
 
     private void saveCurrentFile() {
         if (currentlyOpenFile == null) {
+            // If the file is new (from an example or dirty), prompt to create it first.
             createNewFile();
             return;
         }
@@ -514,15 +518,13 @@ public class JavaEditorDialog extends JDialog {
         }
 
         try {
-            String className = fileName.substring(0, fileName.lastIndexOf('.'));
-            
-            String content = isDirty ? textArea.getText().replaceAll("My\\w+Indicator", className) : getJavaTemplate(className);
-            
+            String simpleClassName = fileName.substring(0, fileName.lastIndexOf('.'));
+            String content = isDirty ? textArea.getText().replace(extractSimpleClassName(textArea.getText()), simpleClassName) : getJavaTemplate(simpleClassName);
             Files.writeString(newFilePath, content);
             populateFileList();
             fileList.setSelectedValue(newFilePath, true);
         } catch (IOException e) {
-             JOptionPane.showMessageDialog(this, "Could not create file: " + e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(this, "Could not create file: " + e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
         }
     }
 
@@ -534,16 +536,11 @@ public class JavaEditorDialog extends JDialog {
         if (choice == JOptionPane.YES_OPTION) {
             try {
                 String className = selectedFile.getFileName().toString().replace(".java", ".class");
-                Optional<Path> classFile = AppDataManager.getClassesDirectory()
-                    .map(p -> p.resolve(IN_APP_PACKAGE.replace('.', '/')))
-                    .map(p -> p.resolve(className));
-                
+                Optional<Path> classFile = AppDataManager.getClassesDirectory().map(p -> p.resolve(IN_APP_PACKAGE.replace('.', '/'))).map(p -> p.resolve(className));
                 if (classFile.isPresent() && Files.exists(classFile.get())) {
                     Files.delete(classFile.get());
                 }
-
                 Files.delete(selectedFile);
-
                 if (selectedFile.equals(currentlyOpenFile)) {
                     textArea.setText("");
                     currentlyOpenFile = null;
@@ -561,83 +558,72 @@ public class JavaEditorDialog extends JDialog {
         if (isDirty == dirty) return;
         isDirty = dirty;
         String title = "Eco Chart Pro - Java Indicator Editor";
-        if (currentlyOpenFile != null) {
-            title += " - " + currentlyOpenFile.getFileName().toString();
-        } else {
-             title += " - [Unsaved File]";
-        }
+        if (currentlyOpenFile != null) title += " - " + currentlyOpenFile.getFileName().toString();
+        else title += " - [Unsaved File]";
         if (isDirty) title += "*";
         setTitle(title);
     }
 
     private String getJavaTemplate(String className) {
         return """
-package %s;
+            package %s;
 
-import com.EcoChartPro.api.indicator.*;
-import com.EcoChartPro.api.indicator.drawing.*;
-import com.EcoChartPro.core.indicator.IndicatorContext;
-import com.EcoChartPro.model.KLine;
-import java.awt.Color;
-import java.math.BigDecimal;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
+            import com.EcoChartPro.api.indicator.*;
+            import com.EcoChartPro.api.indicator.drawing.*;
+            import com.EcoChartPro.core.indicator.IndicatorContext;
+            import com.EcoChartPro.model.KLine;
+            import java.awt.Color;
+            import java.math.BigDecimal;
+            import java.util.Collections;
+            import java.util.List;
+            import java.util.Map;
 
-public class %s implements CustomIndicator {
+            public class %s implements CustomIndicator {
 
-    @Override
-    public String getName() {
-        return "My New Indicator";
+                @Override
+                public String getName() {
+                    return "My New Indicator";
+                }
+
+                @Override
+                public IndicatorType getType() {
+                    return IndicatorType.OVERLAY;
+                }
+
+                @Override
+                public List<Parameter> getParameters() {
+                    return Collections.emptyList();
+                }
+
+                @Override
+                public List<DrawableObject> calculate(IndicatorContext context) {
+                    // Your logic here.
+                    // List<KLine> data = context.klineData();
+                    // Map<String, Object> settings = context.settings();
+                    
+                    return Collections.emptyList();
+                }
+            }
+            """.formatted(IN_APP_PACKAGE, className);
     }
-
-    @Override
-    public IndicatorType getType() {
-        return IndicatorType.OVERLAY;
-    }
-
-    @Override
-    public List<Parameter> getParameters() {
-        return Collections.emptyList();
-    }
-
-    @Override
-    public List<DrawableObject> calculate(IndicatorContext context) {
-        // Your logic here.
-        // List<KLine> data = context.klineData();
-        // Map<String, Object> settings = context.settings();
-        
-        return Collections.emptyList();
-    }
-}
-""".formatted(IN_APP_PACKAGE, className);
-    }
-    
-    // --- Helper Classes ---
 
     private String generateHtmlDocumentation(ApiNode node) {
         String style = "font-family:sans-serif; color: #A9B7C6; background-color: #313335; padding: 8px;";
         String h3Style = "color: #61AFEF; margin-bottom: 5px;";
         String bStyle = "color: #E5C07B;";
         String codeStyle = "font-family: monospace; background-color: #404245; padding: 2px 4px; border-radius: 3px;";
-
         StringBuilder sb = new StringBuilder("<html><body style='" + style + "'>");
         Object obj = node.getApiObject();
-
         if (obj instanceof ClassInfo ci) {
             sb.append("<h3 style='").append(h3Style).append("'>").append(ci.isInterface() ? "Interface" : "Class").append(" ").append(ci.getSimpleName()).append("</h3>");
             sb.append("<hr><p>Full Name: <code style='").append(codeStyle).append("'>").append(ci.getName()).append("</code></p>");
         } else if (obj instanceof FieldInfo fi) {
             sb.append("<h3 style='").append(h3Style).append("'>Field: ").append(fi.getName()).append("</h3><hr>");
-            sb.append("<p><b style='").append(bStyle).append("'>Type:</b> <code style='").append(codeStyle).append("'>")
-              .append(fi.getTypeSignatureOrTypeDescriptor().toStringWithSimpleNames()).append("</code></p>");
+            sb.append("<p><b style='").append(bStyle).append("'>Type:</b> <code style='").append(codeStyle).append("'>").append(fi.getTypeSignatureOrTypeDescriptor().toStringWithSimpleNames()).append("</code></p>");
         } else if (obj instanceof MethodInfo mi) {
             String returnType = mi.getTypeSignatureOrTypeDescriptor().getResultType().toStringWithSimpleNames();
-            String params = Arrays.stream(mi.getParameterInfo())
-                .map(p -> "<code style='" + codeStyle + "'>" + p.getTypeSignatureOrTypeDescriptor().toStringWithSimpleNames() + "</code> " + p.getName())
-                .collect(Collectors.joining(", "));
+            String params = Arrays.stream(mi.getParameterInfo()).map(p -> "<code style='" + codeStyle + "'>" + p.getTypeSignatureOrTypeDescriptor().toStringWithSimpleNames() + "</code> " + p.getName()).collect(Collectors.joining(", "));
             sb.append("<h3 style='").append(h3Style).append("'>").append(returnType).append(" ").append(mi.getName()).append("(").append(params).append(")</h3><hr>");
-
             if (mi.getParameterInfo().length > 0) {
                 sb.append("<p><b style='").append(bStyle).append("'>Parameters:</b></p><ul>");
                 for (MethodParameterInfo p : mi.getParameterInfo()) {
@@ -647,7 +633,6 @@ public class %s implements CustomIndicator {
             }
             sb.append("<p><b style='").append(bStyle).append("'>Returns:</b> <code style='").append(codeStyle).append("'>").append(returnType).append("</code></p>");
         }
-        
         sb.append("</body></html>");
         return sb.toString();
     }
@@ -656,60 +641,48 @@ public class %s implements CustomIndicator {
         private final Icon classIcon = UITheme.getIcon(UITheme.Icons.API_CLASS, 16, 16);
         private final Icon methodIcon = UITheme.getIcon(UITheme.Icons.API_METHOD, 16, 16);
         private final Icon fieldIcon = UITheme.getIcon(UITheme.Icons.API_FIELD, 16, 16);
-        
         @Override
         public Component getTreeCellRendererComponent(JTree tree, Object value, boolean sel, boolean expanded, boolean leaf, int row, boolean hasFocus) {
             super.getTreeCellRendererComponent(tree, value, sel, expanded, leaf, row, hasFocus);
-            
             if (value instanceof DefaultMutableTreeNode node && node.getUserObject() instanceof ApiNode apiNode) {
                 switch (apiNode.getType()) {
-                    case CLASS:  setIcon(classIcon); break;
-                    case METHOD: setIcon(methodIcon); break;
-                    case FIELD:  setIcon(fieldIcon); break;
+                    case CLASS -> setIcon(classIcon);
+                    case METHOD -> setIcon(methodIcon);
+                    case FIELD -> setIcon(fieldIcon);
                 }
             }
             return this;
         }
     }
-    
+
     private static class DiagnosticParser implements Parser {
         private List<Diagnostic<? extends JavaFileObject>> currentDiagnostics;
         private final DefaultParseResult result;
-
         public DiagnosticParser() {
             this.currentDiagnostics = new ArrayList<>();
             this.result = new DefaultParseResult(this);
         }
-        
         public void setDiagnostics(List<Diagnostic<? extends JavaFileObject>> diagnostics) {
             this.currentDiagnostics = diagnostics;
         }
-
         @Override
         public ParseResult parse(RSyntaxDocument doc, String style) {
             result.clearNotices();
-            if (currentDiagnostics == null) return result;
-            for (Diagnostic<? extends JavaFileObject> diagnostic : currentDiagnostics) {
-                if (diagnostic.getKind() != Diagnostic.Kind.ERROR) continue;
-                
-                int line = (int) diagnostic.getLineNumber() - 1; 
-                if (line < 0) continue;
-                
-                int start = (int) diagnostic.getStartPosition();
-                int end = (int) diagnostic.getEndPosition();
-                if (start < 0 || end < start) continue;
-
-                DefaultParserNotice notice = new DefaultParserNotice(this, diagnostic.getMessage(null), line, start, end - start);
-                result.addNotice(notice);
+            if (currentDiagnostics != null) {
+                for (Diagnostic<? extends JavaFileObject> diagnostic : currentDiagnostics) {
+                    if (diagnostic.getKind() != Diagnostic.Kind.ERROR) continue;
+                    int line = (int) diagnostic.getLineNumber() - 1;
+                    if (line < 0) continue;
+                    int start = (int) diagnostic.getStartPosition();
+                    int end = (int) diagnostic.getEndPosition();
+                    if (start < 0 || end < start) continue;
+                    result.addNotice(new DefaultParserNotice(this, diagnostic.getMessage(null), line, start, end - start));
+                }
             }
             return result;
         }
-
-        @Override
-        public boolean isEnabled() { return true; }
-        @Override
-        public URL getImageBase() { return null; }
-        @Override
-        public ExtendedHyperlinkListener getHyperlinkListener() { return null; }
+        @Override public boolean isEnabled() { return true; }
+        @Override public URL getImageBase() { return null; }
+        @Override public ExtendedHyperlinkListener getHyperlinkListener() { return null; }
     }
 }
