@@ -9,6 +9,7 @@ import com.EcoChartPro.core.indicator.IndicatorManager;
 import com.EcoChartPro.core.model.ChartDataModel;
 import com.EcoChartPro.core.plugin.PluginManager;
 import com.EcoChartPro.ui.chart.ChartPanel;
+import com.EcoChartPro.ui.components.CustomColorChooserPanel;
 import com.EcoChartPro.ui.dashboard.theme.UITheme;
 
 import javax.swing.*;
@@ -20,6 +21,7 @@ import java.math.BigDecimal;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 
 public class IndicatorDialog extends JDialog {
 
@@ -243,9 +245,18 @@ public class IndicatorDialog extends JDialog {
         buttonPanel.add(cancelButton);
         buttonPanel.add(okButton);
 
-        dialog.add(contentPanel, BorderLayout.CENTER);
+        JScrollPane scrollPane = new JScrollPane(contentPanel);
+        scrollPane.setBorder(BorderFactory.createEmptyBorder());
+        dialog.add(scrollPane, BorderLayout.CENTER);
         dialog.add(buttonPanel, BorderLayout.SOUTH);
         dialog.pack();
+        
+        // Constrain dialog size after packing to prevent it from becoming too large
+        Dimension packedSize = dialog.getPreferredSize();
+        int width = Math.min(packedSize.width, 500);
+        int height = Math.min(packedSize.height, 600);
+        dialog.setSize(width, height);
+
         dialog.setLocationRelativeTo(this);
         dialog.setVisible(true);
     }
@@ -273,11 +284,16 @@ public class IndicatorDialog extends JDialog {
                 colorButton.setBackground(initialColor);
                 colorButton.putClientProperty("selectedColor", initialColor);
                 colorButton.addActionListener(e -> {
-                    Color chosenColor = JColorChooser.showDialog(this, "Choose Color", colorButton.getBackground());
-                    if (chosenColor != null) {
-                        colorButton.setBackground(chosenColor);
-                        colorButton.putClientProperty("selectedColor", chosenColor);
-                    }
+                    Consumer<Color> onColorUpdate = newColor -> {
+                        colorButton.setBackground(newColor);
+                        colorButton.putClientProperty("selectedColor", newColor);
+                    };
+
+                    CustomColorChooserPanel colorPanel = new CustomColorChooserPanel(colorButton.getBackground(), onColorUpdate);
+                    JPopupMenu popupMenu = new JPopupMenu();
+                    popupMenu.setBorder(BorderFactory.createLineBorder(UIManager.getColor("Component.borderColor")));
+                    popupMenu.add(colorPanel);
+                    popupMenu.show(colorButton, 0, colorButton.getHeight());
                 });
                 return colorButton;
             default:

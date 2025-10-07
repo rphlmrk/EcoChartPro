@@ -50,25 +50,11 @@ public class IndicatorRunner {
         final List<DebugLogEntry> collectedLogs = new ArrayList<>();
         Consumer<DebugLogEntry> loggerConsumer = collectedLogs::add;
 
-        // This function now fetches only the required slice of MTF data ---
-        Function<Timeframe, List<KLine>> mtfDataProvider = (timeframe) -> {
-            DatabaseManager db = dataModel.getDbManager();
-            if (db == null || dataModel.getCurrentSymbol() == null) {
-                return Collections.emptyList();
-            }
-
-            // Determine the time range of the primary data slice to align MTF data.
-            Instant sliceStartTime = dataSlice.get(0).timestamp();
-            Instant sliceEndTime = dataSlice.get(dataSlice.size() - 1).timestamp();
-            
-            Symbol symbol = new Symbol(dataModel.getCurrentSymbol().symbol());
-            String tfString = timeframe.getDisplayName().replace(" ", "");
-
-            logger.debug("Fetching MTF data for {} ({}) between {} and {}", symbol.name(), tfString, sliceStartTime, sliceEndTime);
-            
-            // Query only the data within the visible time range to avoid high memory usage.
-            return db.getKLinesBetween(symbol, tfString, sliceStartTime, sliceEndTime);
-        };
+        // This function implements the lazy, on-demand data provider.
+        // It only calls the expensive ChartDataModel.getResampledDataForView method
+        // IF the indicator asks for it, and it caches the result for this run.
+        Function<Timeframe, List<KLine>> mtfDataProvider = (timeframe) -> 
+            mtfCache.computeIfAbsent(timeframe, tf -> dataModel.getResampledDataForView(tf));
 
         IndicatorContext context = new IndicatorContext(
             dataSlice,

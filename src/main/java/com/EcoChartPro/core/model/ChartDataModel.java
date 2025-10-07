@@ -51,13 +51,20 @@ public class ChartDataModel implements ReplayStateListener {
     private int dataWindowStartIndex = 0;
     private final IndicatorManager indicatorManager;
     private ChartPanel chartPanel;
-    private SwingWorker<List<KLine>, Void> activeResampleWorker = null;
+    private SwingWorker<RebuildResult, Void> activeResampleWorker = null;
+
+    // Cache for the raw M1 data used to build the current data window.
+    private List<KLine> baseDataWindow;
+
+    // A record to pass multiple results from the async worker.
+    private record RebuildResult(List<KLine> resampledCandles, KLine formingCandle, int newWindowStart, List<KLine> rawM1Slice) {}
 
     public ChartDataModel() {
         this.visibleKLines = new ArrayList<>();
         this.finalizedCandles = new ArrayList<>();
         this.currentDisplayTimeframe = Timeframe.M1;
         this.indicatorManager = new IndicatorManager();
+        this.baseDataWindow = new ArrayList<>();
     }
     
     public void setView(ChartPanel chartPanel) {
@@ -88,6 +95,7 @@ public class ChartDataModel implements ReplayStateListener {
     private void updateView() {
         if (isConfiguredForReplay && currentDisplayTimeframe != Timeframe.M1) {
             if (loadReplayDataWindowIfNeeded()) {
+                // The async worker will call triggerIndicatorRecalculation and updateView when done.
                 return;
             }
             assembleVisibleKLines();
@@ -99,7 +107,6 @@ public class ChartDataModel implements ReplayStateListener {
         }
 
         calculateBoundaries();
-        triggerIndicatorRecalculation();
         fireDataUpdated();
     }
     
@@ -129,6 +136,10 @@ public class ChartDataModel implements ReplayStateListener {
             this.dataWindowStartIndex = newWindowStart;
             String tfString = currentDisplayTimeframe.getDisplayName().replace(" ", "");
             this.finalizedCandles = dbManager.getKLinesByIndex(new Symbol(currentSource.symbol()), tfString, newWindowStart, newWindowSize);
+            this.baseDataWindow = this.finalizedCandles;
+            
+            // A window reload is a data change.
+            triggerIndicatorRecalculation();
         }
     }
 
@@ -154,34 +165,26 @@ public class ChartDataModel implements ReplayStateListener {
 
 
     public void triggerIndicatorRecalculation() {
-        List<KLine> dataForIndicators;
-        if (isConfiguredForReplay) {
-            List<KLine> allChartableCandles = (currentDisplayTimeframe == Timeframe.M1) ? getVisibleKLines() : getAllChartableCandles();
-            if (allChartableCandles.isEmpty()) {
-                dataForIndicators = Collections.emptyList();
-            } else {
-                 int calculationStartIndex;
-                if (currentDisplayTimeframe == Timeframe.M1) {
-                    calculationStartIndex = 0;
-                } else {
-                    int viewStartInWindow = this.startIndex - this.dataWindowStartIndex;
-                    calculationStartIndex = Math.max(0, viewStartInWindow - INDICATOR_LOOKBACK_BUFFER);
-                }
-                int calculationEndIndex = allChartableCandles.size();
-                dataForIndicators = (calculationStartIndex < calculationEndIndex) ? allChartableCandles.subList(calculationStartIndex, calculationEndIndex) : Collections.emptyList();
-            }
-        } else {
-            if (finalizedCandles.isEmpty()) {
-                dataForIndicators = Collections.emptyList();
-            } else {
-                int viewStartInWindow = this.startIndex - this.dataWindowStartIndex;
-                int calculationEndIndex = Math.min(viewStartInWindow + this.barsPerScreen, finalizedCandles.size());
-                int calculationStartIndex = Math.max(0, viewStartInWindow - INDICATOR_LOOKBACK_BUFFER);
-                dataForIndicators = (calculationStartIndex < calculationEndIndex) ? finalizedCandles.subList(calculationStartIndex, calculationEndIndex) : Collections.emptyList();
-            }
-        }
-        indicatorManager.recalculateAll(this, dataForIndicators);
+        indicatorManager.recalculateAll(this, getIndicatorDataSlice());
     }
+    
+    private List<KLine> getIndicatorDataSlice() {
+        if (isConfiguredForReplay) {
+            // When in replay, the data slice for indicators is the entire loaded data window,
+            // as this already includes the necessary lookback buffer.
+            return getAllChartableCandles();
+        } else { // Standard mode
+            if (finalizedCandles.isEmpty()) {
+                 return Collections.emptyList();
+            }
+            // In standard mode, we construct the slice from the visible area + lookback.
+            int viewStartInWindow = this.startIndex - this.dataWindowStartIndex;
+            int calculationEndIndex = Math.min(viewStartInWindow + this.barsPerScreen, finalizedCandles.size());
+            int calculationStartIndex = Math.max(0, viewStartInWindow - INDICATOR_LOOKBACK_BUFFER);
+            return (calculationStartIndex < calculationEndIndex) ? finalizedCandles.subList(calculationStartIndex, calculationEndIndex) : Collections.emptyList();
+        }
+    }
+
 
     public void pan(int barDelta) {
         if (dbManager == null && !isConfiguredForReplay) return;
@@ -230,6 +233,7 @@ public class ChartDataModel implements ReplayStateListener {
         this.currentlyFormingCandle = null;
         this.viewingLiveEdge = true;
         updateView();
+        triggerIndicatorRecalculation();
     }
 
     @Override
@@ -237,6 +241,7 @@ public class ChartDataModel implements ReplayStateListener {
         if (currentDisplayTimeframe != Timeframe.M1) {
             processNewM1Bar(newM1Bar);
         }
+        triggerIndicatorRecalculation();
         updateView();
     }
 
@@ -246,13 +251,13 @@ public class ChartDataModel implements ReplayStateListener {
         if (this.currentDisplayTimeframe != Timeframe.M1) {
             rebuildReplayHistoryForLiveEdgeAsync();
         } else {
+            triggerIndicatorRecalculation();
             updateView();
         }
     }
     
     @Override
     public void onReplayStateChanged() {
-        // If the replay has just started playing, all views should snap to the live edge.
         if (ReplaySessionManager.getInstance().isPlaying()) {
             jumpToLiveEdge();
         }
@@ -269,6 +274,7 @@ public class ChartDataModel implements ReplayStateListener {
             } else {
                 this.finalizedCandles.clear();
                 this.currentlyFormingCandle = null;
+                triggerIndicatorRecalculation();
                 updateView();
             }
         } else {
@@ -284,6 +290,7 @@ public class ChartDataModel implements ReplayStateListener {
         this.viewingLiveEdge = true;
         this.finalizedCandles.clear();
         this.currentlyFormingCandle = null;
+        this.baseDataWindow.clear();
         this.indicatorManager.clearAllIndicators();
         this.totalCandleCount = 0;
         this.dataWindowStartIndex = 0;
@@ -317,14 +324,11 @@ public class ChartDataModel implements ReplayStateListener {
         }
 
         activeResampleWorker = new SwingWorker<>() {
-            private int newWindowStartIndex;
-            private KLine lastFormingCandle;
-
             @Override
-            protected List<KLine> doInBackground() throws Exception {
+            protected RebuildResult doInBackground() throws Exception {
                 ReplaySessionManager manager = ReplaySessionManager.getInstance();
                 long m1BarsPerTargetCandle = currentDisplayTimeframe.getDuration().toMinutes();
-                if (m1BarsPerTargetCandle <= 0) return Collections.emptyList();
+                if (m1BarsPerTargetCandle <= 0) return new RebuildResult(Collections.emptyList(), null, 0, Collections.emptyList());
 
                 int m1WindowCenter = (int) ((targetStartIndexInResampledData + (barsPerScreen / 2)) * m1BarsPerTargetCandle);
                 m1WindowCenter = Math.min(m1WindowCenter, manager.getReplayHeadIndex());
@@ -333,7 +337,7 @@ public class ChartDataModel implements ReplayStateListener {
                 int m1FetchStartIndex = Math.max(0, m1WindowCenter - (m1LookbackForWindow / 2));
                 int m1FetchCount = Math.min(m1LookbackForWindow, manager.getReplayHeadIndex() + 1 - m1FetchStartIndex);
 
-                if (m1FetchCount <= 0) return Collections.emptyList();
+                if (m1FetchCount <= 0) return new RebuildResult(Collections.emptyList(), null, 0, Collections.emptyList());
 
                 logger.info("On-demand resampling for index {}. Fetching M1 slice: start={}, count={}",
                         targetStartIndexInResampledData, m1FetchStartIndex, m1FetchCount);
@@ -341,29 +345,30 @@ public class ChartDataModel implements ReplayStateListener {
 
                 List<KLine> resampledData = DataResampler.resample(m1HistorySlice, currentDisplayTimeframe);
                 
+                int newWindowStart = 0;
                 if (!m1HistorySlice.isEmpty() && !resampledData.isEmpty()) {
-                     newWindowStartIndex = m1FetchStartIndex / (int) m1BarsPerTargetCandle;
-                } else {
-                    newWindowStartIndex = 0;
+                     newWindowStart = m1FetchStartIndex / (int) m1BarsPerTargetCandle;
                 }
 
-
+                KLine formingCandle = null;
                 if (!resampledData.isEmpty()) {
                     Instant lastM1TsInSlice = m1HistorySlice.get(m1HistorySlice.size() - 1).timestamp();
                     Instant lastResampledCandleTs = resampledData.get(resampledData.size() - 1).timestamp();
                     if (getIntervalStart(lastM1TsInSlice, currentDisplayTimeframe).equals(lastResampledCandleTs)) {
-                        lastFormingCandle = resampledData.remove(resampledData.size() - 1);
+                        formingCandle = resampledData.remove(resampledData.size() - 1);
                     }
                 }
-                return resampledData;
+                return new RebuildResult(resampledData, formingCandle, newWindowStart, m1HistorySlice);
             }
 
             @Override
             protected void done() {
                 try {
-                    finalizedCandles = get();
-                    currentlyFormingCandle = lastFormingCandle;
-                    dataWindowStartIndex = newWindowStartIndex;
+                    RebuildResult result = get();
+                    finalizedCandles = result.resampledCandles();
+                    currentlyFormingCandle = result.formingCandle();
+                    dataWindowStartIndex = result.newWindowStart();
+                    baseDataWindow = result.rawM1Slice();
                     
                     if (currentDisplayTimeframe.getDuration().toMinutes() > 0) {
                         totalCandleCount = (ReplaySessionManager.getInstance().getReplayHeadIndex() + 1) / (int)currentDisplayTimeframe.getDuration().toMinutes();
@@ -380,10 +385,13 @@ public class ChartDataModel implements ReplayStateListener {
                     logger.error("Failed to resample replay history in background", e.getCause());
                     finalizedCandles = Collections.emptyList();
                     currentlyFormingCandle = null;
+                    baseDataWindow.clear();
                 } finally {
                     if (chartPanel != null) {
                         chartPanel.setLoading(false, null);
                     }
+                    // CRITICAL FIX: Trigger calculation AFTER new data is loaded.
+                    triggerIndicatorRecalculation();
                     updateView();
                     activeResampleWorker = null;
                 }
@@ -394,6 +402,10 @@ public class ChartDataModel implements ReplayStateListener {
 
 
     private void processNewM1Bar(KLine m1Bar) {
+        if (baseDataWindow != null) {
+            baseDataWindow.add(m1Bar);
+        }
+
         Instant m1Timestamp = m1Bar.timestamp();
         Instant intervalStart = getIntervalStart(m1Timestamp, currentDisplayTimeframe);
         if (currentlyFormingCandle == null) {
@@ -417,7 +429,10 @@ public class ChartDataModel implements ReplayStateListener {
                     int dataBarsOnScreen = (int) (barsPerScreen * (1.0 - rightMarginRatio));
                     this.startIndex = Math.max(0, (headIndex + 1) - dataBarsOnScreen);
                 }
-                this.visibleKLines = manager.getOneMinuteBars(this.startIndex, this.barsPerScreen);
+                
+                int fetchCount = Math.min(this.barsPerScreen, headIndex + 1 - this.startIndex);
+                this.baseDataWindow = manager.getOneMinuteBars(this.startIndex, fetchCount);
+                this.visibleKLines = this.baseDataWindow;
             } else {
                 List<KLine> allChartableCandles = getAllChartableCandles();
                 if (viewingLiveEdge) {
@@ -531,13 +546,13 @@ public class ChartDataModel implements ReplayStateListener {
                         viewingLiveEdge = false;
                         finalizedCandles = result.candles();
                         dataWindowStartIndex = result.newWindowStart();
+                        triggerIndicatorRecalculation();
                     }
                 } catch (Exception e) {
                     logger.error("Failed to jump to trade", e);
                     finalizedCandles.clear();
                 } finally {
                     if (chartPanel != null) chartPanel.setLoading(false, null);
-                    // Trigger a final repaint with the newly loaded data and correct view parameters.
                     updateView();
                 }
             }
@@ -578,6 +593,7 @@ public class ChartDataModel implements ReplayStateListener {
         if (isConfiguredForReplay && currentDisplayTimeframe != Timeframe.M1) {
             rebuildReplayHistoryForLiveEdgeAsync();
         } else {
+            triggerIndicatorRecalculation();
             updateView();
         }
     }
@@ -592,13 +608,22 @@ public class ChartDataModel implements ReplayStateListener {
         if (viewingLiveEdge) updateView();
     }
 
+    public List<KLine> getResampledDataForView(Timeframe targetTimeframe) {
+        if (isConfiguredForReplay) {
+            if (baseDataWindow == null || baseDataWindow.isEmpty()) {
+                logger.warn("HTF data requested for {} but the base M1 data window is empty.", targetTimeframe);
+                return Collections.emptyList();
+            }
+            logger.debug("Resampling for HTF {}: Using cached base data window with {} M1 bars.", targetTimeframe, baseDataWindow.size());
+            return DataResampler.resample(this.baseDataWindow, targetTimeframe);
+        } else {
+            logger.warn("HTF data request in non-replay mode is not yet supported. Returning empty list for {}.", targetTimeframe);
+            return Collections.emptyList();
+        }
+    }
+
     public IndicatorManager getIndicatorManager() { return indicatorManager; }
     
-    /**
-     * New getter for the DrawingManager singleton.
-     * This solves a compilation error in PriceAxisPanel.
-     * @return The singleton instance of the DrawingManager.
-     */
     public DrawingManager getDrawingManager() {
         return DrawingManager.getInstance();
     }
