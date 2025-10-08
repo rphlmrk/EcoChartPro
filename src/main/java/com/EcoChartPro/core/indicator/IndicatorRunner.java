@@ -4,9 +4,7 @@ import com.EcoChartPro.api.indicator.drawing.DrawableObject;
 import com.EcoChartPro.core.indicator.IndicatorContext.DebugLogEntry;
 import com.EcoChartPro.core.model.ChartDataModel;
 import com.EcoChartPro.model.KLine;
-import com.EcoChartPro.model.Symbol;
 import com.EcoChartPro.model.Timeframe;
-import com.EcoChartPro.utils.DatabaseManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -30,6 +28,7 @@ public class IndicatorRunner {
     private final ChartDataModel dataModel;
     private final Map<Timeframe, List<KLine>> mtfCache = new HashMap<>();
 
+
     public record CalculationResult(List<DrawableObject> drawables, List<DebugLogEntry> debugLogs) {}
 
     public IndicatorRunner(Indicator indicator, ChartDataModel dataModel) {
@@ -50,11 +49,9 @@ public class IndicatorRunner {
         final List<DebugLogEntry> collectedLogs = new ArrayList<>();
         Consumer<DebugLogEntry> loggerConsumer = collectedLogs::add;
 
-        // This function implements the lazy, on-demand data provider.
-        // It only calls the expensive ChartDataModel.getResampledDataForView method
-        // IF the indicator asks for it, and it caches the result for this run.
-        Function<Timeframe, List<KLine>> mtfDataProvider = (timeframe) -> 
-            mtfCache.computeIfAbsent(timeframe, tf -> dataModel.getResampledDataForView(tf));
+        Function<Timeframe, List<KLine>> mtfDataProvider = (timeframe) -> {
+            return mtfCache.computeIfAbsent(timeframe, dataModel::getResampledDataForView);
+        };
 
         IndicatorContext context = new IndicatorContext(
             dataSlice,
@@ -64,6 +61,7 @@ public class IndicatorRunner {
         );
 
         try {
+            // [FIX] The cache is no longer cleared here, allowing it to work across ticks/repaints.
             List<DrawableObject> drawables = indicator.calculate(context);
             return new CalculationResult(drawables, collectedLogs);
         } catch (Exception e) {

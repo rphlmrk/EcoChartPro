@@ -25,6 +25,10 @@ public final class IndicatorManager {
     private final Map<UUID, List<IndicatorContext.DebugLogEntry>> debugData = new ConcurrentHashMap<>();
     private final PropertyChangeSupport pcs = new PropertyChangeSupport(this);
 
+    public IndicatorManager() {
+        // Constructor is empty.
+    }
+
     public void addPropertyChangeListener(PropertyChangeListener listener) {
         pcs.addPropertyChangeListener(listener);
     }

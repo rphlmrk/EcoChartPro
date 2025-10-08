@@ -319,6 +319,40 @@ public final class DatabaseManager implements AutoCloseable {
         return klines;
     }
 
+    /**
+     * [NEW METHOD] Retrieves the complete historical dataset for a given symbol and timeframe.
+     * This is used by the IndicatorRunner to provide full data context to HTF indicators.
+     * @param symbol The symbol to retrieve data for.
+     * @param timeframe The timeframe string (e.g., "M1", "H4").
+     * @return A list of all KLine objects, sorted by timestamp.
+     */
+    public List<KLine> getAllKLines(Symbol symbol, String timeframe) {
+        List<KLine> klines = new ArrayList<>();
+        String sql = "SELECT timestamp_sec, open, high, low, close, volume FROM kline_data WHERE symbol = ? AND timeframe = ? ORDER BY timestamp_sec ASC";
+
+        try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
+            pstmt.setString(1, symbol.name());
+            pstmt.setString(2, timeframe);
+            
+            try (ResultSet rs = pstmt.executeQuery()) {
+                while (rs.next()) {
+                    klines.add(new KLine(
+                        Instant.ofEpochSecond(rs.getLong("timestamp_sec")),
+                        new BigDecimal(rs.getString("open")),
+                        new BigDecimal(rs.getString("high")),
+                        new BigDecimal(rs.getString("low")),
+                        new BigDecimal(rs.getString("close")),
+                        new BigDecimal(rs.getString("volume"))
+                    ));
+                }
+            }
+        } catch (SQLException e) {
+            logger.error("Failed to retrieve all k-lines for {} on timeframe {}. DB error.", symbol.name(), timeframe, e);
+        }
+        return klines;
+    }
+
+
     public int getTotalKLineCount(Symbol symbol, String timeframe) {
         String sql = "SELECT COUNT(*) FROM kline_data WHERE symbol = ? AND timeframe = ?";
         try (PreparedStatement pstmt = connection.prepareStatement(sql)) {

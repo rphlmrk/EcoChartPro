@@ -22,6 +22,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 
 public class IndicatorDialog extends JDialog {
 
@@ -319,14 +320,38 @@ public class IndicatorDialog extends JDialog {
     }
 
     private static class ActiveIndicatorRenderer extends DefaultListCellRenderer {
+        
+        /**
+         * [MODIFIED] Helper method to create a more readable string representation of indicator settings.
+         */
+        private String formatSettings(Map<String, Object> settings) {
+            if (settings == null || settings.isEmpty()) {
+                return "";
+            }
+            return settings.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey()) // Sort for consistent order
+                .map(entry -> {
+                    String key = entry.getKey();
+                    Object value = entry.getValue();
+                    String valueStr;
+                    if (value instanceof BigDecimal) {
+                        valueStr = ((BigDecimal) value).toPlainString();
+                    } else if (value instanceof Color c) {
+                        valueStr = String.format("#%02x%02x%02x", c.getRed(), c.getGreen(), c.getBlue());
+                    } else {
+                        valueStr = value.toString();
+                    }
+                    return key + "=" + valueStr;
+                })
+                .collect(Collectors.joining(", ", " (", ")"));
+        }
+
         @Override
         public Component getListCellRendererComponent(JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
             JLabel label = (JLabel) super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
             if (value instanceof Indicator indicator) {
-                String text = indicator.getName();
-                if (indicator.getSettings() != null && !indicator.getSettings().isEmpty()) {
-                    text += " " + indicator.getSettings().toString().replace('{', '(').replace('}', ')');
-                }
+                // [MODIFIED] Use the new formatting helper for a cleaner display.
+                String text = indicator.getName() + formatSettings(indicator.getSettings());
                 label.setText(text);
             }
             return label;
