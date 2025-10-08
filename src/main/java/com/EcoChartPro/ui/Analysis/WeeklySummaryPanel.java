@@ -9,12 +9,9 @@ import java.text.DecimalFormat;
 public class WeeklySummaryPanel extends JPanel {
     private static final DecimalFormat PNL_FORMAT = new DecimalFormat("+$#,##0.00;-$#,##0.00");
     private static final DecimalFormat PERCENT_FORMAT = new DecimalFormat("0%");
-    private final JLabel tradeCountLabel, pnlLabel, planRateLabel;
-    private final JLabel winRateValueLabel;
-    private final WinRateBar winRateBar;
+    private final JLabel tradeCountLabel, pnlLabel, planRateLabel, winRateLabel;
     private final CardLayout cardLayout;
     private final JPanel cardWrapper;
-    private final StatCard winRateCard;
 
     public WeeklySummaryPanel() {
         setOpaque(false);
@@ -31,34 +28,25 @@ public class WeeklySummaryPanel extends JPanel {
         StatCard placeholderCard = new StatCard();
         placeholderCard.add(placeholderWrapper, BorderLayout.CENTER);
         cardWrapper.add(placeholderCard, "placeholder");
-        JPanel dataPanel = new JPanel(new GridLayout(1, 2, 5, 0));
+        
+        // Use a single panel for all data
+        JPanel dataPanel = new JPanel(new GridLayout(1, 1, 0, 0));
         dataPanel.setOpaque(false);
-        StatCard pnlPlanCard = new StatCard();
-        pnlPlanCard.setLayout(new BoxLayout(pnlPlanCard, BoxLayout.Y_AXIS));
+        
+        StatCard statsCard = new StatCard();
+        statsCard.setLayout(new BoxLayout(statsCard, BoxLayout.Y_AXIS));
         tradeCountLabel = createStatLabel(Font.PLAIN);
         pnlLabel = createStatLabel(Font.PLAIN);
         planRateLabel = createStatLabel(Font.PLAIN);
-        pnlPlanCard.add(tradeCountLabel);
-        pnlPlanCard.add(pnlLabel);
-        pnlPlanCard.add(planRateLabel);
-        dataPanel.add(pnlPlanCard);
-
-        winRateCard = new StatCard();
-        winRateCard.setLayout(new BorderLayout(0, 2));
-        JLabel winRateTitleLabel = new JLabel("Win Rate");
-        winRateTitleLabel.setFont(UIManager.getFont("app.font.widget_content"));
-        winRateTitleLabel.setForeground(UIManager.getColor("Label.foreground"));
-        winRateValueLabel = new JLabel();
-        winRateValueLabel.setFont(UIManager.getFont("app.font.widget_content"));
-        winRateValueLabel.setForeground(UIManager.getColor("Label.foreground"));
-        winRateBar = new WinRateBar();
-        JPanel winRateHeader = new JPanel(new BorderLayout());
-        winRateHeader.setOpaque(false);
-        winRateHeader.add(winRateTitleLabel, BorderLayout.WEST);
-        winRateHeader.add(winRateValueLabel, BorderLayout.EAST);
-        winRateCard.add(winRateHeader, BorderLayout.NORTH);
-        winRateCard.add(winRateBar, BorderLayout.CENTER);
-        dataPanel.add(winRateCard);
+        winRateLabel = createStatLabel(Font.PLAIN); // New label for win rate
+        
+        statsCard.add(tradeCountLabel);
+        statsCard.add(pnlLabel);
+        statsCard.add(planRateLabel);
+        statsCard.add(winRateLabel); // Add it to the list
+        
+        dataPanel.add(statsCard);
+        
         cardWrapper.add(dataPanel, "data");
         cardWrapper.setPreferredSize(new Dimension(cardWrapper.getPreferredSize().width, 80));
         add(cardWrapper, BorderLayout.CENTER);
@@ -74,16 +62,8 @@ public class WeeklySummaryPanel extends JPanel {
             pnlLabel.setForeground(UIManager.getColor("Label.foreground"));
             planRateLabel.setFont(UIManager.getFont("app.font.widget_content").deriveFont(Font.PLAIN, 13f));
             planRateLabel.setForeground(UIManager.getColor("Label.foreground"));
-            
-            if (winRateCard != null && winRateCard.getComponentCount() > 0) {
-                JPanel winRateHeader = (JPanel) winRateCard.getComponent(0);
-                JLabel title = (JLabel) winRateHeader.getComponent(0);
-                title.setFont(UIManager.getFont("app.font.widget_content"));
-                title.setForeground(UIManager.getColor("Label.foreground"));
-                
-                winRateValueLabel.setFont(UIManager.getFont("app.font.widget_content"));
-                winRateValueLabel.setForeground(UIManager.getColor("Label.foreground"));
-            }
+            winRateLabel.setFont(UIManager.getFont("app.font.widget_content").deriveFont(Font.PLAIN, 13f));
+            winRateLabel.setForeground(UIManager.getColor("Label.foreground"));
             repaint();
         }
     }
@@ -97,10 +77,9 @@ public class WeeklySummaryPanel extends JPanel {
 
     public void updateData(WeeklyStats stats, DayCellPanel.ViewMode viewMode) {
         tradeCountLabel.setText(stats.tradeCount() + " trade" + (stats.tradeCount() == 1 ? "" : "s"));
-        pnlLabel.setText(PNL_FORMAT.format(stats.totalPnl()));
-        planRateLabel.setText(PERCENT_FORMAT.format(stats.planFollowedPercentage()) + " plan");
-        winRateValueLabel.setText(PERCENT_FORMAT.format(stats.winRatio()));
-        winRateBar.setProgress(stats.winRatio());
+        pnlLabel.setText("P&L: " + PNL_FORMAT.format(stats.totalPnl()));
+        planRateLabel.setText("Plan Adherence: " + PERCENT_FORMAT.format(stats.planFollowedPercentage()));
+        winRateLabel.setText("Win Rate: " + PERCENT_FORMAT.format(stats.winRatio()));
         cardLayout.show(cardWrapper, "data");
     }
 

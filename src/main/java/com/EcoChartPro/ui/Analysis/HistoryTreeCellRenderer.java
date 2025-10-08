@@ -18,7 +18,7 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.TextStyle;
 import java.util.Locale;
 
-public class HistoryTreeCellRenderer implements TreeCellRenderer {
+public class HistoryTreeCellRenderer extends JPanel implements TreeCellRenderer, ListCellRenderer<Object> {
 
     private static final DateTimeFormatter YEAR_FORMATTER = DateTimeFormatter.ofPattern("yyyy");
     private static final DateTimeFormatter MONTH_FORMATTER = DateTimeFormatter.ofPattern("MMMM");
@@ -26,7 +26,6 @@ public class HistoryTreeCellRenderer implements TreeCellRenderer {
     private static final DecimalFormat PNL_FORMAT = new DecimalFormat("+$#,##0.00;-$#,##0.00");
     private static final DecimalFormat PERCENT_FORMAT = new DecimalFormat("0'%'");
 
-    private final JPanel rendererPanel;
     private final JLabel iconLabel;
     private final JLabel textLabel;
     private final JLabel tagsLabel; // Re-purposed for subtitles
@@ -35,8 +34,8 @@ public class HistoryTreeCellRenderer implements TreeCellRenderer {
     private final Icon collapsedIcon = UIManager.getIcon("Tree.collapsedIcon");
 
     public HistoryTreeCellRenderer() {
-        rendererPanel = new JPanel(new BorderLayout(5, 0));
-        rendererPanel.setOpaque(false);
+        super(new BorderLayout(5, 0));
+        setOpaque(true); // Required for ListCellRenderer selection background
 
         iconLabel = new JLabel();
         textLabel = new JLabel();
@@ -55,17 +54,18 @@ public class HistoryTreeCellRenderer implements TreeCellRenderer {
         mainContent.setOpaque(false);
         mainContent.add(textPanel, BorderLayout.CENTER);
 
-        rendererPanel.add(iconLabel, BorderLayout.WEST);
-        rendererPanel.add(mainContent, BorderLayout.CENTER);
+        add(iconLabel, BorderLayout.WEST);
+        add(mainContent, BorderLayout.CENTER);
     }
-
-    @Override
-    public Component getTreeCellRendererComponent(JTree tree, Object value, boolean selected, boolean expanded, boolean leaf, int row, boolean hasFocus) {
-        Object userObject = ((DefaultMutableTreeNode) value).getUserObject();
-        
+    
+    private void resetComponent() {
         tagsLabel.setText("");
         tagsLabel.setVisible(false);
-        rendererPanel.setBorder(BorderFactory.createEmptyBorder(2, 0, 2, 0));
+        setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
+    }
+    
+    private void configureFor(Object userObject, boolean expanded) {
+        resetComponent();
 
         if (userObject instanceof YearNode year) {
             configureForHierarchy(year.year(), expanded, UIManager.getFont("app.font.widget_title").deriveFont(14f));
@@ -89,21 +89,45 @@ public class HistoryTreeCellRenderer implements TreeCellRenderer {
             configureForTrade(trade);
         } else {
             iconLabel.setIcon(null);
-            textLabel.setText(userObject.toString());
+            textLabel.setText(userObject != null ? userObject.toString() : "");
             textLabel.setFont(UIManager.getFont("app.font.widget_content"));
             textLabel.setForeground(UIManager.getColor("Label.disabledForeground"));
         }
+    }
+
+
+    @Override
+    public Component getTreeCellRendererComponent(JTree tree, Object value, boolean selected, boolean expanded, boolean leaf, int row, boolean hasFocus) {
+        Object userObject = ((DefaultMutableTreeNode) value).getUserObject();
+        configureFor(userObject, expanded);
 
         if (selected) {
-            rendererPanel.setOpaque(true);
-            rendererPanel.setBackground(UIManager.getColor("Tree.selectionBackground"));
+            setBackground(UIManager.getColor("Tree.selectionBackground"));
             textLabel.setForeground(UIManager.getColor("Tree.selectionForeground"));
             tagsLabel.setForeground(UIManager.getColor("Tree.selectionForeground"));
         } else {
-            rendererPanel.setOpaque(false);
+            setBackground(UIManager.getColor("Tree.background"));
         }
+        setOpaque(selected);
 
-        return rendererPanel;
+        return this;
+    }
+
+    @Override
+    public Component getListCellRendererComponent(JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
+        configureFor(value, false); // 'expanded' is not applicable for lists
+        
+        if (isSelected) {
+            setBackground(list.getSelectionBackground());
+            setForeground(list.getSelectionForeground());
+            textLabel.setForeground(list.getSelectionForeground());
+            tagsLabel.setForeground(list.getSelectionForeground());
+        } else {
+            setBackground(list.getBackground());
+            setForeground(list.getForeground());
+        }
+        
+        return this;
     }
 
     private void configureForHierarchy(Object text, boolean expanded, Font font) {

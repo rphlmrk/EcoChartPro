@@ -13,21 +13,27 @@ import org.slf4j.LoggerFactory;
 import javax.swing.*;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.*;
+import java.awt.event.MouseAdapter; // [FIX] Import MouseAdapter
+import java.awt.event.MouseEvent;   // [FIX] Import MouseEvent
 import java.io.File;
 import java.io.IOException;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.YearMonth;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.time.format.TextStyle;
+import java.time.temporal.TemporalAdjusters;
 import java.time.temporal.WeekFields;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 public class JournalViewPanel extends JPanel {
     private final JournalAnalysisService analysisService;
+    private List<Trade> allTrades = Collections.emptyList();
     private Map<LocalDate, DailyStats> dailyAnalysisResults;
     private Map<Integer, WeeklyStats> weeklyAnalysisResults;
     private DayCellPanel.ViewMode currentViewMode = DayCellPanel.ViewMode.PNL;
@@ -44,23 +50,42 @@ public class JournalViewPanel extends JPanel {
     private LocalDate minDate;
     private LocalDate maxDate;
 
+    // --- New components for Two-Level View ---
+    private final CardLayout mainCardLayout;
+    private final JPanel mainCardPanel;
+    private final JButton[] weekDayButtons = new JButton[7];
+    private final DefaultListModel<Trade> tradeListModel;
+    private final JTextArea notesArea;
+    private LocalDate currentlySelectedDate;
+
     public JournalViewPanel() {
         this.analysisService = new JournalAnalysisService();
         this.currentYearMonth = YearMonth.now();
         setOpaque(false);
         setLayout(new BorderLayout(20, 15));
-        setBorder(BorderFactory.createEmptyBorder(80, 25, 20, 25));
+        setBorder(BorderFactory.createEmptyBorder(10, 25, 20, 25));
+
+        // --- Main Layout ---
+        mainCardLayout = new CardLayout();
+        mainCardPanel = new JPanel(mainCardLayout);
+        mainCardPanel.setOpaque(false);
+        
+        tradeListModel = new DefaultListModel<>();
+        notesArea = new JTextArea();
+
+        mainCardPanel.add(createCalendarView(), "MONTH_VIEW");
+        mainCardPanel.add(createWeeklyDetailView(), "WEEKLY_DETAIL_VIEW");
+
         add(createHeader(), BorderLayout.NORTH);
-        add(createCalendarView(), BorderLayout.CENTER);
+        add(mainCardPanel, BorderLayout.CENTER);
 
         JPanel southWrapper = new JPanel(new BorderLayout(0, 15));
         southWrapper.setOpaque(false);
-
         this.legendPanel = createLegend();
         southWrapper.add(createBottomControls(), BorderLayout.NORTH);
         southWrapper.add(legendPanel, BorderLayout.CENTER);
-
         add(southWrapper, BorderLayout.SOUTH);
+
         updateLegend();
     }
     
@@ -100,37 +125,39 @@ public class JournalViewPanel extends JPanel {
         }
     }
 
-
     public void loadSessionData(List<Trade> trades) {
         if (trades == null) {
-            trades = Collections.emptyList();
+            this.allTrades = Collections.emptyList();
+        } else {
+            this.allTrades = trades;
         }
 
-        this.dailyAnalysisResults = analysisService.analyzeTradesByDay(trades);
-        this.weeklyAnalysisResults = analysisService.analyzeTradesByWeek(trades);
+        this.dailyAnalysisResults = analysisService.analyzeTradesByDay(this.allTrades);
+        this.weeklyAnalysisResults = analysisService.analyzeTradesByWeek(this.allTrades);
 
-        if (trades.isEmpty()) {
+        if (this.allTrades.isEmpty()) {
             this.currentYearMonth = YearMonth.now();
         } else {
-            analysisService.getLastTradeDate(trades).ifPresent(lastDate -> {
+            analysisService.getLastTradeDate(this.allTrades).ifPresent(lastDate -> {
                 this.currentYearMonth = YearMonth.from(lastDate);
             });
         }
 
         this.minDate = null;
         this.maxDate = null;
-        analysisService.getDateRange(trades).ifPresent(range -> {
+        analysisService.getDateRange(this.allTrades).ifPresent(range -> {
             this.minDate = range.minDate();
             this.maxDate = range.maxDate();
         });
 
+        mainCardLayout.show(mainCardPanel, "MONTH_VIEW");
         updateCalendar();
     }
 
     private JPanel createHeader() {
         JPanel header = new JPanel(new BorderLayout());
         header.setOpaque(false);
-        JLabel title = new JLabel("Trading Calendar");
+        JLabel title = new JLabel("Trading Journal");
         title.setFont(UIManager.getFont("app.font.subheading").deriveFont(24f));
         title.setForeground(UIManager.getColor("Label.foreground"));
         header.add(title, BorderLayout.WEST);
@@ -225,6 +252,57 @@ public class JournalViewPanel extends JPanel {
         }
         return container;
     }
+    
+    private JSplitPane createWeeklyDetailView() {
+        JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
+        splitPane.setOpaque(false);
+        splitPane.setBorder(null);
+        splitPane.setResizeWeight(0.4);
+
+        // --- Left Panel (Week Selector & Trade List) ---
+        JPanel leftPanel = new JPanel(new BorderLayout(0, 10));
+        leftPanel.setOpaque(false);
+
+        JPanel weekSelectorPanel = new JPanel(new GridLayout(1, 7, 5, 5));
+        weekSelectorPanel.setOpaque(false);
+        for(int i = 0; i < 7; i++) {
+            weekDayButtons[i] = new JButton();
+            final int dayIndex = i;
+            weekDayButtons[i].addActionListener(e -> {
+                LocalDate date = (LocalDate) weekDayButtons[dayIndex].getClientProperty("date");
+                if (date != null) showDetailsForDay(date);
+            });
+            weekSelectorPanel.add(weekDayButtons[i]);
+        }
+        
+        JList<Trade> tradeList = new JList<>(tradeListModel);
+        tradeList.setCellRenderer(new HistoryTreeCellRenderer());
+        tradeList.setOpaque(false);
+        JScrollPane tradeListScroller = new JScrollPane(tradeList);
+        tradeListScroller.setOpaque(false);
+        tradeListScroller.getViewport().setOpaque(false);
+        
+        JButton backButton = new JButton("Back to Month View", UITheme.getIcon(UITheme.Icons.ARROW_LEFT, 16, 16));
+        backButton.addActionListener(e -> mainCardLayout.show(mainCardPanel, "MONTH_VIEW"));
+
+        leftPanel.add(weekSelectorPanel, BorderLayout.NORTH);
+        leftPanel.add(tradeListScroller, BorderLayout.CENTER);
+        leftPanel.add(backButton, BorderLayout.SOUTH);
+
+        // --- Right Panel (Notes) ---
+        notesArea.setLineWrap(true);
+        notesArea.setWrapStyleWord(true);
+        notesArea.setEditable(false); // Read-only for now
+        notesArea.setOpaque(false);
+        JScrollPane notesScroller = new JScrollPane(notesArea);
+        notesScroller.setOpaque(false);
+        notesScroller.getViewport().setOpaque(false);
+        TitledContentPanel notesPanel = new TitledContentPanel("Aggregated Notes for Day", notesScroller);
+
+        splitPane.setLeftComponent(leftPanel);
+        splitPane.setRightComponent(notesPanel);
+        return splitPane;
+    }
 
     private void updateCalendar() {
         headerMonthLabel.setText(currentYearMonth.format(HEADER_FORMATTER));
@@ -233,21 +311,45 @@ public class JournalViewPanel extends JPanel {
         for (int r = 0, dayOfMonth = 1; r < 6; r++) {
             boolean weekUpdated = false;
             for (int c = 0; c < 7; c++) {
+                DayCellPanel cell = dayCells[r][c];
+                cell.putClientProperty("date", null);
+                cell.setCursor(Cursor.getDefaultCursor());
+                if (cell.getMouseListeners().length > 1) { // 1 is the default
+                     cell.removeMouseListener(cell.getMouseListeners()[1]);
+                }
+
                 if (r == 0 && c < dayOfWeekValue) {
-                    dayCells[r][c].setVisible(false);
+                    cell.setVisible(false);
                 } else if (dayOfMonth <= currentYearMonth.lengthOfMonth()) {
-                    dayCells[r][c].setVisible(true);
+                    cell.setVisible(true);
                     LocalDate currentDate = currentYearMonth.atDay(dayOfMonth);
+                    cell.putClientProperty("date", currentDate);
+
                     DailyStats stats = (dailyAnalysisResults != null) ? dailyAnalysisResults.get(currentDate) : null;
-                    dayCells[r][c].updateData(stats, currentViewMode);
-                    ((JLabel) dayCells[r][c].getComponent(0)).setText(String.valueOf(dayOfMonth));
+                    cell.updateData(stats, currentViewMode);
+                    ((JLabel) cell.getComponent(0)).setText(String.valueOf(dayOfMonth));
+
+                    if (stats != null) {
+                        cell.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+                        cell.addMouseListener(new MouseAdapter() {
+                            @Override
+                            public void mouseClicked(MouseEvent e) {
+                                LocalDate clickedDate = (LocalDate) ((JComponent)e.getSource()).getClientProperty("date");
+                                if (clickedDate != null) {
+                                    updateWeeklyDetailView(clickedDate);
+                                    mainCardLayout.show(mainCardPanel, "WEEKLY_DETAIL_VIEW");
+                                }
+                            }
+                        });
+                    }
+
                     if (!weekUpdated) {
                         updateWeeklySummaryForRow(r, currentDate);
                         weekUpdated = true;
                     }
                     dayOfMonth++;
                 } else {
-                    dayCells[r][c].setVisible(false);
+                    cell.setVisible(false);
                 }
             }
             if (!weekUpdated) {
@@ -255,6 +357,52 @@ public class JournalViewPanel extends JPanel {
             }
         }
         updateNavButtonState();
+    }
+    
+    private void updateWeeklyDetailView(LocalDate selectedDate) {
+        this.currentlySelectedDate = selectedDate;
+        LocalDate startOfWeek = selectedDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.SUNDAY));
+        
+        for (int i=0; i < 7; i++) {
+            LocalDate day = startOfWeek.plusDays(i);
+            JButton button = weekDayButtons[i];
+            button.putClientProperty("date", day);
+            String buttonText = String.format("<html><center>%s<br>%d</center></html>",
+                day.getDayOfWeek().getDisplayName(TextStyle.SHORT, Locale.US),
+                day.getDayOfMonth());
+            button.setText(buttonText);
+            
+            // Check if there are trades on this day to enable/disable button
+            button.setEnabled(dailyAnalysisResults.containsKey(day));
+        }
+        
+        showDetailsForDay(selectedDate);
+    }
+    
+    private void showDetailsForDay(LocalDate date) {
+        this.currentlySelectedDate = date;
+
+        // Update button highlighting
+        for (JButton button : weekDayButtons) {
+            LocalDate buttonDate = (LocalDate) button.getClientProperty("date");
+            button.setSelected(date.equals(buttonDate));
+        }
+
+        // Update trade list
+        tradeListModel.clear();
+        List<Trade> tradesForDay = allTrades.stream()
+            .filter(t -> t.exitTime().atZone(ZoneOffset.UTC).toLocalDate().equals(date))
+            .collect(Collectors.toList());
+        tradeListModel.addAll(tradesForDay);
+
+        // Update notes area
+        String aggregatedNotes = tradesForDay.stream()
+            .map(Trade::notes)
+            .filter(note -> note != null && !note.isBlank())
+            .collect(Collectors.joining("\n- - - - -\n"));
+        
+        notesArea.setText(aggregatedNotes.isEmpty() ? "No notes recorded for trades on this day." : aggregatedNotes);
+        notesArea.setCaretPosition(0);
     }
 
     private void updateWeeklySummaryForRow(int rowIndex, LocalDate dateInWeek) {
