@@ -8,6 +8,9 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.awt.image.BufferedImage;
+import java.awt.image.ConvolveOp;
+import java.awt.image.Kernel;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 import java.math.BigDecimal;
@@ -21,16 +24,18 @@ public class ReplayControlPanel extends JPanel implements PropertyChangeListener
     private final JButton nextBarButton;
     private final JComboBox<String> speedComboBox;
     private final JLabel dateTimeLabel;
-    private final JLabel accountBalanceLabel;
+    private final BlurrableLabel accountBalanceLabel; // Changed to custom BlurrableLabel
     private JPopupMenu timezonePopup;
     private static final NumberFormat CURRENCY_FORMAT = NumberFormat.getCurrencyInstance(Locale.US);
-    
+
     private BigDecimal initialBalance;
+    private BigDecimal lastKnownBalance;
+    private boolean isBalanceVisible = true;
 
     public ReplayControlPanel(ReplayController controller) {
         this.controller = controller;
         this.controller.addPropertyChangeListener(this);
-        
+
         setLayout(new BoxLayout(this, BoxLayout.X_AXIS));
         setBackground(UIManager.getColor("Panel.background"));
         setBorder(BorderFactory.createCompoundBorder(
@@ -80,10 +85,19 @@ public class ReplayControlPanel extends JPanel implements PropertyChangeListener
             }
         });
 
-        accountBalanceLabel = new JLabel("Balance: $0.00");
+        // Use the new BlurrableLabel
+        accountBalanceLabel = new BlurrableLabel("Balance: $0.00");
         accountBalanceLabel.setFont(UIManager.getFont("app.font.widget_content").deriveFont(Font.BOLD));
         accountBalanceLabel.setForeground(UIManager.getColor("Label.foreground"));
         accountBalanceLabel.setBorder(BorderFactory.createEmptyBorder(2, 5, 2, 5));
+        accountBalanceLabel.setToolTipText("Click to show/hide balance");
+        accountBalanceLabel.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        accountBalanceLabel.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                toggleBalanceVisibility();
+            }
+        });
 
         add(playPauseButton);
         add(Box.createHorizontalStrut(10));
@@ -107,16 +121,14 @@ public class ReplayControlPanel extends JPanel implements PropertyChangeListener
                     break;
                 case "balanceUpdated":
                     BigDecimal newBalance = (BigDecimal) evt.getNewValue();
+                    this.lastKnownBalance = newBalance;
                     accountBalanceLabel.setText("Balance: " + CURRENCY_FORMAT.format(newBalance));
                     updateBalanceColor(newBalance, this.initialBalance);
                     break;
                 case "initialBalance":
                     this.initialBalance = (BigDecimal) evt.getNewValue();
-                    try {
-                        BigDecimal currentBalance = (BigDecimal) CURRENCY_FORMAT.parse(accountBalanceLabel.getText().replace("Balance: ", ""));
-                        updateBalanceColor(currentBalance, this.initialBalance);
-                    } catch(Exception e) {
-                        // Ignore
+                    if (this.lastKnownBalance != null) {
+                        updateBalanceColor(this.lastKnownBalance, this.initialBalance);
                     }
                     break;
                 case "replayStateChanged":
@@ -126,11 +138,18 @@ public class ReplayControlPanel extends JPanel implements PropertyChangeListener
         });
     }
 
+    private void toggleBalanceVisibility() {
+        isBalanceVisible = !isBalanceVisible;
+        accountBalanceLabel.setBlurred(!isBalanceVisible);
+        updateBalanceColor(lastKnownBalance, initialBalance);
+    }
+
     private void updateBalanceColor(BigDecimal currentBalance, BigDecimal initialBalance) {
-        if (initialBalance == null || currentBalance == null) {
+        if (!isBalanceVisible || initialBalance == null || currentBalance == null) {
             accountBalanceLabel.setForeground(UIManager.getColor("Label.foreground"));
             return;
-        };
+        }
+
         int comparison = currentBalance.compareTo(initialBalance);
         if (comparison > 0) {
             accountBalanceLabel.setForeground(UIManager.getColor("app.color.positive"));
@@ -174,6 +193,60 @@ public class ReplayControlPanel extends JPanel implements PropertyChangeListener
             timezonePopup.show(dateTimeLabel, 0, -timezonePopup.getPreferredSize().height);
         } else {
             timezonePopup.setVisible(false);
+        }
+    }
+
+    /**
+     * A custom JLabel that can render its content with a blur effect.
+     * This is achieved by painting the component to an off-screen image,
+     * applying a blur filter (ConvolveOp), and then drawing the blurred
+     * image onto the screen.
+     */
+    private static class BlurrableLabel extends JLabel {
+        private boolean blurred = false;
+        private ConvolveOp blurOperator;
+
+        public BlurrableLabel(String text) {
+            super(text);
+            // Creates a 5x5 kernel for a medium blur effect.
+            int blurRadius = 5;
+            int matrixSize = blurRadius * blurRadius;
+            float[] blurMatrix = new float[matrixSize];
+            for (int i = 0; i < matrixSize; i++) {
+                blurMatrix[i] = 1.0f / (float) matrixSize;
+            }
+            // EDGE_NO_OP prevents issues at the image borders
+            this.blurOperator = new ConvolveOp(new Kernel(blurRadius, blurRadius, blurMatrix), ConvolveOp.EDGE_NO_OP, null);
+        }
+
+        public void setBlurred(boolean blurred) {
+            if (this.blurred != blurred) {
+                this.blurred = blurred;
+                repaint();
+            }
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            if (!blurred || getWidth() <= 0 || getHeight() <= 0) {
+                // If not blurred, use the fast, standard painting method.
+                super.paintComponent(g);
+                return;
+            }
+
+            // 1. Create an off-screen image buffer with transparency.
+            BufferedImage buffer = new BufferedImage(getWidth(), getHeight(), BufferedImage.TYPE_INT_ARGB);
+            Graphics2D g2d = buffer.createGraphics();
+
+            // 2. Trick the JLabel into painting its normal content onto our buffer.
+            super.paintComponent(g2d);
+            g2d.dispose();
+
+            // 3. Apply the blur filter to the off-screen image.
+            BufferedImage blurredImage = blurOperator.filter(buffer, null);
+
+            // 4. Draw the final, blurred image onto the component's actual graphics context.
+            g.drawImage(blurredImage, 0, 0, null);
         }
     }
 }
