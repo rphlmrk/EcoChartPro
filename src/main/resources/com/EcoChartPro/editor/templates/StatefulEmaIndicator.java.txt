@@ -1,0 +1,125 @@
+package com.EcoChartPro.plugins.inapp;
+
+import com.EcoChartPro.api.indicator.ApiKLine;
+import com.EcoChartPro.api.indicator.CustomIndicator;
+import com.EcoChartPro.api.indicator.IndicatorType;
+import com.EcoChartPro.api.indicator.IndicatorUtils;
+import com.EcoChartPro.api.indicator.Parameter;
+import com.EcoChartPro.api.indicator.ParameterType;
+import com.EcoChartPro.api.indicator.drawing.DataPoint;
+import com.EcoChartPro.api.indicator.drawing.DrawableObject;
+import com.EcoChartPro.api.indicator.drawing.DrawablePolyline;
+import com.EcoChartPro.core.indicator.IndicatorContext;
+
+import java.awt.Color;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.Instant; // Import Instant
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+
+public class StatefulEmaIndicator implements CustomIndicator {
+
+    private static final int CALCULATION_SCALE = 10;
+
+    @Override
+    public String getName() {
+        return "Stateful EMA (Example)";
+    }
+
+    @Override
+    public IndicatorType getType() {
+        return IndicatorType.OVERLAY;
+    }
+
+    @Override
+    public List<Parameter> getParameters() {
+        return List.of(
+            new Parameter("period", ParameterType.INTEGER, 20),
+            new Parameter("color", ParameterType.COLOR, new Color(255, 140, 40))
+        );
+    }
+
+    @Override
+    public void onSettingsChanged(Map<String, Object> newSettings, Map<String, Object> state) {
+        state.clear(); // Correct: state is invalid when settings change.
+    }
+
+    @Override
+    public List<DrawableObject> calculate(IndicatorContext context) {
+        int period = (int) context.settings().get("period");
+        Color color = (Color) context.settings().get("color");
+        List<ApiKLine> klineData = context.klineData();
+        Map<String, Object> state = context.state();
+
+        if (klineData.size() < period) {
+            return Collections.emptyList();
+        }
+
+        List<BigDecimal> closePrices = IndicatorUtils.extractSourceData(klineData, ApiKLine::close);
+        BigDecimal multiplier = BigDecimal.valueOf(2.0 / (period + 1.0));
+        
+        List<DataPoint> emaPoints = new ArrayList<>();
+
+        // --- THE REVISED STATE LOGIC ---
+        BigDecimal lastKnownEma = (BigDecimal) state.get("lastEmaValue");
+        Instant lastKnownTimestamp = (Instant) state.get("lastEmaTimestamp");
+
+        for (int i = 0; i < klineData.size(); i++) {
+            ApiKLine currentBar = klineData.get(i);
+            BigDecimal currentClose = closePrices.get(i);
+            BigDecimal newEma;
+
+            // Condition 1: Is this the very first bar of the data slice?
+            if (i == 0) {
+                // If we have a stored state AND it corresponds to the bar right before this one...
+                if (lastKnownEma != null && lastKnownTimestamp != null &&
+                    currentBar.timestamp().minusSeconds(60).equals(lastKnownTimestamp)) { // Assuming 1-minute bars for this check
+                    // ...we can continue the calculation efficiently.
+                    newEma = calculateNextEma(currentClose, lastKnownEma, multiplier);
+                } else {
+                    // ...otherwise, our state is invalid for this slice. We must restart calculation.
+                    // We need 'period' bars from this point to calculate the initial SMA.
+                    if (i <= klineData.size() - period) {
+                        newEma = calculateSmaForSeed(closePrices.subList(i, i + period), period);
+                    } else {
+                        // Not enough data in the rest of the slice to even start.
+                        break; // Exit the loop entirely.
+                    }
+                }
+            } else {
+                // Condition 2: This is not the first bar. Use the previously calculated EMA from *this* loop.
+                BigDecimal previousEmaInLoop = emaPoints.get(emaPoints.size() - 1).price();
+                newEma = calculateNextEma(currentClose, previousEmaInLoop, multiplier);
+            }
+
+            emaPoints.add(new DataPoint(currentBar.timestamp(), newEma));
+        }
+
+        // After the loop, store the state of the VERY LAST point we calculated.
+        if (!emaPoints.isEmpty()) {
+            DataPoint lastPoint = emaPoints.get(emaPoints.size() - 1);
+            state.put("lastEmaValue", lastPoint.price());
+            state.put("lastEmaTimestamp", lastPoint.time());
+        }
+
+        DrawablePolyline line = new DrawablePolyline(emaPoints, color, 2.0f);
+        return Collections.singletonList(line);
+    }
+
+    // Helper method for the EMA formula
+    private BigDecimal calculateNextEma(BigDecimal close, BigDecimal prevEma, BigDecimal multiplier) {
+        return close.subtract(prevEma)
+                    .multiply(multiplier)
+                    .add(prevEma)
+                    .setScale(CALCULATION_SCALE, RoundingMode.HALF_UP);
+    }
+    
+    // Helper method for the initial SMA seed calculation
+    private BigDecimal calculateSmaForSeed(List<BigDecimal> values, int period) {
+        BigDecimal sum = values.stream().reduce(BigDecimal.ZERO, BigDecimal::add);
+        return sum.divide(BigDecimal.valueOf(period), CALCULATION_SCALE, RoundingMode.HALF_UP);
+    }
+}

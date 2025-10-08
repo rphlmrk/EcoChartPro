@@ -187,7 +187,8 @@ public class IndicatorDialog extends JDialog {
         if (parameters.isEmpty()) {
             if (existingInstance == null) {
                 Indicator newInstance = new CustomIndicatorAdapter(plugin, new HashMap<>());
-                indicatorManager.addIndicator(newInstance);
+                // [MODIFIED] Pass the dataModel to addIndicator.
+                indicatorManager.addIndicator(newInstance, dataModel);
                 dataModel.triggerIndicatorRecalculation();
                 dataModel.fireDataUpdated();
             } else {
@@ -229,7 +230,8 @@ public class IndicatorDialog extends JDialog {
 
             if (existingInstance == null) {
                 Indicator newInstance = new CustomIndicatorAdapter(plugin, newSettings);
-                indicatorManager.addIndicator(newInstance);
+                // [MODIFIED] Pass the dataModel to addIndicator.
+                indicatorManager.addIndicator(newInstance, dataModel);
             } else {
                 indicatorManager.updateIndicatorSettings(existingInstance.getId(), newSettings);
             }

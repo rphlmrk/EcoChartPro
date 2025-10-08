@@ -1,0 +1,163 @@
+package com.EcoChartPro.plugins.inapp;
+
+import com.EcoChartPro.api.indicator.ApiKLine;
+import com.EcoChartPro.api.indicator.CustomIndicator;
+import com.EcoChartPro.api.indicator.IndicatorType;
+import com.EcoChartPro.api.indicator.IndicatorUtils;
+import com.EcoChartPro.api.indicator.Parameter;
+import com.EcoChartPro.api.indicator.ParameterType;
+import com.EcoChartPro.api.indicator.drawing.DataPoint;
+import com.EcoChartPro.api.indicator.drawing.DrawableBox;
+import com.EcoChartPro.api.indicator.drawing.DrawableObject;
+import com.EcoChartPro.api.indicator.drawing.DrawablePolyline;
+import com.EcoChartPro.core.indicator.IndicatorContext;
+
+import java.awt.Color;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * A stateful implementation of the Relative Strength Index (RSI).
+ * This indicator is drawn in a separate pane and shows momentum.
+ * It uses Wilder's Smoothing for its calculations, which is a stateful/recursive process.
+ */
+public class StatefulRsiIndicator implements CustomIndicator {
+
+    private static final int CALCULATION_SCALE = 10;
+    private static final BigDecimal ONE_HUNDRED = BigDecimal.valueOf(100);
+
+    @Override
+    public String getName() {
+        return "Stateful RSI (Example)";
+    }
+
+    // RSI is a classic PANE indicator, drawn below the main chart.
+    @Override
+    public IndicatorType getType() {
+        return IndicatorType.PANE;
+    }
+
+    @Override
+    public List<Parameter> getParameters() {
+        return List.of(
+            new Parameter("period", ParameterType.INTEGER, 14),
+            new Parameter("overbought", ParameterType.INTEGER, 70),
+            new Parameter("oversold", ParameterType.INTEGER, 30),
+            new Parameter("color", ParameterType.COLOR, new Color(156, 39, 176)), // Purple
+            new Parameter("bandColor", ParameterType.COLOR, new Color(128, 128, 128, 50)) // Semi-transparent gray
+        );
+    }
+
+    @Override
+    public void onSettingsChanged(Map<String, Object> newSettings, Map<String, Object> state) {
+        // Critical: If the period changes, all previous state is invalid.
+        state.clear();
+    }
+
+    @Override
+    public List<DrawableObject> calculate(IndicatorContext context) {
+        // --- 1. Get Settings and Data ---
+        int period = (int) context.settings().get("period");
+        Color color = (Color) context.settings().get("color");
+        BigDecimal overboughtLevel = BigDecimal.valueOf((Integer) context.settings().get("overbought"));
+        BigDecimal oversoldLevel = BigDecimal.valueOf((Integer) context.settings().get("oversold"));
+        Color bandColor = (Color) context.settings().get("bandColor");
+        
+        List<ApiKLine> klineData = context.klineData();
+        Map<String, Object> state = context.state();
+
+        if (klineData.size() <= period) {
+            return Collections.emptyList(); // Not enough data
+        }
+
+        List<BigDecimal> closePrices = IndicatorUtils.extractSourceData(klineData, ApiKLine::close);
+        List<DataPoint> rsiPoints = new ArrayList<>();
+        
+        // --- 2. Retrieve last known state ---
+        BigDecimal lastAvgGain = (BigDecimal) state.get("lastAvgGain");
+        BigDecimal lastAvgLoss = (BigDecimal) state.get("lastAvgLoss");
+        Instant lastTimestamp = (Instant) state.get("lastTimestamp");
+
+        BigDecimal periodDecimal = BigDecimal.valueOf(period);
+
+        // --- 3. The Core Stateful Logic ---
+        for (int i = 1; i < klineData.size(); i++) {
+            ApiKLine currentBar = klineData.get(i);
+            BigDecimal change = closePrices.get(i).subtract(closePrices.get(i - 1));
+            BigDecimal gain = change.signum() > 0 ? change : BigDecimal.ZERO;
+            BigDecimal loss = change.signum() < 0 ? change.abs() : BigDecimal.ZERO;
+
+            // Check if state is invalid or needs to be seeded
+            if (lastAvgGain == null || lastAvgLoss == null || lastTimestamp == null || !currentBar.timestamp().minusSeconds(60).equals(lastTimestamp)) {
+                // STATE IS INVALID for this bar. We must re-seed.
+                // We need 'period' previous bars to calculate the initial average.
+                if (i >= period) {
+                    // Calculate the simple average of gains and losses for the first 'period' bars.
+                    BigDecimal firstGainSum = BigDecimal.ZERO;
+                    BigDecimal firstLossSum = BigDecimal.ZERO;
+                    for (int j = 0; j < period; j++) {
+                        int lookbackIndex = i - period + j + 1;
+                        BigDecimal seedChange = closePrices.get(lookbackIndex).subtract(closePrices.get(lookbackIndex - 1));
+                        firstGainSum = firstGainSum.add(seedChange.signum() > 0 ? seedChange : BigDecimal.ZERO);
+                        firstLossSum = firstLossSum.add(seedChange.signum() < 0 ? seedChange.abs() : BigDecimal.ZERO);
+                    }
+                    lastAvgGain = firstGainSum.divide(periodDecimal, CALCULATION_SCALE, RoundingMode.HALF_UP);
+                    lastAvgLoss = firstLossSum.divide(periodDecimal, CALCULATION_SCALE, RoundingMode.HALF_UP);
+                } else {
+                    // Not enough historical data in this slice to seed, skip to the next bar.
+                    continue;
+                }
+            } else {
+                // STATE IS VALID. Apply Wilder's Smoothing (a recursive formula).
+                // AvgGain = ((PrevAvgGain * (period - 1)) + CurrentGain) / period
+                lastAvgGain = lastAvgGain.multiply(periodDecimal.subtract(BigDecimal.ONE)).add(gain).divide(periodDecimal, CALCULATION_SCALE, RoundingMode.HALF_UP);
+                lastAvgLoss = lastAvgLoss.multiply(periodDecimal.subtract(BigDecimal.ONE)).add(loss).divide(periodDecimal, CALCULATION_SCALE, RoundingMode.HALF_UP);
+            }
+
+            // --- 4. Calculate RSI value from Average Gain and Loss ---
+            BigDecimal rsi;
+            if (lastAvgLoss.signum() == 0) {
+                rsi = ONE_HUNDRED; // Prevent division by zero if there are no losses.
+            } else {
+                BigDecimal rs = lastAvgGain.divide(lastAvgLoss, CALCULATION_SCALE, RoundingMode.HALF_UP);
+                // RSI = 100 - (100 / (1 + RS))
+                rsi = ONE_HUNDRED.subtract(ONE_HUNDRED.divide(BigDecimal.ONE.add(rs), CALCULATION_SCALE, RoundingMode.HALF_UP));
+            }
+            
+            rsiPoints.add(new DataPoint(currentBar.timestamp(), rsi));
+            lastTimestamp = currentBar.timestamp(); // Update timestamp for the next loop iteration's check.
+        }
+        
+        // --- 5. Store the final state for the next calculate() call ---
+        if (!rsiPoints.isEmpty()) {
+            // Need to store the final avgGain and avgLoss that produced the last RSI point
+            state.put("lastAvgGain", lastAvgGain);
+            state.put("lastAvgLoss", lastAvgLoss);
+            state.put("lastTimestamp", lastTimestamp);
+        }
+
+        // --- 6. Prepare Drawable Objects ---
+        List<DrawableObject> drawables = new ArrayList<>();
+        
+        // Add the main RSI line
+        if (!rsiPoints.isEmpty()) {
+            DrawablePolyline line = new DrawablePolyline(rsiPoints, color, 2.0f);
+            drawables.add(line);
+        }
+
+        // Add the overbought/oversold bands.
+        // We use the first and last timestamps of the visible data to draw the box across the whole pane.
+        if (!klineData.isEmpty()) {
+            DataPoint corner1 = new DataPoint(klineData.get(0).timestamp(), overboughtLevel);
+            DataPoint corner2 = new DataPoint(klineData.get(klineData.size() - 1).timestamp(), oversoldLevel);
+            drawables.add(new DrawableBox(corner1, corner2, bandColor, null, 0f));
+        }
+
+        return drawables;
+    }
+}

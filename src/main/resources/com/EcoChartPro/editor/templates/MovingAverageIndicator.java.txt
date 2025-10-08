@@ -1,4 +1,3 @@
-// --- Create in Java Editor ---
 package com.EcoChartPro.plugins.inapp;
 
 import com.EcoChartPro.api.indicator.*;
@@ -6,7 +5,6 @@ import com.EcoChartPro.api.indicator.drawing.DataPoint;
 import com.EcoChartPro.api.indicator.drawing.DrawableObject;
 import com.EcoChartPro.api.indicator.drawing.DrawablePolyline;
 import com.EcoChartPro.core.indicator.IndicatorContext;
-import com.EcoChartPro.model.KLine;
 import java.awt.Color;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -29,27 +27,24 @@ public class MovingAverageIndicator implements CustomIndicator {
 
     @Override
     public List<DrawableObject> calculate(IndicatorContext context) {
-        List<KLine> data = context.klineData();
+        // --- [FIX] Change the local variable type to ApiKLine ---
+        List<ApiKLine> data = context.klineData();
         int period = (int) context.settings().get("period");
         Color color = (Color) context.settings().get("color");
 
         if (data.size() < period) return Collections.emptyList();
 
-        List<DataPoint> maPoints = new ArrayList<>();
-        BigDecimal periodDecimal = BigDecimal.valueOf(period);
-        
-        BigDecimal windowSum = BigDecimal.ZERO;
-        for (int i = 0; i < period; i++) {
-            windowSum = windowSum.add(data.get(i).close());
-        }
-        
-        BigDecimal firstSma = windowSum.divide(periodDecimal, 8, RoundingMode.HALF_UP);
-        maPoints.add(new DataPoint(data.get(period - 1).timestamp(), firstSma));
+        // --- This line will now work correctly with IndicatorUtils ---
+        List<BigDecimal> closePrices = IndicatorUtils.extractSourceData(data, ApiKLine::close);
+        List<BigDecimal> smaValues = IndicatorUtils.calculateSMA(closePrices, period);
 
-        for (int i = period; i < data.size(); i++) {
-            windowSum = windowSum.add(data.get(i).close()).subtract(data.get(i - period).close());
-            BigDecimal newSma = windowSum.divide(periodDecimal, 8, RoundingMode.HALF_UP);
-            maPoints.add(new DataPoint(data.get(i).timestamp(), newSma));
+        // --- Create DataPoints for the polyline ---
+        List<DataPoint> maPoints = new ArrayList<>();
+        // The SMA result is shorter, so we must align it with the correct timestamps.
+        // The first SMA value corresponds to the k-line at index (period - 1).
+        for (int i = 0; i < smaValues.size(); i++) {
+            int klineIndex = i + period - 1;
+            maPoints.add(new DataPoint(data.get(klineIndex).timestamp(), smaValues.get(i)));
         }
 
         return List.of(new DrawablePolyline(maPoints, color, 1.5f));

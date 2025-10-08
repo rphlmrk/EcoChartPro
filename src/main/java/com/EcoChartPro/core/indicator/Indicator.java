@@ -26,6 +26,21 @@ public abstract class Indicator {
         this.settings = settings;
         this.results = new ArrayList<>();
     }
+    
+    /**
+     * [NEW] Overloaded constructor to allow preserving the UUID.
+     * This is essential for hot-reloading indicators from the live editor.
+     *
+     * @param id The existing UUID to assign to this new indicator instance.
+     * @param name The name of the indicator.
+     * @param settings The initial settings.
+     */
+    public Indicator(UUID id, String name, Map<String, Object> settings) {
+        this.id = id;
+        this.name = name;
+        this.settings = settings;
+        this.results = new ArrayList<>();
+    }
 
     /**
      * The single entry point for all indicator logic.

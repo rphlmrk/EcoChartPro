@@ -5,6 +5,7 @@ import com.EcoChartPro.api.indicator.IndicatorType;
 import com.EcoChartPro.api.indicator.drawing.DrawableObject;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID; // [NEW] Import UUID
 
 /**
  * An adapter that wraps a public {@link CustomIndicator} plugin and makes it
@@ -16,6 +17,14 @@ public class CustomIndicatorAdapter extends Indicator {
 
     public CustomIndicatorAdapter(CustomIndicator plugin, Map<String, Object> settings) {
         super(plugin.getName(), settings);
+        this.plugin = plugin;
+    }
+
+    /**
+     * [NEW] Overloaded constructor to support hot-reloading.
+     */
+    public CustomIndicatorAdapter(UUID id, CustomIndicator plugin, Map<String, Object> settings) {
+        super(id, plugin.getName(), settings);
         this.plugin = plugin;
     }
 

@@ -1,5 +1,6 @@
 package com.EcoChartPro.core.indicator;
 
+import com.EcoChartPro.api.indicator.ApiKLine;
 import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.Timeframe;
 
@@ -14,15 +15,23 @@ import java.util.function.Function;
  * perform its calculation for the current chart view.
  *
  * @param klineData The slice of K-line data for the visible chart area, plus a lookback buffer.
+ *                  This data is provided as a list of the public {@link ApiKLine} records.
  * @param settings The user-configured settings for this indicator instance.
  * @param getHigherTimeframeData A function to request and receive data for another timeframe.
+ *                               Note: This function still returns the internal {@code model.KLine}
+ *                               for performance reasons, as it's intended for internal resampling.
  * @param debugLogger A consumer to send debug data to the Data Inspector.
+ * @param state A mutable map for the indicator to store and retrieve state between calculation calls.
+ *              This map is persistent for the lifetime of the indicator instance on the chart.
+ *              It is managed by the core engine and should be cleared in the onSettingsChanged()
+ *              hook if the state depends on user settings.
  */
 public record IndicatorContext(
-    List<KLine> klineData,
+    List<ApiKLine> klineData,
     Map<String, Object> settings,
     Function<Timeframe, List<KLine>> getHigherTimeframeData,
-    Consumer<IndicatorContext.DebugLogEntry> debugLogger
+    Consumer<IndicatorContext.DebugLogEntry> debugLogger,
+    Map<String, Object> state
 ) {
     /**
      * A record to hold a single piece of debug information from an indicator calculation.

@@ -11,7 +11,6 @@ import io.github.classgraph.FieldInfo;
 import io.github.classgraph.MethodInfo;
 import io.github.classgraph.MethodParameterInfo;
 import org.fife.ui.autocomplete.AutoCompletion;
-import org.fife.ui.autocomplete.CompletionProvider;
 import org.fife.ui.rsyntaxtextarea.RSyntaxDocument;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
@@ -58,7 +57,7 @@ public class JavaEditorDialog extends JDialog {
     private DefaultListModel<Path> fileListModel;
     private JTextArea consoleArea;
     private RTextScrollPane scrollPane;
-    private JButton compileButton; // Made into a field to enable/disable it
+    private JButton compileButton;
     private Icon errorIcon;
     private final DiagnosticParser compilerNoticeParser;
 
@@ -126,7 +125,6 @@ public class JavaEditorDialog extends JDialog {
         toolBar.add(deleteButton);
         toolBar.add(Box.createHorizontalGlue());
 
-        // [MODIFIED] The button is now a field
         compileButton = new JButton("Compile & Apply", UITheme.getIcon(UITheme.Icons.APPLY, 18, 18));
         compileButton.setToolTipText("Compile the current Java code and apply it to the active chart");
         compileButton.addActionListener(e -> compileAndApply());
@@ -169,14 +167,17 @@ public class JavaEditorDialog extends JDialog {
     private JPanel createExamplePanel() {
         JPanel panel = new JPanel(new BorderLayout());
         DefaultMutableTreeNode root = new DefaultMutableTreeNode("Indicator Examples");
-        DefaultMutableTreeNode basic = new DefaultMutableTreeNode("Basic Patterns");
-        basic.add(new DefaultMutableTreeNode("Simple Trend Flip"));
+
+        // --- Basic Stateless Examples ---
+        DefaultMutableTreeNode basic = new DefaultMutableTreeNode("Basic (Stateless)");
         basic.add(new DefaultMutableTreeNode("Moving Average"));
+        basic.add(new DefaultMutableTreeNode("ICT Custom Opens"));
         root.add(basic);
-        DefaultMutableTreeNode advanced = new DefaultMutableTreeNode("Advanced Patterns");
-        advanced.add(new DefaultMutableTreeNode("Smart Money Concepts"));
-        advanced.add(new DefaultMutableTreeNode("Multi-TF Stdev"));
-        advanced.add(new DefaultMutableTreeNode("Forex Sessions"));
+
+        // --- Advanced Stateful Examples ---
+        DefaultMutableTreeNode advanced = new DefaultMutableTreeNode("Advanced (Stateful)");
+        advanced.add(new DefaultMutableTreeNode("Stateful EMA"));
+        advanced.add(new DefaultMutableTreeNode("Stateful RSI"));
         root.add(advanced);
 
         JTree exampleTree = new JTree(root);
@@ -187,8 +188,11 @@ public class JavaEditorDialog extends JDialog {
             @Override
             public Component getTreeCellRendererComponent(JTree tree, Object value, boolean sel, boolean expanded, boolean leaf, int row, boolean hasFocus) {
                 super.getTreeCellRendererComponent(tree, value, sel, expanded, leaf, row, hasFocus);
-                if (leaf) setIcon(UITheme.getIcon(UITheme.Icons.PLUGIN_JAVA, 16, 16));
-                else setIcon(null);
+                if (leaf) {
+                    setIcon(UITheme.getIcon(UITheme.Icons.PLUGIN_JAVA, 16, 16));
+                } else {
+                    setIcon(UITheme.getIcon(UITheme.Icons.FOLDER, 16, 16));
+                }
                 return this;
             }
         });
@@ -290,7 +294,6 @@ public class JavaEditorDialog extends JDialog {
 
     // --- Business Logic ---
 
-    // [MODIFIED] This method now starts the background compilation process.
     private void compileAndApply() {
         if (isDirty && currentlyOpenFile != null) {
             saveCurrentFile();
@@ -307,18 +310,15 @@ public class JavaEditorDialog extends JDialog {
             return;
         }
 
-        // UI updates before starting the worker
         compileButton.setEnabled(false);
         clearErrorHighlights();
         clearConsole();
         logMessage("Starting compilation for " + currentlyOpenFile.getFileName() + "...");
 
-        // Create and execute the SwingWorker
         CompilationWorker worker = new CompilationWorker(simpleClassName, sourceCode);
         worker.execute();
     }
 
-    // [NEW] SwingWorker to handle compilation in the background.
     private class CompilationWorker extends SwingWorker<CompilationService.CompilationResult, Void> {
         private final String simpleClassName;
         private final String fullClassName;
@@ -332,15 +332,13 @@ public class JavaEditorDialog extends JDialog {
 
         @Override
         protected CompilationService.CompilationResult doInBackground() throws Exception {
-            // This runs on a background thread. The UI is NOT frozen.
             return CompilationService.getInstance().compileAndWriteToDisk(fullClassName, sourceCode);
         }
 
         @Override
         protected void done() {
-            // This runs back on the EDT after doInBackground() is finished.
             try {
-                CompilationService.CompilationResult result = get(); // Get the result
+                CompilationService.CompilationResult result = get();
 
                 if (result.success()) {
                     logMessage("Compilation successful. Rescanning plugins...");
@@ -367,7 +365,7 @@ public class JavaEditorDialog extends JDialog {
                 logMessage("An unexpected error occurred during compilation: " + e.getMessage());
                 e.printStackTrace();
             } finally {
-                compileButton.setEnabled(true); // Always re-enable the button
+                compileButton.setEnabled(true);
             }
         }
     }
@@ -435,7 +433,13 @@ public class JavaEditorDialog extends JDialog {
             }
         }
 
-        String fileName = exampleName.replace(" ", "") + "Indicator.java.txt";
+        String fileName;
+        if ("ICT Custom Opens".equals(exampleName)) {
+            fileName = "ICTCustomOpens.java.txt";
+        } else {
+            fileName = exampleName.replace(" ", "") + "Indicator.java.txt";
+        }
+
         String resourcePath = "/com/EcoChartPro/editor/templates/" + fileName;
 
         try (InputStream is = getClass().getResourceAsStream(resourcePath)) {
@@ -445,9 +449,13 @@ public class JavaEditorDialog extends JDialog {
             }
             clearErrorHighlights();
             String content = new String(is.readAllBytes(), StandardCharsets.UTF_8);
-            String originalClassName = exampleName.replace(" ", "") + "Indicator";
-            String newClassName = "My" + originalClassName;
-            content = content.replaceAll(originalClassName, newClassName);
+
+            String originalClassName = extractSimpleClassName(content);
+            if(originalClassName != null) {
+                String newClassName = "My" + originalClassName;
+                content = content.replaceAll("\\b" + originalClassName + "\\b", newClassName);
+            }
+
             textArea.setText(content);
             textArea.discardAllEdits();
             currentlyOpenFile = null;
@@ -488,7 +496,6 @@ public class JavaEditorDialog extends JDialog {
 
     private void saveCurrentFile() {
         if (currentlyOpenFile == null) {
-            // If the file is new (from an example or dirty), prompt to create it first.
             createNewFile();
             return;
         }
@@ -571,7 +578,6 @@ public class JavaEditorDialog extends JDialog {
             import com.EcoChartPro.api.indicator.*;
             import com.EcoChartPro.api.indicator.drawing.*;
             import com.EcoChartPro.core.indicator.IndicatorContext;
-            import com.EcoChartPro.model.KLine;
             import java.awt.Color;
             import java.math.BigDecimal;
             import java.util.Collections;
@@ -598,7 +604,7 @@ public class JavaEditorDialog extends JDialog {
                 @Override
                 public List<DrawableObject> calculate(IndicatorContext context) {
                     // Your logic here.
-                    // List<KLine> data = context.klineData();
+                    // List<ApiKLine> data = context.klineData();
                     // Map<String, Object> settings = context.settings();
                     
                     return Collections.emptyList();

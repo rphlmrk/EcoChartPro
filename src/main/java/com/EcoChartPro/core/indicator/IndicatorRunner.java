@@ -1,5 +1,7 @@
 package com.EcoChartPro.core.indicator;
 
+import com.EcoChartPro.api.indicator.ApiKLine;
+import com.EcoChartPro.api.indicator.CustomIndicator;
 import com.EcoChartPro.api.indicator.drawing.DrawableObject;
 import com.EcoChartPro.core.indicator.IndicatorContext.DebugLogEntry;
 import com.EcoChartPro.core.model.ChartDataModel;
@@ -8,7 +10,6 @@ import com.EcoChartPro.model.Timeframe;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -16,6 +17,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * Manages the calculation for a single indicator instance using the new contextual API.
@@ -27,6 +29,9 @@ public class IndicatorRunner {
     private final Indicator indicator;
     private final ChartDataModel dataModel;
     private final Map<Timeframe, List<KLine>> mtfCache = new HashMap<>();
+    
+    // The persistent state store for this indicator instance.
+    private final Map<String, Object> stateStore = new HashMap<>();
 
 
     public record CalculationResult(List<DrawableObject> drawables, List<DebugLogEntry> debugLogs) {}
@@ -39,12 +44,18 @@ public class IndicatorRunner {
     public void reset() {
         this.indicator.reset();
         this.mtfCache.clear();
+        this.stateStore.clear();
     }
 
     public CalculationResult recalculate(List<KLine> dataSlice) {
         if (dataSlice == null || dataSlice.isEmpty()) {
             return new CalculationResult(Collections.emptyList(), Collections.emptyList());
         }
+
+        // Convert the internal data model to the public API model to enforce the API boundary.
+        List<ApiKLine> apiDataSlice = dataSlice.stream()
+                .map(k -> new ApiKLine(k.timestamp(), k.open(), k.high(), k.low(), k.close(), k.volume()))
+                .collect(Collectors.toList());
 
         final List<DebugLogEntry> collectedLogs = new ArrayList<>();
         Consumer<DebugLogEntry> loggerConsumer = collectedLogs::add;
@@ -54,19 +65,57 @@ public class IndicatorRunner {
         };
 
         IndicatorContext context = new IndicatorContext(
-            dataSlice,
+            apiDataSlice,
             indicator.getSettings(),
             mtfDataProvider,
-            loggerConsumer
+            loggerConsumer,
+            this.stateStore
         );
 
         try {
-            // [FIX] The cache is no longer cleared here, allowing it to work across ticks/repaints.
+            // Clear the MTF cache before every calculation to ensure fresh data
+            mtfCache.clear();
             List<DrawableObject> drawables = indicator.calculate(context);
             return new CalculationResult(drawables, collectedLogs);
         } catch (Exception e) {
             logger.error("Error during calculation for indicator '{}'", indicator.getName(), e);
             return new CalculationResult(Collections.emptyList(), Collections.emptyList());
         }
+    }
+    
+    /**
+     * Method to trigger the onSettingsChanged hook on the underlying plugin.
+     * @param newSettings The new settings map.
+     */
+    public void onSettingsChanged(Map<String, Object> newSettings) {
+        indicator.setSettings(newSettings);
+        if (indicator instanceof CustomIndicatorAdapter adapter) {
+            try {
+                adapter.getPlugin().onSettingsChanged(newSettings, this.stateStore);
+            } catch (Exception e) {
+                logger.error("Error calling onSettingsChanged for indicator '{}'", indicator.getName(), e);
+            }
+        }
+    }
+
+    /**
+     * Method to trigger the onRemoved hook on the underlying plugin.
+     */
+    public void onRemoved() {
+        if (indicator instanceof CustomIndicatorAdapter adapter) {
+            try {
+                adapter.getPlugin().onRemoved(this.stateStore);
+            } catch (Exception e) {
+                logger.error("Error calling onRemoved for indicator '{}'", indicator.getName(), e);
+            }
+        }
+        this.stateStore.clear(); // Clear state as a final cleanup step.
+    }
+    
+    /**
+     * Getter to expose the underlying indicator to the manager.
+     */
+    public Indicator getIndicator() {
+        return this.indicator;
     }
 }

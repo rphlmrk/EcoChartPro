@@ -27,4 +27,30 @@ public interface CustomIndicator {
     default List<DrawableObject> calculate(IndicatorContext context) {
         return Collections.emptyList();
     }
+
+    /**
+     * [NEW] A lifecycle hook called by the framework *after* the user has changed
+     * this indicator's settings in the UI. This provides a crucial opportunity to
+     * manage the indicator's state.
+     * <p>
+     * The primary use case is to invalidate any cached data by calling {@code state.clear()}.
+     * This ensures that on the next {@code calculate()} call, the indicator will re-compute
+     * its values from scratch using the new settings.
+     *
+     * @param newSettings The new map of settings that has just been applied.
+     * @param state The indicator's persistent state map, which can be cleared or modified here.
+     */
+    default void onSettingsChanged(Map<String, Object> newSettings, Map<String, Object> state) {
+        // Default implementation does nothing, ensuring backward compatibility.
+    }
+
+    /**
+     * [NEW] A lifecycle hook called by the framework just before the indicator instance
+     * is removed from the chart. This allows for any final resource cleanup if necessary.
+     *
+     * @param state The indicator's persistent state map at the time of removal.
+     */
+    default void onRemoved(Map<String, Object> state) {
+        // Default implementation does nothing, ensuring backward compatibility.
+    }
 }
