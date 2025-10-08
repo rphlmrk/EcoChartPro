@@ -6,17 +6,25 @@ import java.awt.geom.RoundRectangle2D;
 
 public class TitledContentPanel extends JPanel {
 
+    private final JLabel titleLabel;
+
     public TitledContentPanel(String title, JComponent content) {
         super(new BorderLayout(0, 8));
         setOpaque(false);
         setBorder(BorderFactory.createEmptyBorder(12, 15, 12, 15));
 
-        JLabel titleLabel = new JLabel(title);
+        titleLabel = new JLabel(title);
         titleLabel.setFont(UIManager.getFont("app.font.widget_title"));
         titleLabel.setForeground(UIManager.getColor("Label.foreground"));
         
         add(titleLabel, BorderLayout.NORTH);
         add(content, BorderLayout.CENTER);
+    }
+
+    public void setTitle(String newTitle) {
+        if (titleLabel != null) {
+            titleLabel.setText(newTitle);
+        }
     }
 
     @Override

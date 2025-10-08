@@ -2,171 +2,130 @@ package com.EcoChartPro.ui.dialogs;
 
 import com.EcoChartPro.core.coaching.CoachingInsight;
 import com.EcoChartPro.core.coaching.CoachingService;
-import com.EcoChartPro.core.gamification.GamificationService;
-import com.EcoChartPro.core.journal.JournalAnalysisService;
-import com.EcoChartPro.core.service.ReviewReminderService;
 import com.EcoChartPro.core.state.ReplaySessionState;
-import com.EcoChartPro.core.trading.PaperTradingService;
 import com.EcoChartPro.model.MistakeStats;
-import com.EcoChartPro.model.Trade;
 import com.EcoChartPro.ui.Analysis.ComparativeAnalysisPanel;
+import com.EcoChartPro.ui.Analysis.JournalViewPanel;
 import com.EcoChartPro.ui.Analysis.MistakeAnalysisPanel;
-import com.EcoChartPro.ui.dialogs.PerformanceAnalyticsPanel;
 import com.EcoChartPro.ui.Analysis.TradeExplorerPanel;
-import com.EcoChartPro.ui.dashboard.ComprehensiveReportPanel;
-import com.EcoChartPro.utils.DataSourceManager;
 
 import javax.swing.*;
 import java.awt.*;
-import java.awt.event.WindowAdapter;
-import java.awt.event.WindowEvent;
-import java.beans.PropertyChangeEvent;
-import java.beans.PropertyChangeListener;
-import java.math.BigDecimal;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ExecutionException;
 
-public class InsightsDialog extends JDialog implements PropertyChangeListener {
+/**
+ * A comprehensive dialog that provides deep insights into trading performance.
+ */
+public class InsightsDialog extends JDialog {
 
-    private final ComprehensiveReportPanel reportPanel;
-    private final JList<CoachingInsight> coachingInsightsList;
-    private final PerformanceAnalyticsPanel performanceAnalyticsPanel;
-    private final MistakeAnalysisPanel mistakeAnalysisPanel;
-    private final ComparativeAnalysisPanel comparativeAnalysisPanel;
-    private final TradeExplorerPanel tradeExplorerPanel;
-
-    private List<Trade> allTrades; // Store trades for reminder service
-    private boolean reviewReminderReset = false;
+    private final JTabbedPane tabbedPane;
+    private final PerformanceAnalyticsPanel performancePanel;
+    private final MistakeAnalysisPanel mistakePanel;
+    private final JournalViewPanel journalPanel;
+    private final ComparativeAnalysisPanel comparativePanel;
+    private final TradeExplorerPanel explorerPanel;
+    private final JList<CoachingInsight> insightsList;
+    
+    // --- NEW: For loading state ---
+    private final CardLayout cardLayout = new CardLayout();
+    private final JPanel mainPanel;
+    private final JPanel loadingPanel;
 
     public InsightsDialog(Frame owner) {
-        super(owner, "Eco Chart Pro - Insights", false);
-        setSize(1400, 800);
+        super(owner, "Performance Insights & Journal", true);
+        setSize(1200, 800);
         setLocationRelativeTo(owner);
 
-        JTabbedPane tabbedPane = new JTabbedPane();
+        // --- Main container with CardLayout for loading state ---
+        mainPanel = new JPanel(cardLayout);
 
-        // --- TAB 1: REPORT ---
-        this.reportPanel = new ComprehensiveReportPanel();
-        JScrollPane reportScrollPane = new JScrollPane(this.reportPanel);
-        reportScrollPane.setBorder(null);
-        reportScrollPane.getVerticalScrollBar().setUnitIncrement(16);
-        tabbedPane.addTab("Report", reportScrollPane);
+        // --- Loading Panel ---
+        loadingPanel = new JPanel(new GridBagLayout());
+        JLabel loadingLabel = new JLabel("Analyzing Performance Data...");
+        loadingLabel.setFont(UIManager.getFont("app.font.heading"));
+        loadingLabel.setForeground(UIManager.getColor("Label.disabledForeground"));
+        loadingPanel.add(loadingLabel);
 
-        // --- TAB 2: TRADE EXPLORER (Refactored) ---
-        this.tradeExplorerPanel = new TradeExplorerPanel();
-        tabbedPane.addTab("Trade Explorer", this.tradeExplorerPanel);
+        // --- Content Panel ---
+        JPanel contentPanel = new JPanel(new BorderLayout());
         
-        // --- TAB 3: COMPARATIVE INSIGHTS ---
-        this.comparativeAnalysisPanel = new ComparativeAnalysisPanel();
-        tabbedPane.addTab("Comparative Insights", this.comparativeAnalysisPanel);
-
-        // --- TAB 4: PERFORMANCE ANALYTICS ---
-        this.performanceAnalyticsPanel = new PerformanceAnalyticsPanel();
-        tabbedPane.addTab("Performance Analytics", this.performanceAnalyticsPanel);
-
-        // --- TAB 5: MISTAKE ANALYSIS ---
-        this.mistakeAnalysisPanel = new MistakeAnalysisPanel();
-        tabbedPane.addTab("Mistake Analysis", this.mistakeAnalysisPanel);
-
-        // --- TAB 6: COACHING ---
-        this.coachingInsightsList = new JList<>();
-        tabbedPane.addTab("Coaching", createCoachingPanel());
-
-        // --- FINAL ASSEMBLY & LISTENERS ---
-        setContentPane(tabbedPane);
-
-        tabbedPane.addChangeListener(e -> {
-            if (!reviewReminderReset && tabbedPane.getSelectedIndex() == 2) { // 2 is the index for "Comparative Insights"
-                ReviewReminderService.getInstance().markReviewComplete(allTrades);
-                reviewReminderReset = true;
-            }
-        });
+        insightsList = new JList<>();
+        insightsList.setCellRenderer(new CoachingInsightRenderer());
+        JScrollPane insightsScrollPane = new JScrollPane(insightsList);
+        insightsScrollPane.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10)); // Add padding
         
-        PaperTradingService.getInstance().addPropertyChangeListener(this);
-        addWindowListener(new WindowAdapter() {
-            @Override
-            public void windowClosing(WindowEvent e) {
-                dispose();
-            }
-        });
-    }
+        tabbedPane = new JTabbedPane();
+        performancePanel = new PerformanceAnalyticsPanel();
+        mistakePanel = new MistakeAnalysisPanel();
+        journalPanel = new JournalViewPanel();
+        comparativePanel = new ComparativeAnalysisPanel();
+        explorerPanel = new TradeExplorerPanel();
 
-    private JComponent createCoachingPanel() {
-        JPanel panel = new JPanel(new BorderLayout(0, 10));
-        panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        tabbedPane.addTab("Coaching Insights", insightsScrollPane);
+        tabbedPane.addTab("Performance Analytics", performancePanel);
+        tabbedPane.addTab("Trade Explorer", explorerPanel);
+        tabbedPane.addTab("Trading Journal", journalPanel);
+        tabbedPane.addTab("Mistake Analysis", mistakePanel);
+        tabbedPane.addTab("Comparative Analysis", comparativePanel);
 
-        JLabel headerLabel = new JLabel("Detected Patterns & Insights");
-        headerLabel.setFont(UIManager.getFont("app.font.heading"));
-        panel.add(headerLabel, BorderLayout.NORTH);
+        contentPanel.add(tabbedPane, BorderLayout.CENTER);
 
-        coachingInsightsList.setCellRenderer(new CoachingInsightRenderer());
-        coachingInsightsList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        coachingInsightsList.addListSelectionListener(e -> {
-            if (!e.getValueIsAdjusting()) {
-                CoachingInsight selected = coachingInsightsList.getSelectedValue();
-            }
-        });
+        mainPanel.add(loadingPanel, "loading");
+        mainPanel.add(contentPanel, "content");
         
-        JScrollPane scrollPane = new JScrollPane(coachingInsightsList);
-        scrollPane.setBorder(UIManager.getBorder("TextField.border"));
-        panel.add(scrollPane, BorderLayout.CENTER);
-        
-        return panel;
+        setContentPane(mainPanel);
     }
-
-    @Override
-    public void dispose() {
-        PaperTradingService.getInstance().removePropertyChangeListener(this);
-        super.dispose();
-    }
-
-    @Override
-    public void propertyChange(PropertyChangeEvent evt) {
-        if ("tradeHistoryUpdated".equals(evt.getPropertyName())) {
-            SwingUtilities.invokeLater(() -> {
-                ReplaySessionState state = PaperTradingService.getInstance().getCurrentSessionState();
-                if (state != null) {
-                    loadSessionData(state);
-                }
-            });
-        }
-    }
+    
+    private record AnalysisResult(
+        List<CoachingInsight> insights,
+        Map<String, MistakeStats> mistakeStats
+    ) {}
 
     public void loadSessionData(ReplaySessionState state) {
-        if (state == null || state.tradeHistory() == null) {
-            this.allTrades = Collections.emptyList();
-        } else {
-            this.allTrades = state.tradeHistory();
-        }
-
-        JournalAnalysisService service = new JournalAnalysisService();
-        BigDecimal initialBalance = (state != null) ? state.accountBalance().subtract(allTrades.stream().map(Trade::profitAndLoss).reduce(BigDecimal.ZERO, BigDecimal::add)) : new BigDecimal("100000");
-        JournalAnalysisService.OverallStats stats = service.analyzeOverallPerformance(allTrades, initialBalance);
+        cardLayout.show(mainPanel, "loading");
         
-        this.reportPanel.updateData(stats, service, state);
-        this.tradeExplorerPanel.loadData(allTrades);
-        this.comparativeAnalysisPanel.loadData(allTrades);
-        this.performanceAnalyticsPanel.loadSessionData(state);
+        SwingWorker<AnalysisResult, Void> worker = new SwingWorker<>() {
+            @Override
+            protected AnalysisResult doInBackground() throws Exception {
+                // Perform all heavy analysis in the background
+                CoachingService coachingService = CoachingService.getInstance();
+                com.EcoChartPro.core.journal.JournalAnalysisService journalService = new com.EcoChartPro.core.journal.JournalAnalysisService();
+                
+                int optimalTrades = com.EcoChartPro.core.gamification.GamificationService.getInstance().getOptimalTradeCount();
+                List<Integer> peakHours = com.EcoChartPro.core.gamification.GamificationService.getInstance().getPeakPerformanceHours();
+                
+                List<CoachingInsight> insights = coachingService.analyze(state.tradeHistory(), optimalTrades, peakHours);
+                Map<String, MistakeStats> mistakeStats = journalService.analyzeMistakes(state.tradeHistory());
+                
+                return new AnalysisResult(insights, mistakeStats);
+            }
 
-        Map<String, MistakeStats> mistakeData = service.analyzeMistakes(allTrades);
-        this.mistakeAnalysisPanel.updateData(mistakeData);
+            @Override
+            protected void done() {
+                try {
+                    AnalysisResult result = get();
+                    
+                    // Update UI components on the Event Dispatch Thread
+                    insightsList.setListData(result.insights().toArray(new CoachingInsight[0]));
+                    performancePanel.loadSessionData(state);
+                    mistakePanel.updateData(result.mistakeStats());
+                    journalPanel.loadSessionData(state.tradeHistory());
+                    comparativePanel.loadData(state.tradeHistory());
+                    explorerPanel.loadData(state.tradeHistory());
 
-        GamificationService gamificationService = GamificationService.getInstance();
-        Optional<DataSourceManager.ChartDataSource> sourceOpt = (state != null)
-            ? DataSourceManager.getInstance().getAvailableSources().stream()
-                .filter(s -> s.symbol().equalsIgnoreCase(state.dataSourceSymbol())).findFirst()
-            : Optional.empty();
-
-        List<CoachingInsight> insights = CoachingService.getInstance().analyze(
-            allTrades,
-            gamificationService.getOptimalTradeCount(),
-            gamificationService.getPeakPerformanceHours(),
-            sourceOpt
-        );
-        DefaultListModel<CoachingInsight> listModel = new DefaultListModel<>();
-        listModel.addAll(insights);
-        coachingInsightsList.setModel(listModel);
+                    cardLayout.show(mainPanel, "content");
+                } catch (InterruptedException | ExecutionException e) {
+                    e.printStackTrace();
+                    // Handle error: show an error message panel
+                    cardLayout.show(mainPanel, "loading"); // Or an error panel
+                    ((JLabel)loadingPanel.getComponent(0)).setText("Error loading analysis.");
+                }
+            }
+        };
+        
+        worker.execute();
     }
 }

@@ -1,5 +1,6 @@
 package com.EcoChartPro.ui.dialogs;
 
+import com.EcoChartPro.core.coaching.Challenge;
 import com.EcoChartPro.core.gamification.GamificationService;
 import com.EcoChartPro.core.journal.JournalAnalysisService;
 import com.EcoChartPro.core.state.ReplaySessionState;
@@ -36,7 +37,9 @@ public class PerformanceAnalyticsPanel extends JPanel {
     private final MonthlyPerformanceChart performanceByHourChart;
     private final JTextPane keyTakeawaysPane;
     private final MfeMaeScatterPlot mfeMaeScatterPlot;
-    private final HistogramChart pnlDistributionChart; // <-- NEW CHART INSTANCE
+    private final HistogramChart pnlDistributionChart;
+    private final TitledContentPanel challengePanel; // <-- NEW
+    private final JTextArea challengeDescriptionArea; // <-- NEW
 
     public PerformanceAnalyticsPanel() {
         setOpaque(false);
@@ -46,30 +49,44 @@ public class PerformanceAnalyticsPanel extends JPanel {
         this.tradesPerDayChart = new MonthlyPerformanceChart();
         this.performanceByHourChart = new MonthlyPerformanceChart();
         this.mfeMaeScatterPlot = new MfeMaeScatterPlot();
-        this.pnlDistributionChart = new HistogramChart(); // <-- INSTANTIATE
+        this.pnlDistributionChart = new HistogramChart();
         this.keyTakeawaysPane = new JTextPane();
         this.keyTakeawaysPane.setEditorKit(new HTMLEditorKit());
         this.keyTakeawaysPane.setEditable(false);
         this.keyTakeawaysPane.setOpaque(false);
         this.keyTakeawaysPane.setForeground(javax.swing.UIManager.getColor("Label.foreground"));
+        
+        this.challengeDescriptionArea = new JTextArea();
+        this.challengeDescriptionArea.setOpaque(false);
+        this.challengeDescriptionArea.setEditable(false);
+        this.challengeDescriptionArea.setLineWrap(true);
+        this.challengeDescriptionArea.setWrapStyleWord(true);
+        this.challengeDescriptionArea.setFont(UIManager.getFont("app.font.widget_content"));
+        this.challengeDescriptionArea.setForeground(UIManager.getColor("Label.foreground"));
+        this.challengePanel = new TitledContentPanel("Active Daily Challenge", challengeDescriptionArea);
 
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.fill = GridBagConstraints.BOTH;
         gbc.insets = new Insets(5, 5, 5, 5);
 
-        // --- Row 0: Key Takeaways ---
+        // --- Row 0: Daily Challenge ---
         gbc.gridx = 0;
         gbc.gridy = 0;
         gbc.gridwidth = 3; // Span all 3 columns
         gbc.weightx = 1.0;
+        gbc.weighty = 0; // Don't take up much vertical space
+        add(challengePanel, gbc);
+
+        // --- Row 1: Key Takeaways ---
+        gbc.gridy = 1;
         gbc.weighty = 0.2;
         add(new TitledContentPanel("Key Takeaways", new JScrollPane(keyTakeawaysPane)), gbc);
 
-        // --- Row 1: Top Charts ---
-        gbc.gridy = 1;
+        // --- Row 2: Top Charts ---
+        gbc.gridy = 2;
         gbc.gridwidth = 1;
         gbc.weightx = 0.33;
-        gbc.weighty = 0.4; // Adjusted weighty
+        gbc.weighty = 0.4;
         add(new TitledContentPanel("Performance vs. Trades per Day (by Expectancy)", tradesPerDayChart), gbc);
 
         gbc.gridx = 1;
@@ -78,27 +95,41 @@ public class PerformanceAnalyticsPanel extends JPanel {
         gbc.gridx = 2;
         add(new TitledContentPanel("MFE vs. MAE Scatter Plot", mfeMaeScatterPlot), gbc);
         
-        // --- Row 2: P&L Distribution Histogram (NEW) ---
-        gbc.gridy = 2;
+        // --- Row 3: P&L Distribution Histogram ---
+        gbc.gridy = 3;
         gbc.gridx = 0;
         gbc.gridwidth = 3; // Span all columns
         gbc.weightx = 1.0;
-        gbc.weighty = 0.4; // Adjusted weighty
+        gbc.weighty = 0.4;
         add(new TitledContentPanel("P&L Distribution (# of Trades)", pnlDistributionChart), gbc);
     }
 
     public void loadSessionData(ReplaySessionState state) {
+        GamificationService gamificationService = GamificationService.getInstance();
+        
+        // --- Update Daily Challenge ---
+        Optional<Challenge> challengeOpt = gamificationService.getActiveDailyChallenge();
+        if (challengeOpt.isPresent()) {
+            Challenge challenge = challengeOpt.get();
+            String title = String.format("Active Daily Challenge: %s (+%d XP)", challenge.title(), challenge.xpReward());
+            challengePanel.setVisible(true);
+            challengePanel.setTitle(title); // Use the new public method
+            String challengeText = challenge.isComplete() ? "Completed Today! " + challenge.description() : challenge.description();
+            challengeDescriptionArea.setText(challengeText);
+        } else {
+            challengePanel.setVisible(false);
+        }
+
         if (state == null || state.tradeHistory() == null || state.tradeHistory().isEmpty()) {
             tradesPerDayChart.updateData(Collections.emptyMap());
             performanceByHourChart.updateData(Collections.emptyMap());
             mfeMaeScatterPlot.updateData(Collections.emptyList());
-            pnlDistributionChart.updateData(Collections.emptyList()); // <-- CLEAR CHART
+            pnlDistributionChart.updateData(Collections.emptyList());
             keyTakeawaysPane.setText("Not enough data available for analysis.");
             return;
         }
 
         List<Trade> trades = state.tradeHistory();
-        GamificationService gamificationService = GamificationService.getInstance();
         int optimalCount = gamificationService.getOptimalTradeCount();
         List<Integer> peakHours = gamificationService.getPeakPerformanceHours();
 

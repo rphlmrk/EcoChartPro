@@ -43,6 +43,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.Random;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 
 public class ComprehensiveReportPanel extends JPanel implements Scrollable, PropertyChangeListener {
@@ -185,7 +186,6 @@ public class ComprehensiveReportPanel extends JPanel implements Scrollable, Prop
         
         this.cosmeticRotationTimer = new Timer(WIDGET_VIEW_ROTATION_MS, e -> rotateCosmeticDisplay());
         this.cosmeticRotationTimer.setInitialDelay(WIDGET_VIEW_ROTATION_MS);
-        this.cosmeticRotationTimer.start();
         
         this.liveViewRotationTimer = new Timer(WIDGET_VIEW_ROTATION_MS, e -> rotateLiveDisplay());
 
@@ -321,10 +321,11 @@ public class ComprehensiveReportPanel extends JPanel implements Scrollable, Prop
         cosmeticRotationTimer.stop();
         
         if (stats == null || service == null || state == null) {
-            cosmeticRotationTimer.start();
             return;
         }
         this.currentSessionState = state;
+        
+        coachingCardPanel.setLoading(true);
 
         // --- Update Overall (Static) Widget Data ---
         DecimalFormat pnlFormat = new DecimalFormat("+$#,##0.00;-$#,##0.00");
@@ -363,24 +364,40 @@ public class ComprehensiveReportPanel extends JPanel implements Scrollable, Prop
         // Update gamification services which drive the cosmetic rotation content
         GamificationService.getInstance().updateProgression(stats.trades());
         populateStreakViewModels();
-        populateCoachingViewModels(stats.trades(), sourceOpt);
-        
-        if (!streakViewModels.isEmpty()) {
-            currentStreakIndex = 0;
-            streakProgressCard.updateViewModel(streakViewModels.get(0));
-        }
-        if (!coachingViewModels.isEmpty()) {
-            currentCoachingIndex = 0;
-            coachingCardPanel.updateViewModel(coachingViewModels.get(0));
-        }
-
         updateOverallDisciplineWidget(stats.trades());
+        
+        new SwingWorker<List<ProgressCardViewModel>, Void>() {
+            @Override
+            protected List<ProgressCardViewModel> doInBackground() throws Exception {
+                return populateCoachingViewModels(stats.trades(), sourceOpt);
+            }
 
-        // Check for performance review reminder
+            @Override
+            protected void done() {
+                try {
+                    List<ProgressCardViewModel> models = get();
+                    coachingViewModels.clear();
+                    coachingViewModels.addAll(models);
+
+                    if (!streakViewModels.isEmpty()) {
+                        currentStreakIndex = 0;
+                        streakProgressCard.updateViewModel(streakViewModels.get(0));
+                    }
+                    if (!coachingViewModels.isEmpty()) {
+                        currentCoachingIndex = 0;
+                        coachingCardPanel.updateViewModel(coachingViewModels.get(0));
+                    }
+                    coachingCardPanel.setLoading(false);
+                    cosmeticRotationTimer.start();
+                } catch (InterruptedException | ExecutionException e) {
+                    logger.error("Error populating coaching view models", e);
+                    coachingCardPanel.setLoading(false);
+                }
+            }
+        }.execute();
+
         boolean isReviewDue = ReviewReminderService.getInstance().isReviewDue(stats.trades());
         coachingCardPanel.setReviewDue(isReviewDue);
-
-        cosmeticRotationTimer.start();
     }
     
     // --- Live Mode Methods ---
@@ -531,14 +548,14 @@ public class ComprehensiveReportPanel extends JPanel implements Scrollable, Prop
         });
     }
 
-    private void populateCoachingViewModels(List<Trade> allTrades, Optional<DataSourceManager.ChartDataSource> sourceOpt) {
-        coachingViewModels.clear();
+    private List<ProgressCardViewModel> populateCoachingViewModels(List<Trade> allTrades, Optional<DataSourceManager.ChartDataSource> sourceOpt) {
+        List<ProgressCardViewModel> models = new ArrayList<>();
         GamificationService gamificationService = GamificationService.getInstance();
         CoachingService coachingService = CoachingService.getInstance();
 
         gamificationService.getActiveDailyChallenge().ifPresent(challenge -> {
             if (!challenge.isComplete()) {
-                coachingViewModels.add(new ProgressCardViewModel(
+                models.add(new ProgressCardViewModel(
                     ProgressCardViewModel.CardType.DAILY_CHALLENGE, "Daily Challenge: " + challenge.title(),
                     "", "+" + challenge.xpReward() + " XP", 0.0, "",
                     challenge.description()
@@ -551,7 +568,7 @@ public class ComprehensiveReportPanel extends JPanel implements Scrollable, Prop
         List<CoachingInsight> insights = coachingService.analyze(allTrades, optimalCount, peakHours, sourceOpt);
         
         for (CoachingInsight insight : insights) {
-             coachingViewModels.add(new ProgressCardViewModel(
+             models.add(new ProgressCardViewModel(
                 insight.severity() == InsightSeverity.HIGH ? ProgressCardViewModel.CardType.CRITICAL_MISTAKE : ProgressCardViewModel.CardType.COACHING_INSIGHT,
                 "Coaching Insight: " + insight.title(),
                 "", "View Details", 0.0, "",
@@ -559,11 +576,12 @@ public class ComprehensiveReportPanel extends JPanel implements Scrollable, Prop
             ));
         }
 
-        if (coachingViewModels.isEmpty()) {
-            coachingViewModels.add(new ProgressCardViewModel(
+        if (models.isEmpty()) {
+            models.add(new ProgressCardViewModel(
                 ProgressCardViewModel.CardType.EMPTY, null, null, null, 0.0, null, null
             ));
         }
+        return models;
     }
 
     private JLabel createStatCard(JPanel parent, String title, String tooltip) {

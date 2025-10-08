@@ -21,11 +21,32 @@ public class CoachingCardPanel extends JPanel {
     private Color accentColor = UIManager.getColor("app.color.neutral");
     
     private static final Icon REVIEW_ICON = UITheme.getIcon(UITheme.Icons.INFO, 16, 16);
+    
+    // --- NEW: Components for loading state ---
+    private final CardLayout cardLayout = new CardLayout();
+    private final JPanel contentPanel;
+    private final JPanel loadingPanel;
 
     public CoachingCardPanel() {
+        super(new BorderLayout()); // Use BorderLayout to hold the CardLayout panel
         setOpaque(false);
-        setBorder(BorderFactory.createEmptyBorder(12, 15, 12, 15));
-        setLayout(new GridBagLayout());
+        
+        JPanel cardWrapper = new JPanel(cardLayout);
+        cardWrapper.setOpaque(false);
+        
+        // --- Create Loading Panel ---
+        loadingPanel = new JPanel(new GridBagLayout());
+        loadingPanel.setOpaque(false);
+        loadingPanel.setBorder(BorderFactory.createEmptyBorder(12, 15, 12, 15));
+        JLabel loadingLabel = new JLabel("Analyzing Performance...");
+        loadingLabel.setFont(UIManager.getFont("app.font.widget_title"));
+        loadingLabel.setForeground(UIManager.getColor("Label.disabledForeground"));
+        loadingPanel.add(loadingLabel);
+
+        // --- Create Content Panel ---
+        contentPanel = new JPanel(new GridBagLayout());
+        contentPanel.setOpaque(false);
+        contentPanel.setBorder(BorderFactory.createEmptyBorder(12, 15, 12, 15));
 
         titleLabel = new JLabel("Daily Challenge");
         descriptionArea = new JTextArea("Challenge details will appear here.");
@@ -44,33 +65,35 @@ public class CoachingCardPanel extends JPanel {
         gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.anchor = GridBagConstraints.NORTHWEST;
 
-        // Row 0: Title (spans the full width)
         gbc.gridx = 0; gbc.gridy = 0; gbc.gridwidth = 2; gbc.weightx = 1.0;
-        add(titleLabel, gbc);
+        contentPanel.add(titleLabel, gbc);
 
-        // Row 1: Description
-        gbc.gridy = 1;
-        gbc.weighty = 1.0; // Allow description to take up vertical space
-        gbc.fill = GridBagConstraints.BOTH;
+        gbc.gridy = 1; gbc.weighty = 1.0; gbc.fill = GridBagConstraints.BOTH;
         gbc.insets = new Insets(8, 4, 8, 4);
-        add(descriptionArea, gbc);
+        contentPanel.add(descriptionArea, gbc);
         
-        // Row 2: Bottom row containing the reward label and insights button
-        gbc.gridy = 2;
-        gbc.weighty = 0;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.anchor = GridBagConstraints.SOUTH; // Pin this row to the bottom
+        gbc.gridy = 2; gbc.weighty = 0; gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.anchor = GridBagConstraints.SOUTH;
         gbc.insets = new Insets(4, 4, 0, 4);
         
-        // Create a sub-panel for the bottom elements to align them properly
         JPanel bottomPanel = new JPanel(new BorderLayout(10, 0));
         bottomPanel.setOpaque(false);
         bottomPanel.add(rewardLabel, BorderLayout.WEST);
         bottomPanel.add(viewInsightsButton, BorderLayout.EAST);
         
-        add(bottomPanel, gbc);
+        contentPanel.add(bottomPanel, gbc);
+        
+        cardWrapper.add(contentPanel, "content");
+        cardWrapper.add(loadingPanel, "loading");
+        
+        add(cardWrapper, BorderLayout.CENTER);
 
         updateUI();
+    }
+    
+    public void setLoading(boolean isLoading) {
+        cardLayout.show((JPanel)getComponent(0), isLoading ? "loading" : "content");
+        repaint();
     }
     
     public void addInsightsButtonListener(ActionListener listener) {
@@ -91,20 +114,18 @@ public class CoachingCardPanel extends JPanel {
 
     public void updateViewModel(ProgressCardViewModel model) {
         if (model == null) {
+            setLoading(true);
             return;
         }
 
-        // --- Update Content ---
         titleLabel.setText(model.title());
         descriptionArea.setText(model.motivationalMessage());
         rewardLabel.setText(model.secondaryValue());
         
-        // Button is visible unless the card is empty.
         boolean isEmptyState = model.cardType() == ProgressCardViewModel.CardType.EMPTY;
         viewInsightsButton.setVisible(!isEmptyState);
         viewInsightsButton.setEnabled(!isEmptyState);
 
-        // --- Update Visuals Based on Type ---
         switch (model.cardType()) {
             case DAILY_CHALLENGE:
                 accentColor = UIManager.getColor("app.color.accent");
@@ -142,6 +163,11 @@ public class CoachingCardPanel extends JPanel {
             rewardLabel.setForeground(UIManager.getColor("app.color.accent"));
             rewardLabel.setHorizontalAlignment(SwingConstants.LEFT);
             viewInsightsButton.setForeground(UIManager.getColor("Button.foreground"));
+            if (loadingPanel != null && loadingPanel.getComponentCount() > 0) {
+                JLabel loadingLabel = (JLabel) loadingPanel.getComponent(0);
+                loadingLabel.setFont(UIManager.getFont("app.font.widget_title"));
+                loadingLabel.setForeground(UIManager.getColor("Label.disabledForeground"));
+            }
         }
     }
 
@@ -151,6 +177,10 @@ public class CoachingCardPanel extends JPanel {
         g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         g2d.setColor(UIManager.getColor("Panel.background"));
         g2d.fillRoundRect(0, 0, getWidth(), getHeight(), 15, 15);
+        
+        if (loadingPanel.isVisible()) {
+            accentColor = UIManager.getColor("Component.borderColor");
+        }
         
         g2d.setColor(accentColor);
         g2d.setStroke(new BasicStroke(2f));
