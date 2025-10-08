@@ -74,8 +74,8 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
     private final ChartDataModel dataModel;
     private final PriceAxisPanel priceAxisPanel;
     private final TimeAxisPanel timeAxisPanel;
-    private final FloatingPropertiesToolbar propertiesToolbar; // New field
-    private final InfoPanel infoPanel; // New field
+    private final FloatingPropertiesToolbar propertiesToolbar;
+    private final InfoPanel infoPanel;
     private List<KLine> localVisibleKLines;
     private static final Font SYMBOL_FONT = new Font("SansSerif", Font.BOLD, 16);
     private static final Border INACTIVE_BORDER = BorderFactory.createEmptyBorder(2, 2, 2, 2);
@@ -103,12 +103,12 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
     private final StringBuilder timeframeInputBuffer = new StringBuilder();
     private final Timer timeframeInputTimer;
 
-    public ChartPanel(ChartDataModel dataModel, ChartAxis chartAxis, PriceAxisPanel priceAxisPanel, TimeAxisPanel timeAxisPanel, Consumer<Boolean> onToolStateChange, FloatingPropertiesToolbar propertiesToolbar) {
+    public ChartPanel(ChartDataModel dataModel, ChartAxis chartAxis, PriceAxisPanel priceAxisPanel, TimeAxisPanel timeAxisPanel, Consumer<DrawingTool> onToolStateChange, FloatingPropertiesToolbar propertiesToolbar) {
         this.dataModel = dataModel;
         this.chartAxis = chartAxis;
         this.priceAxisPanel = priceAxisPanel;
         this.timeAxisPanel = timeAxisPanel;
-        this.propertiesToolbar = propertiesToolbar; // Assign new parameter
+        this.propertiesToolbar = propertiesToolbar;
         this.chartRenderer = new ChartRenderer();
         this.drawingRenderer = new DrawingRenderer();
         this.orderRenderer = new OrderRenderer();
@@ -118,13 +118,12 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
         this.peakHoursRenderer = new PeakHoursRenderer();
         this.drawingController = new DrawingController(this, onToolStateChange);
         this.localVisibleKLines = new ArrayList<>();
-        this.infoPanel = new InfoPanel(); // Instantiate InfoPanel
+        this.infoPanel = new InfoPanel();
         
         SettingsManager settings = SettingsManager.getInstance();
         setBackground(settings.getChartBackground());
         setBorder(INACTIVE_BORDER);
         setLayout(null);
-        // Make chart focusable for keyboard input ---
         setFocusable(true);
         
         this.jumpToLiveEdgeButton = createOverlayButton(UITheme.Icons.FAST_FORWARD, "Jump to Live Edge");
@@ -148,12 +147,10 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
             PaperTradingService.getInstance().addPropertyChangeListener(this);
         }
 
-        // Initialize timeframe input components ---
         this.timeframeInputDialog = new TimeframeInputDialog((Frame) SwingUtilities.getWindowAncestor(this));
         this.timeframeInputTimer = new Timer(3000, e -> clearTimeframeInput());
         this.timeframeInputTimer.setRepeats(false);
         addKeyListener(new TimeframeInputListener());
-        // listener for the Escape key to cancel price selection.
         addKeyListener(new EscapeKeyListener());
 
 
@@ -338,29 +335,23 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
         } else if ("daySeparatorsEnabledChanged".equals(propName) || "selectedDrawingChanged".equals(propName)) {
             repaint();
         } else if ("crosshairMoved".equals(propName) && evt.getNewValue() instanceof CrosshairManager.CrosshairUpdate) {
-            // Full implementation of sync logic and repaint handling ---
             CrosshairManager.CrosshairUpdate update = (CrosshairManager.CrosshairUpdate) evt.getNewValue();
 
-            // Core sync logic: if sync is off, only process events from this panel
             if (!CrosshairManager.getInstance().isSyncEnabled() && update.source() != this) {
                 return;
             }
 
-            // Repaint the area of the old crosshair to erase it
             if (previousCrosshairPoint != null) {
                 repaintCrosshairRegion(previousCrosshairPoint);
             }
 
             this.crosshairPoint = update.point();
-            this.previousCrosshairPoint = this.crosshairPoint; // Store for the next erase cycle
+            this.previousCrosshairPoint = this.crosshairPoint;
 
-            // Repaint the area of the new crosshair to draw it
             if (this.crosshairPoint != null) {
                 repaintCrosshairRegion(this.crosshairPoint);
             }
         } else if ("pendingOrdersUpdated".equals(propName) || "openPositionsUpdated".equals(propName) || "tradeHistoryUpdated".equals(propName)) {
-            // A trading-related object was added, removed, or modified.
-            // The chart needs to be redrawn to reflect this change.
             repaint();
         }
     }
@@ -372,8 +363,6 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
         int x = chartAxis.timeToX(point.timestamp(), localVisibleKLines, dataModel.getCurrentDisplayTimeframe());
         int y = chartAxis.priceToY(point.price());
         
-        // Repaint a thin strip for the vertical and horizontal lines.
-        // The +3/-1 ensures we cover the line and its anti-aliasing.
         if (x >= 0) {
             repaint(x - 1, 0, 3, getHeight());
         }
@@ -407,7 +396,7 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
     public ChartDataModel getDataModel() { return this.dataModel; }
     public DrawingController getDrawingController() { return this.drawingController; }
     public OrderRenderer getOrderRenderer() { return this.orderRenderer; }
-    public FloatingPropertiesToolbar getPropertiesToolbar() { return this.propertiesToolbar; } // New Getter
+    public FloatingPropertiesToolbar getPropertiesToolbar() { return this.propertiesToolbar; }
     public void setDragPreview(OrderRenderer.InteractiveZone preview) {
         this.dragPreview = preview;
         repaint();
@@ -433,9 +422,6 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
              currentSource = ReplaySessionManager.getInstance().getCurrentSource();
         }
         Timeframe currentTimeframe = dataModel.getCurrentDisplayTimeframe();
-
-        // The check for `isFullRepaint` was causing content to disappear during partial repaints (like crosshair moves).
-        // By removing the conditional block, we ensure all chart content is redrawn every time, fixing the bug.
         
         if (currentSource != null) {
             g2d.setFont(SYMBOL_FONT);
@@ -459,11 +445,9 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
 
         if (settings.isShowPeakHoursLines() && dataModel.isInReplayMode()) {
             List<Integer> peakHours = settings.getPeakPerformanceHoursOverride();
-            // If override is empty, use the auto-detected hours
             if (peakHours.isEmpty()) {
                 peakHours = GamificationService.getInstance().getPeakPerformanceHours();
             }
-            // FIX: Pass the currentTimeframe to the renderer
             peakHoursRenderer.draw(g2d, chartAxis, localVisibleKLines, currentTimeframe, peakHours);
         }
 
@@ -509,7 +493,6 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
         
         drawCrosshair(g2d);
 
-        // Draw InfoPanel if InfoTool is active
         drawInfoPanel(g2d);
 
         if (dataModel.isViewingLiveEdge()) {
@@ -547,7 +530,7 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
             return;
         }
 
-        DrawingObjectPoint dataPoint = infoTool.getCurrentPoint(); // This is the DATA point
+        DrawingObjectPoint dataPoint = infoTool.getCurrentPoint();
         if (dataPoint == null || dataPoint.timestamp() == null) {
             infoPanel.updateData(null, null, null);
             return;
@@ -559,38 +542,30 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
             targetKline = localVisibleKLines.get(slotIndex);
         }
 
-        // Update panel content and force it to calculate its new size
         infoPanel.updateData(targetKline, dataModel.getIndicatorManager().getIndicators(), SettingsManager.getInstance().getDisplayZoneId());
 
-        // Get the reliable SCREEN position stored in the tool
         Point screenPoint = infoTool.getScreenPoint();
         if (screenPoint == null) {
-            return; // Mouse hasn't moved over the panel yet.
+            return;
         }
 
         int panelWidth = infoPanel.getWidth();
         int panelHeight = infoPanel.getHeight();
         int padding = 20;
 
-        // Position below and to the right of the cursor by default
         int x = screenPoint.x + padding;
         int y = screenPoint.y + padding;
 
-        // Ensure it doesn't go off screen, flipping its position if needed
         if (x + panelWidth > getWidth()) {
-            x = screenPoint.x - panelWidth - padding; // Flip to the left
+            x = screenPoint.x - panelWidth - padding;
         }
         if (y + panelHeight > getHeight()) {
-            y = screenPoint.y - panelHeight - padding; // Flip above
+            y = screenPoint.y - panelHeight - padding;
         }
         
-        // Final check to prevent going off the top-left edges
         x = Math.max(5, x);
         y = Math.max(5, y);
 
-        // Use SwingUtilities to handle the complexities of painting a component
-        // that is not part of the container hierarchy.
-        // We pass 'this' (the ChartPanel) as the parent, which is used for property lookups.
         SwingUtilities.paintComponent(g, infoPanel, this, x, y, panelWidth, panelHeight);
     }
     
@@ -605,16 +580,11 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
         int x = chartAxis.timeToX(crosshairPoint.timestamp(), localVisibleKLines, dataModel.getCurrentDisplayTimeframe());
         int y = chartAxis.priceToY(crosshairPoint.price());
 
-        // This prevented the horizontal line from being drawn if the vertical line was off-screen,
-        // causing the crosshair to disappear on other synced charts with different visible time ranges.
-
         Stroke dashed = new BasicStroke(1, BasicStroke.CAP_BUTT, BasicStroke.JOIN_BEVEL, 0, new float[]{2}, 0);
         g2d.setStroke(dashed);
         g2d.setColor(SettingsManager.getInstance().getCrosshairColor());
 
-        // Always draw the horizontal price line, as the price is always synced.
         g2d.drawLine(0, y, getWidth(), y);
-        // Only draw the vertical time line if the timestamp is visible on this chart.
         if (x >= 0) {
             g2d.drawLine(x, 0, x, getHeight());
         }
@@ -731,7 +701,6 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
                 Timeframe newTf = Timeframe.fromString(input);
                 if (newTf != null) {
                     dataModel.setDisplayTimeframe(newTf);
-                    // Also update the toolbar button text
                     MainWindow mw = (MainWindow) SwingUtilities.getWindowAncestor(ChartPanel.this);
                     if (mw != null) {
                         mw.getTopToolbarPanel().selectTimeframe(newTf.getDisplayName());
@@ -757,7 +726,7 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
             char c = e.getKeyChar();
             if (Character.isLetterOrDigit(c)) {
                 if (timeframeInputBuffer.isEmpty() && !Character.isDigit(c)) {
-                    return; // Must start with a number
+                    return;
                 }
                 timeframeInputBuffer.append(c);
                 if (!timeframeInputDialog.isVisible()) {
@@ -779,12 +748,11 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
         public void keyPressed(KeyEvent e) {
             if (e.getKeyCode() == KeyEvent.VK_ESCAPE) {
                 if (isPriceSelectionMode) {
-                    // Signal cancellation to the callback by passing null
                     if (priceSelectionCallback != null) {
                         priceSelectionCallback.accept(null);
                     }
                     exitPriceSelectionMode();
-                    e.consume(); // Prevent other components from processing this Escape press
+                    e.consume();
                 }
             }
         }

@@ -6,6 +6,7 @@ import com.EcoChartPro.core.controller.ReplaySessionManager;
 import com.EcoChartPro.core.indicator.Indicator;
 import com.EcoChartPro.core.model.ChartDataModel;
 import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.core.tool.DrawingTool;
 import com.EcoChartPro.model.Timeframe;
 import com.EcoChartPro.ui.chart.ChartPanel;
 import com.EcoChartPro.ui.chart.IndicatorPanel;
@@ -149,8 +150,12 @@ public class WorkspaceManager {
         PriceAxisPanel priceAxisPanel = new PriceAxisPanel(model, chartAxis);
         TimeAxisPanel timeAxisPanel = new TimeAxisPanel(model, chartAxis);
 
-        Consumer<Boolean> onToolStateChange = isActive -> {
-            if (!isActive) {
+        Consumer<DrawingTool> onToolStateChange = tool -> {
+            if (tool != null) {
+                // Create a user-friendly name from the tool's class name.
+                String toolName = tool.getClass().getSimpleName().replace("Tool", "");
+                owner.getTitleBarManager().setToolActiveTitle(toolName);
+            } else {
                 owner.getTitleBarManager().restoreIdleTitle();
             }
         };

@@ -17,8 +17,6 @@ import com.EcoChartPro.model.Timeframe;
 import com.EcoChartPro.model.Trade;
 import com.EcoChartPro.model.TradeDirection;
 import com.EcoChartPro.model.drawing.DrawingObject;
-import com.EcoChartPro.model.drawing.FibonacciExtensionObject;
-import com.EcoChartPro.model.drawing.FibonacciRetracementObject;
 import com.EcoChartPro.model.drawing.TextObject;
 import com.EcoChartPro.ui.action.KeyboardShortcutManager;
 import com.EcoChartPro.ui.action.MenuBarManager;
@@ -55,8 +53,8 @@ import java.util.function.Consumer;
 public class MainWindow extends JFrame implements PropertyChangeListener {
 
     // --- Core UI Components ---
-    private final JLayeredPane rootPanel; // Changed to JLayeredPane
-    private final JPanel mainContainerPanel; // To hold the standard layout
+    private final JLayeredPane rootPanel;
+    private final JPanel mainContainerPanel;
     private final ChartToolbarPanel topToolbarPanel;
     private final FloatingDrawingToolbar drawingToolbar;
     private final FloatingPropertiesToolbar propertiesToolbar;
@@ -78,28 +76,25 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
     private final boolean isReplayMode;
 
     public MainWindow(boolean isReplayMode) {
-        super("Eco Chart Pro"); // Set initial title via super constructor
+        super("Eco Chart Pro");
         this.isReplayMode = isReplayMode;
         setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
         setSize(1280, 720);
         setLocationRelativeTo(null);
 
-        // Initialize managers
         this.titleBarManager = new TitleBarManager(this);
         this.sessionController = SessionController.getInstance();
         this.uiManager = new UIManager(this);
         this.workspaceManager = new WorkspaceManager(this);
 
-        // Initialize UI components
         rootPanel = new JLayeredPane();
-        mainContainerPanel = new JPanel(new BorderLayout()); // This will hold the original layout
+        mainContainerPanel = new JPanel(new BorderLayout());
         this.topToolbarPanel = new ChartToolbarPanel(isReplayMode);
         this.drawingToolbar = new FloatingDrawingToolbar(this);
         this.propertiesToolbar = new FloatingPropertiesToolbar(this);
         this.onFireWidget = new OnFireStreakWidget();
         this.stopTradingNudgeWidget = new StopTradingNudgeWidget();
 
-        // Build the UI
         MenuBarManager menuBarManager = new MenuBarManager(this, isReplayMode);
         MenuBarManager.MenuBarResult menuResult = menuBarManager.createMenuBar();
         setJMenuBar((JMenuBar) menuResult.menu());
@@ -116,7 +111,6 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
         
         mainContainerPanel.add(workspaceManager.getChartAreaPanel(), BorderLayout.CENTER);
         
-        // Add components to the layered pane
         rootPanel.add(mainContainerPanel, JLayeredPane.DEFAULT_LAYER);
         rootPanel.add(onFireWidget, JLayeredPane.PALETTE_LAYER);
         rootPanel.add(stopTradingNudgeWidget, JLayeredPane.PALETTE_LAYER);
@@ -125,7 +119,6 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
         addWindowListeners(isReplayMode);
         addPropertyChangeListeners();
         
-        // Final setup
         setupPropertiesToolbarActions();
         updateUndoRedoState();
         new KeyboardShortcutManager(rootPanel, this).setup();
@@ -133,7 +126,6 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
     }
 
     private void repositionOverlayWidgets() {
-        // Reposition streak widgets
         Dimension fireSize = onFireWidget.getPreferredSize();
         onFireWidget.setBounds((rootPanel.getWidth() - fireSize.width) / 2, 20, fireSize.width, fireSize.height);
 
@@ -141,9 +133,7 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
         stopTradingNudgeWidget.setBounds((rootPanel.getWidth() - nudgeSize.width) / 2, 20, nudgeSize.width, nudgeSize.height);
     }
     
-    // NEW: Helper method to consolidate layout updates.
     private void updateComponentLayouts() {
-        // Main container panel should always fill the layered pane
         mainContainerPanel.setBounds(0, 0, rootPanel.getWidth(), rootPanel.getHeight());
 
         if (drawingToolbar.isVisible()) {
@@ -166,7 +156,6 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
             }
         });
         
-        // This listener now handles both the drawing toolbar AND the new overlay widgets
         addComponentListener(new ComponentAdapter() {
             @Override
             public void componentResized(ComponentEvent e) {
@@ -242,7 +231,6 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
                     if (SettingsManager.getInstance().isWinStreakNudgeEnabled() && evt.getNewValue() instanceof Integer count) {
                         if (count >= 3) {
                             onFireWidget.showStreak(count);
-                            // After updating the text, its preferred size might change, so we reposition it.
                             repositionOverlayWidgets();
                         } else {
                             onFireWidget.hideStreak();
@@ -267,17 +255,9 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
         });
     }
 
-    /**
-     * Launches the modal journal entry dialog for a newly closed trade.
-     * @param trade The trade to be journaled.
-     */
     private void launchJournalDialogForTrade(Trade trade) {
-        // 'this' refers to the MainWindow instance, which is the correct Frame owner.
         JournalEntryDialog dialog = new JournalEntryDialog(this, trade);
-        dialog.setVisible(true); // The dialog is modal, so execution will pause here.
-        
-        // After the dialog is closed, the simulation remains paused.
-        // The user must manually click "Play" to continue, which is the desired behavior.
+        dialog.setVisible(true);
     }
 
     private void updateUndoRedoState() {
@@ -360,18 +340,23 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
     private void handleDrawingSelectionChange(UUID selectedId) {
         if (selectedId == null) {
             propertiesToolbar.setVisible(false);
-            titleBarManager.restoreIdleTitle(); // Restore idle state when deselected
+            
+            // [FIX] Only restore the idle title if no drawing tool is active.
+            // This prevents the tool activation title from being immediately overwritten.
+            ChartPanel activePanel = workspaceManager.getActiveChartPanel();
+            if (activePanel == null || activePanel.getDrawingController().getActiveTool() == null) {
+                titleBarManager.restoreIdleTitle();
+            }
             return;
         }
 
         DrawingObject drawing = DrawingManager.getInstance().getDrawingById(selectedId);
         if (drawing == null) {
             propertiesToolbar.setVisible(false);
-            titleBarManager.restoreIdleTitle(); // Also restore if object is somehow not found
+            titleBarManager.restoreIdleTitle();
             return;
         }
         
-        // Update title when an object is selected
         String lockedStatus = drawing.isLocked() ? " (Locked)" : "";
         titleBarManager.setStaticTitle("Object Selected" + lockedStatus + " | Press Delete to remove");
         

@@ -55,6 +55,19 @@ public class TitleBarManager {
     }
 
     /**
+     * [NEW] Sets a specific title for when a drawing tool is active.
+     * It stops the idle animation and provides helpful cancellation instructions.
+     * @param toolName The name of the active tool (e.g., "Trendline").
+     */
+    public void setToolActiveTitle(String toolName) {
+        if (idleShortcutTimer.isRunning()) {
+            idleShortcutTimer.stop();
+        }
+        // The DrawingController uses a Right-click to cancel, which is more accurate here.
+        owner.setTitle(String.format("%s Active | Right-click or Esc to cancel", toolName));
+    }
+
+    /**
      * Restores the title bar to its idle state, showing rotating shortcuts.
      */
     public void restoreIdleTitle() {

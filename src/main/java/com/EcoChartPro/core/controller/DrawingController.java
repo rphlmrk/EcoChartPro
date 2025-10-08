@@ -38,9 +38,9 @@ public class DrawingController extends MouseAdapter {
     private DrawingObject stateBeforeDrag;
     private boolean isDraggingObject = false;
     private DrawingObjectPoint dragStartPoint = null;
-    private final Consumer<Boolean> onToolStateChange;
+    private final Consumer<DrawingTool> onToolStateChange;
 
-    public DrawingController(ChartPanel chartPanel, Consumer<Boolean> onToolStateChange) {
+    public DrawingController(ChartPanel chartPanel, Consumer<DrawingTool> onToolStateChange) {
         this.chartPanel = chartPanel;
         this.drawingManager = DrawingManager.getInstance();
         this.onToolStateChange = onToolStateChange;
@@ -137,7 +137,7 @@ public class DrawingController extends MouseAdapter {
         if (this.activeTool != tool) {
             this.activeTool = tool;
             drawingManager.setSelectedDrawingId(null);
-            if (onToolStateChange != null) onToolStateChange.accept(tool != null);
+            if (onToolStateChange != null) onToolStateChange.accept(tool);
         }
         chartPanel.setCursor(tool != null ? Cursor.getPredefinedCursor(Cursor.CROSSHAIR_CURSOR) : Cursor.getDefaultCursor());
     }
