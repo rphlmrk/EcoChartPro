@@ -155,10 +155,17 @@ public class NewReplayDialog extends JDialog {
                     Optional<DatabaseManager.DataRange> rangeOpt = get();
                     if (rangeOpt.isPresent()) {
                         DatabaseManager.DataRange range = rangeOpt.get();
-                        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd MMM yyyy").withZone(ZoneOffset.UTC);
+                        LocalDate minDate = range.start().atZone(ZoneOffset.UTC).toLocalDate();
+                        LocalDate maxDate = range.end().atZone(ZoneOffset.UTC).toLocalDate();
+                        
+                        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd MMM yyyy");
                         dataRangeLabel.setText(String.format("Data available from %s to %s",
-                                formatter.format(range.start()), formatter.format(range.end())));
-                        calendarPanel.setDataRange(range.start().atZone(ZoneOffset.UTC).toLocalDate(), range.end().atZone(ZoneOffset.UTC).toLocalDate());
+                                formatter.format(minDate), formatter.format(maxDate)));
+                        
+                        calendarPanel.setDataRange(minDate, maxDate);
+                        
+                        // [FIX] Jump to the latest month with available data
+                        calendarPanel.jumpToDate(maxDate);
                     } else {
                         dataRangeLabel.setText("No 1-minute data found for this symbol.");
                         calendarPanel.setDataRange(null, null);

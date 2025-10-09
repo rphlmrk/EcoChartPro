@@ -13,9 +13,11 @@ import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
-import java.nio.file.Path; // [NEW] Import Path
+import java.nio.file.Path;
 import java.util.ArrayList;
 
+import javax.swing.JDialog;
+import javax.swing.JFrame;
 import javax.swing.SwingUtilities;
 
 public class Main {
@@ -65,7 +67,13 @@ public class Main {
             logger.info("macOS detected. Configuring for screen menu bar.");
         }
 
-        // Apply the theme from settings at startup.
+        // [FIX] Enable custom window decorations for FlatLaf.
+        // This is the CRITICAL step that allows custom components in the title bar.
+        // It must be called BEFORE the Look and Feel is set.
+        JFrame.setDefaultLookAndFeelDecorated(true);
+        JDialog.setDefaultLookAndFeelDecorated(true);
+
+        // Apply the theme from settings at startup. This sets the Look and Feel.
         ThemeManager.applyTheme(SettingsManager.getInstance().getCurrentTheme());
 
         PluginManager.getInstance();

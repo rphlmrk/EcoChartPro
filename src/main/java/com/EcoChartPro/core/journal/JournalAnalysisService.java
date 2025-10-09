@@ -11,6 +11,7 @@ import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.time.temporal.WeekFields;
@@ -29,6 +30,7 @@ public class JournalAnalysisService {
 
     public record DailyStats(LocalDate date, int tradeCount, BigDecimal totalPnl, double winRatio, double planFollowedPercentage) {}
     public record WeeklyStats(int weekOfYear, int tradeCount, BigDecimal totalPnl, double winRatio, double planFollowedPercentage) {}
+    public record MonthlyStats(YearMonth yearMonth, int tradeCount, BigDecimal totalPnl, double winRatio, double planFollowedPercentage) {}
     public record DateRange(LocalDate minDate, LocalDate maxDate) {}
     public record PerformanceByTradeCount(int tradesPerDay, int dayCount, BigDecimal totalPnl, double winRate, BigDecimal avgPnlPerDay, BigDecimal expectancy) {}
     public record PerformanceByHour(int hourOfDay, int tradeCount, BigDecimal totalPnl, double winRate, BigDecimal expectancy) {}
@@ -215,6 +217,32 @@ public class JournalAnalysisService {
 
         return results;
     }
+    
+    /**
+     * Analyzes a list of trades and groups the statistics by calendar month.
+     * @param trades The list of trades to analyze.
+     * @return A map where the key is the YearMonth and the value contains the aggregated stats.
+     */
+    public Map<YearMonth, MonthlyStats> analyzePerformanceByMonth(List<Trade> trades) {
+        if (trades == null || trades.isEmpty()) {
+            return Collections.emptyMap();
+        }
+
+        Map<YearMonth, List<Trade>> tradesByMonth = trades.stream()
+                .collect(Collectors.groupingBy(trade -> YearMonth.from(trade.exitTime().atZone(ZoneOffset.UTC))));
+
+        return tradesByMonth.entrySet().stream()
+                .map(entry -> {
+                    YearMonth month = entry.getKey();
+                    List<Trade> monthlyTrades = entry.getValue();
+                    BigDecimal totalPnl = calculateTotalPnl(monthlyTrades);
+                    double winRatio = calculateWinRatio(monthlyTrades);
+                    double planPercentage = calculatePlanFollowedPercentage(monthlyTrades);
+                    return new MonthlyStats(month, monthlyTrades.size(), totalPnl, winRatio, planPercentage);
+                })
+                .collect(Collectors.toMap(MonthlyStats::yearMonth, Function.identity()));
+    }
+
 
     /**
      * Analyzes a list of trades and groups the statistics by calendar day.

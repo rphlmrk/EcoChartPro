@@ -15,6 +15,8 @@ import com.EcoChartPro.utils.report.PdfReportGenerator;
 import javax.swing.*;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.*;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
 import java.io.File;
 import java.time.LocalDate;
 import java.util.List;
@@ -53,7 +55,8 @@ public class InsightsDialog extends JDialog {
         loadingLabel.setForeground(UIManager.getColor("Label.disabledForeground"));
         loadingPanel.add(loadingLabel);
 
-        JPanel contentPanel = new JPanel(new BorderLayout());
+        // [FIX] Use a JLayeredPane to create a floating button over the content.
+        JLayeredPane layeredContentPane = new JLayeredPane();
         
         insightsContainer = new JPanel();
         insightsContainer.setLayout(new BoxLayout(insightsContainer, BoxLayout.Y_AXIS));
@@ -78,7 +81,7 @@ public class InsightsDialog extends JDialog {
         tabbedPane.addTab("Mistake Analysis", mistakePanel);
         tabbedPane.addTab("Comparative Analysis", comparativePanel);
 
-        // --- Create Export Button with text and icon ---
+        // --- Create Export Button for the floating layer ---
         JButton exportButton = new JButton("Export", UITheme.getIcon(UITheme.Icons.EXPORT, 16, 16));
         exportButton.setToolTipText("Export full report to a file");
         exportButton.setOpaque(false);
@@ -99,13 +102,27 @@ public class InsightsDialog extends JDialog {
         
         exportButton.addActionListener(e -> exportMenu.show(exportButton, 0, exportButton.getHeight()));
         
-        // Use FlatLaf client property to add the button directly to the tab bar
-        tabbedPane.putClientProperty("JTabbedPane.tabTrailingComponent", exportButton);
-        
-        contentPanel.add(tabbedPane, BorderLayout.CENTER);
+        // Add components to the layered pane
+        layeredContentPane.add(tabbedPane, JLayeredPane.DEFAULT_LAYER);
+        layeredContentPane.add(exportButton, JLayeredPane.PALETTE_LAYER);
+
+        // Add a listener to manually manage the layout of the layered components
+        layeredContentPane.addComponentListener(new ComponentAdapter() {
+            @Override
+            public void componentResized(ComponentEvent e) {
+                // Make the tabbed pane fill the entire space
+                tabbedPane.setBounds(0, 0, layeredContentPane.getWidth(), layeredContentPane.getHeight());
+
+                // Position the export button in the top-right corner, inside the tab area
+                Dimension buttonSize = exportButton.getPreferredSize();
+                int x = layeredContentPane.getWidth() - buttonSize.width - 20;
+                int y = 6; // Position it vertically within the tab bar area
+                exportButton.setBounds(x, y, buttonSize.width, buttonSize.height);
+            }
+        });
 
         mainPanel.add(loadingPanel, "loading");
-        mainPanel.add(contentPanel, "content");
+        mainPanel.add(layeredContentPane, "content"); // Add the new layered pane
         
         setContentPane(mainPanel);
     }

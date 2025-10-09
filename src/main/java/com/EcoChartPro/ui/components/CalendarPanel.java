@@ -8,32 +8,38 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
+import java.time.Month;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
 import java.time.format.TextStyle;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.Locale;
+import java.util.Set;
 import java.util.function.Consumer;
 
 /**
- * A custom panel that displays an interactive, multi-view calendar (month/year).
+ * A custom panel that displays an interactive, multi-view calendar (decade/year/month).
  * It allows navigation and notifies a listener upon date selection.
  */
 public class CalendarPanel extends JPanel {
 
-    private enum ViewMode { MONTH, YEAR }
+    private enum ViewMode { MONTH, YEAR, DECADE }
 
     private ViewMode currentViewMode = ViewMode.MONTH;
     private YearMonth currentYearMonth;
     private LocalDate selectedDate;
     private LocalDate minDate;
     private LocalDate maxDate;
+    private Set<LocalDate> highlightedDates = new HashSet<>();
 
     private final Consumer<LocalDate> onDateSelectCallback;
     private JLabel headerLabel;
     private JPanel cardPanel;
     private CardLayout cardLayout;
-    private JPanel monthViewGrid;
-    private JPanel yearViewGrid;
+    private JPanel monthViewGrid; // Day grid
+    private JPanel yearViewGrid;  // Month grid
+    private JPanel decadeViewGrid; // Year grid
 
     private final ButtonGroup dayButtonsGroup = new ButtonGroup();
 
@@ -56,18 +62,36 @@ public class CalendarPanel extends JPanel {
 
         monthViewGrid = new JPanel(new GridLayout(6, 7, 5, 5));
         yearViewGrid = new JPanel(new GridLayout(4, 3, 10, 10));
+        decadeViewGrid = new JPanel(new GridLayout(4, 3, 10, 10));
 
         cardPanel.add(createMonthViewPanel(monthViewGrid), ViewMode.MONTH.name());
         cardPanel.add(createYearViewPanel(yearViewGrid), ViewMode.YEAR.name());
+        cardPanel.add(createDecadeViewPanel(decadeViewGrid), ViewMode.DECADE.name());
 
         add(cardPanel, BorderLayout.CENTER);
+        updateView();
+    }
+    
+    public void setHighlightedDates(Set<LocalDate> dates) {
+        this.highlightedDates = (dates != null) ? dates : Collections.emptySet();
+        updateView();
+    }
+
+    public void jumpToDate(LocalDate date) {
+        if (date == null) {
+            return;
+        }
+        this.currentYearMonth = YearMonth.from(date);
+        this.selectedDate = null;
+        dayButtonsGroup.clearSelection();
+        currentViewMode = ViewMode.MONTH;
         updateView();
     }
 
     public void setDataRange(LocalDate min, LocalDate max) {
         this.minDate = min;
         this.maxDate = max;
-        updateView(); // Re-render to enable/disable days
+        updateView();
     }
 
     private JPanel createHeaderPanel() {
@@ -81,8 +105,12 @@ public class CalendarPanel extends JPanel {
         headerLabel.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
+                // "Zoom out" navigation
                 if (currentViewMode == ViewMode.MONTH) {
                     currentViewMode = ViewMode.YEAR;
+                    updateView();
+                } else if (currentViewMode == ViewMode.YEAR) {
+                    currentViewMode = ViewMode.DECADE;
                     updateView();
                 }
             }
@@ -101,10 +129,16 @@ public class CalendarPanel extends JPanel {
     }
 
     private void navigate(int direction) {
-        if (currentViewMode == ViewMode.MONTH) {
-            currentYearMonth = currentYearMonth.plusMonths(direction);
-        } else {
-            currentYearMonth = currentYearMonth.plusYears((long) direction * YEARS_PER_VIEW);
+        switch (currentViewMode) {
+            case MONTH:
+                currentYearMonth = currentYearMonth.plusMonths(direction);
+                break;
+            case YEAR:
+                currentYearMonth = currentYearMonth.plusYears(direction);
+                break;
+            case DECADE:
+                currentYearMonth = currentYearMonth.plusYears((long) direction * YEARS_PER_VIEW);
+                break;
         }
         updateView();
     }
@@ -118,7 +152,17 @@ public class CalendarPanel extends JPanel {
         return panel;
     }
 
-    private JScrollPane createYearViewPanel(JPanel yearGrid) {
+    private JScrollPane createYearViewPanel(JPanel monthGrid) {
+        monthGrid.setOpaque(false);
+        monthGrid.setBorder(BorderFactory.createEmptyBorder(10, 0, 10, 0));
+        JScrollPane scrollPane = new JScrollPane(monthGrid);
+        scrollPane.setOpaque(false);
+        scrollPane.getViewport().setOpaque(false);
+        scrollPane.setBorder(BorderFactory.createEmptyBorder());
+        return scrollPane;
+    }
+
+    private JScrollPane createDecadeViewPanel(JPanel yearGrid) {
         yearGrid.setOpaque(false);
         yearGrid.setBorder(BorderFactory.createEmptyBorder(10, 0, 10, 0));
         JScrollPane scrollPane = new JScrollPane(yearGrid);
@@ -129,12 +173,19 @@ public class CalendarPanel extends JPanel {
     }
 
     private void updateView() {
-        if (currentViewMode == ViewMode.MONTH) {
-            rebuildMonthView();
-            cardLayout.show(cardPanel, ViewMode.MONTH.name());
-        } else {
-            rebuildYearView();
-            cardLayout.show(cardPanel, ViewMode.YEAR.name());
+        switch (currentViewMode) {
+            case MONTH:
+                rebuildMonthView();
+                cardLayout.show(cardPanel, ViewMode.MONTH.name());
+                break;
+            case YEAR:
+                rebuildYearView();
+                cardLayout.show(cardPanel, ViewMode.YEAR.name());
+                break;
+            case DECADE:
+                rebuildDecadeView();
+                cardLayout.show(cardPanel, ViewMode.DECADE.name());
+                break;
         }
     }
 
@@ -158,9 +209,12 @@ public class CalendarPanel extends JPanel {
             if (date.equals(selectedDate)) {
                 dayButton.setSelected(true);
             }
-            // Disable button if outside the available data range
             boolean isEnabled = (minDate == null || !date.isBefore(minDate)) && (maxDate == null || !date.isAfter(maxDate));
             dayButton.setEnabled(isEnabled);
+            
+            if (highlightedDates.contains(date)) {
+                dayButton.setHasData(true);
+            }
 
             dayButtonsGroup.add(dayButton);
             monthViewGrid.add(dayButton);
@@ -176,6 +230,33 @@ public class CalendarPanel extends JPanel {
 
     private void rebuildYearView() {
         yearViewGrid.removeAll();
+        headerLabel.setText(String.valueOf(currentYearMonth.getYear()));
+
+        for (int i = 1; i <= 12; i++) {
+            Month month = Month.of(i);
+            JButton monthButton = new JButton(month.getDisplayName(TextStyle.FULL, Locale.US));
+            styleYearButton(monthButton); // Re-use styling
+
+            // Check if any day in this month is within the valid date range
+            YearMonth ym = YearMonth.of(currentYearMonth.getYear(), month);
+            boolean isEnabled = (minDate == null || !ym.atEndOfMonth().isBefore(minDate)) &&
+                                (maxDate == null || !ym.atDay(1).isAfter(maxDate));
+            monthButton.setEnabled(isEnabled);
+            
+            final YearMonth targetMonth = ym;
+            monthButton.addActionListener(e -> {
+                currentYearMonth = targetMonth;
+                currentViewMode = ViewMode.MONTH;
+                updateView();
+            });
+            yearViewGrid.add(monthButton);
+        }
+        yearViewGrid.revalidate();
+        yearViewGrid.repaint();
+    }
+
+    private void rebuildDecadeView() {
+        decadeViewGrid.removeAll();
         int currentYear = currentYearMonth.getYear();
         int yearBlockStart = currentYear - (currentYear % YEARS_PER_VIEW);
         headerLabel.setText(String.format("%d - %d", yearBlockStart, yearBlockStart + YEARS_PER_VIEW - 1));
@@ -186,14 +267,14 @@ public class CalendarPanel extends JPanel {
             styleYearButton(yearButton);
             yearButton.addActionListener(e -> {
                 currentYearMonth = YearMonth.of(year, currentYearMonth.getMonthValue());
-                currentViewMode = ViewMode.MONTH;
+                currentViewMode = ViewMode.YEAR;
                 updateView();
             });
-            yearViewGrid.add(yearButton);
+            decadeViewGrid.add(yearButton);
         }
 
-        yearViewGrid.revalidate();
-        yearViewGrid.repaint();
+        decadeViewGrid.revalidate();
+        decadeViewGrid.repaint();
     }
 
     private void styleYearButton(JButton button) {
@@ -233,6 +314,7 @@ public class CalendarPanel extends JPanel {
 
     private class DayButton extends JToggleButton {
         private final LocalDate date;
+        private boolean hasData = false;
 
         public DayButton(String text, LocalDate date) {
             super(text);
@@ -246,13 +328,19 @@ public class CalendarPanel extends JPanel {
             setHorizontalAlignment(SwingConstants.CENTER);
             setVerticalAlignment(SwingConstants.CENTER);
             addActionListener(e -> {
-                selectedDate = this.date;
-                if (onDateSelectCallback != null) {
-                    onDateSelectCallback.accept(selectedDate);
+                if(hasData) {
+                    selectedDate = this.date;
+                    if (onDateSelectCallback != null) {
+                        onDateSelectCallback.accept(selectedDate);
+                    }
+                } else {
+                    setSelected(false);
                 }
-                // Instead of repainting the parent, we let the ButtonGroup handle deselection painting.
-                // This is a more standard Swing approach.
             });
+        }
+
+        public void setHasData(boolean hasData) {
+            this.hasData = hasData;
         }
 
         @Override
@@ -269,23 +357,24 @@ public class CalendarPanel extends JPanel {
             Graphics2D g2d = (Graphics2D) g.create();
             g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
-            // Custom painting for circular selection highlight.
             if (isSelected() && isEnabled()) {
                 int diameter = Math.min(getWidth(), getHeight()) - 4;
                 int x = (getWidth() - diameter) / 2;
                 int y = (getHeight() - diameter) / 2;
                 g2d.setColor(UIManager.getColor("app.color.neutral"));
                 g2d.fillOval(x, y, diameter, diameter);
-                // Set text color to white for selected state
                 setForeground(Color.WHITE);
             } else {
-                // Reset text color for non-selected state
                 if (isEnabled()) {
                     setForeground(date.getDayOfWeek() == DayOfWeek.SUNDAY ? Color.RED.brighter() : UIManager.getColor("Label.foreground"));
                 }
             }
             
-            // Let the superclass handle painting the text on top of our custom background
+            if(hasData && !isSelected() && isEnabled()){
+                g2d.setColor(UIManager.getColor("app.color.neutral"));
+                g2d.fillOval(getWidth()/2 - 2, getHeight() - 8, 5, 5);
+            }
+            
             super.paintComponent(g2d);
             g2d.dispose();
         }
