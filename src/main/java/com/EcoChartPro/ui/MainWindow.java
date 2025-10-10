@@ -25,9 +25,6 @@ import com.EcoChartPro.ui.chart.ChartPanel;
 import com.EcoChartPro.ui.components.CustomColorChooserPanel;
 import com.EcoChartPro.ui.components.OnFireStreakWidget;
 import com.EcoChartPro.ui.components.StopTradingNudgeWidget;
-import com.EcoChartPro.ui.dialogs.DrawingToolSettingsDialog;
-import com.EcoChartPro.ui.dialogs.FibonacciSettingsDialog;
-import com.EcoChartPro.ui.dialogs.TextSettingsDialog;
 import com.EcoChartPro.ui.sidebar.TradingSidebarPanel;
 import com.EcoChartPro.ui.toolbar.ChartToolbarPanel;
 import com.EcoChartPro.ui.toolbar.FloatingDrawingToolbar;
@@ -45,7 +42,6 @@ import java.awt.event.*;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 import java.math.BigDecimal;
-import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Consumer;
@@ -172,6 +168,7 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
     private void addPropertyChangeListeners() {
         SettingsManager.getInstance().addPropertyChangeListener(this);
         DrawingManager.getInstance().addPropertyChangeListener("selectedDrawingChanged", this);
+        DrawingManager.getInstance().addPropertyChangeListener("activeSymbolChanged", this);
         UndoManager.getInstance().addPropertyChangeListener(this);
         if (isReplayMode) {
             LiveSessionTrackerService.getInstance().addPropertyChangeListener(this);
@@ -189,7 +186,7 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
             ReplaySessionManager.getInstance().removeListener(replayController);
         }
         SettingsManager.getInstance().removePropertyChangeListener(this);
-        DrawingManager.getInstance().removePropertyChangeListener("selectedDrawingChanged", this);
+        DrawingManager.getInstance().removePropertyChangeListener(this);
         UndoManager.getInstance().removePropertyChangeListener(this);
         if (isReplayMode) {
             LiveSessionTrackerService.getInstance().removePropertyChangeListener(this);
@@ -221,6 +218,9 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
                     break;
                 case "selectedDrawingChanged":
                     handleDrawingSelectionChange((UUID) evt.getNewValue());
+                    break;
+                case "activeSymbolChanged":
+                    workspaceManager.getChartPanels().forEach(ChartPanel::repaint);
                     break;
                 case "stateChanged":
                     if (evt.getSource() == UndoManager.getInstance()) {
@@ -416,6 +416,7 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
             dispose();
             return;
         }
+        DrawingManager.getInstance().setActiveSymbol(source.symbol());
         titleBarManager.setStaticTitle(getTitle() + " (Synced)");
         setDbManagerForSource(source);
         workspaceManager.applyLayout(WorkspaceManager.LayoutType.ONE);
@@ -483,6 +484,7 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
 
     public void startReplaySession(DataSourceManager.ChartDataSource source, int startIndex) {
         setDbManagerForSource(source);
+        DrawingManager.getInstance().setActiveSymbol(source.symbol());
         ReplaySessionManager.getInstance().startSession(source, startIndex);
         workspaceManager.applyLayout(WorkspaceManager.LayoutType.ONE);
         workspaceManager.getChartPanels().get(0).getDataModel().setDisplayTimeframe(Timeframe.M5);
@@ -491,7 +493,7 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
     }
 
     public void loadReplaySession(ReplaySessionState state) {
-        DrawingManager.getInstance().clearAllDrawings();
+        DrawingManager.getInstance().clearAllDrawingsForAllSymbols();
 
         Optional<ChartDataSource> sourceOpt = DataSourceManager.getInstance().getAvailableSources().stream()
                 .filter(s -> s.symbol().equalsIgnoreCase(state.dataSourceSymbol())).findFirst();
@@ -500,7 +502,8 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
             dispose(); return;
         }
         setDbManagerForSource(sourceOpt.get());
-        DrawingManager.getInstance().restoreDrawings(state.drawings());
+        DrawingManager.getInstance().setActiveSymbol(state.dataSourceSymbol());
+        DrawingManager.getInstance().restoreDrawingsForSymbol(state.dataSourceSymbol(), state.drawings());
         PaperTradingService.getInstance().restoreState(state);
         ReplaySessionManager.getInstance().startSessionFromState(state);
         workspaceManager.applyLayout(WorkspaceManager.LayoutType.ONE);
@@ -526,7 +529,11 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
             ChartPanel activePanel = workspaceManager.getActiveChartPanel();
 
             if ("selectionChanged".equals(command)) {
-                loadChartForSource(topToolbarPanel.getSelectedDataSource());
+                if (isReplayMode) {
+                    handleReplaySymbolChange();
+                } else {
+                    loadChartForSource(topToolbarPanel.getSelectedDataSource());
+                }
             } else if (command.startsWith("timeframeChanged:")) {
                 String tfString = command.substring(17);
                 if (activePanel != null) {
@@ -534,8 +541,12 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
                     if (newTimeframe != null) {
                         activePanel.getDataModel().setDisplayTimeframe(newTimeframe);
                     }
-                } else {
-                    loadData(topToolbarPanel.getSelectedDataSource(), tfString);
+                } else if (!isReplayMode && !workspaceManager.getChartPanels().isEmpty()) {
+                    // In standard mode, if no panel is active, load data for the first one.
+                    workspaceManager.getChartPanels().get(0).getDataModel().loadDataset(
+                        topToolbarPanel.getSelectedDataSource(),
+                        Timeframe.fromString(tfString).getDisplayName()
+                    );
                 }
             } else if (command.startsWith("layoutChanged:")) {
                 String layoutName = command.substring("layoutChanged:".length());
@@ -556,21 +567,50 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
         });
     }
 
-    private void loadChartForSource(DataSourceManager.ChartDataSource source) {
-        if (source == null) return;
-        setDbManagerForSource(source);
-        topToolbarPanel.populateTimeframes(source.timeframes());
-        if (!source.timeframes().isEmpty()) {
-            topToolbarPanel.selectTimeframe(source.timeframes().get(0));
-        } else {
-             if (!workspaceManager.getChartPanels().isEmpty()) workspaceManager.getChartPanels().get(0).getDataModel().clearData();
-             titleBarManager.setStaticTitle(source.displayName() + " (No data available)");
+    /**
+     * [NEW] Handles the logic for changing symbols while in replay mode.
+     */
+    private void handleReplaySymbolChange() {
+        DataSourceManager.ChartDataSource newSource = topToolbarPanel.getSelectedDataSource();
+        DataSourceManager.ChartDataSource currentSource = ReplaySessionManager.getInstance().getCurrentSource();
+
+        if (newSource == null || (currentSource != null && newSource.symbol().equals(currentSource.symbol()))) {
+            return; // No change, do nothing.
+        }
+
+        int choice = JOptionPane.showConfirmDialog(
+            this,
+            "This will end the current replay session and return to the dashboard.\n" +
+            "You can then start a new session for " + newSource.displayName() + ".\n\n" +
+            "Do you want to proceed?",
+            "Start New Replay Session",
+            JOptionPane.YES_NO_OPTION,
+            JOptionPane.WARNING_MESSAGE
+        );
+
+        if (choice == JOptionPane.YES_OPTION) {
+            // The SessionController will handle closing this window and showing the dashboard.
+            sessionController.endReplaySessionAndShowDashboard(this);
         }
     }
 
-    private void loadData(DataSourceManager.ChartDataSource source, String timeframe) {
-        if (source == null || timeframe == null || activeDbManager == null || workspaceManager.getChartPanels().isEmpty()) return;
-        workspaceManager.getChartPanels().get(0).getDataModel().loadDataset(source, timeframe);
-        titleBarManager.setStaticTitle(source.displayName() + " (" + timeframe + ")");
+    private void loadChartForSource(DataSourceManager.ChartDataSource source) {
+        if (source == null) return;
+        setDbManagerForSource(source);
+        DrawingManager.getInstance().setActiveSymbol(source.symbol());
+        topToolbarPanel.populateTimeframes(source.timeframes());
+        if (!source.timeframes().isEmpty()) {
+            String initialTimeframe = source.timeframes().get(0);
+            topToolbarPanel.selectTimeframe(initialTimeframe);
+            for (ChartPanel panel : workspaceManager.getChartPanels()) {
+                 panel.getDataModel().loadDataset(source, initialTimeframe);
+            }
+            titleBarManager.setStaticTitle(source.displayName() + " (" + initialTimeframe + ")");
+        } else {
+             if (!workspaceManager.getChartPanels().isEmpty()) {
+                workspaceManager.getChartPanels().get(0).getDataModel().clearData();
+             }
+             titleBarManager.setStaticTitle(source.displayName() + " (No data available)");
+        }
     }
 }

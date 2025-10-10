@@ -22,11 +22,12 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.stream.Collectors;
 
 /**
  * A singleton manager that serves as the "source of truth" for all drawing objects.
- * It holds the master list of drawings and notifies listeners of any changes.
- * All modification operations are now routed through the UndoManager.
+ * It holds a master list of drawings for each symbol and notifies listeners of any changes.
+ * All modification operations are routed through the UndoManager.
  * This class is thread-safe.
  */
 public final class DrawingManager {
@@ -34,7 +35,10 @@ public final class DrawingManager {
     private static final Logger logger = LoggerFactory.getLogger(DrawingManager.class);
     private static volatile DrawingManager instance;
 
-    private final Map<UUID, DrawingObject> drawings = new ConcurrentHashMap<>();
+    // MODIFICATION: Changed from a single map to a map of maps, keyed by symbol.
+    private final Map<String, Map<UUID, DrawingObject>> drawingsBySymbol = new ConcurrentHashMap<>();
+    private volatile String activeSymbol;
+
     private final CopyOnWriteArrayList<DrawingListener> listeners = new CopyOnWriteArrayList<>();
 
     private volatile UUID selectedDrawingId;
@@ -55,18 +59,47 @@ public final class DrawingManager {
         return instance;
     }
 
+    /**
+     * [NEW] Sets the currently active symbol. This determines which set of drawings are manipulated and displayed.
+     * @param symbol The symbol identifier (e.g., "btcusdt").
+     */
+    public void setActiveSymbol(String symbol) {
+        if (symbol != null && !symbol.equals(this.activeSymbol)) {
+            String oldSymbol = this.activeSymbol;
+            logger.debug("Active symbol switched from {} to {}", oldSymbol, symbol);
+            this.activeSymbol = symbol;
+            // Ensure a map exists for the new symbol.
+            this.drawingsBySymbol.computeIfAbsent(symbol, k -> new ConcurrentHashMap<>());
+            setSelectedDrawingId(null); // Deselect when switching symbols.
+            pcs.firePropertyChange("activeSymbolChanged", oldSymbol, symbol);
+        }
+    }
+
+    /**
+     * [NEW] Helper method to get the map of drawings for the currently active symbol.
+     * @return The map of drawings, or null if no symbol is active.
+     */
+    private Map<UUID, DrawingObject> getActiveDrawingsMap() {
+        if (activeSymbol == null) {
+            return null;
+        }
+        return drawingsBySymbol.get(activeSymbol);
+    }
+
     public DrawingObject getDrawingById(UUID id) {
         if (id == null) return null;
-        return drawings.get(id);
+        Map<UUID, DrawingObject> activeDrawings = getActiveDrawingsMap();
+        return (activeDrawings != null) ? activeDrawings.get(id) : null;
     }
 
     public UUID getSelectedDrawingId() {
         return selectedDrawingId;
     }
-    
+
     public DrawingObject getSelectedDrawing() {
         if (selectedDrawingId == null) return null;
-        return drawings.get(selectedDrawingId);
+        Map<UUID, DrawingObject> activeDrawings = getActiveDrawingsMap();
+        return (activeDrawings != null) ? activeDrawings.get(selectedDrawingId) : null;
     }
 
     public void setSelectedDrawingId(UUID id) {
@@ -76,11 +109,11 @@ public final class DrawingManager {
     }
 
     public DrawingObject findDrawingAt(Point screenPoint, ChartAxis axis, List<KLine> klines, Timeframe timeframe) {
-        if (!axis.isConfigured()) {
+        if (!axis.isConfigured() || getActiveDrawingsMap() == null) {
             return null;
         }
 
-        List<DrawingObject> drawingList = new ArrayList<>(drawings.values());
+        List<DrawingObject> drawingList = new ArrayList<>(getActiveDrawingsMap().values());
         Collections.reverse(drawingList);
 
         for (DrawingObject drawing : drawingList) {
@@ -91,36 +124,68 @@ public final class DrawingManager {
         return null;
     }
 
+    /**
+     * [MODIFIED] Clears drawings only for the currently active symbol.
+     */
     public void clearAllDrawings() {
-        List<UUID> idsToRemove = new ArrayList<>(drawings.keySet());
-        idsToRemove.forEach(this::performRemove);
-        logger.debug("All drawings cleared (non-undoable operation).");
+        Map<UUID, DrawingObject> activeDrawings = getActiveDrawingsMap();
+        if (activeDrawings != null) {
+            List<UUID> idsToRemove = new ArrayList<>(activeDrawings.keySet());
+            idsToRemove.forEach(this::performRemove); // Should use active symbol's remove
+            logger.debug("All drawings for symbol {} cleared.", activeSymbol);
+        }
+    }
+    
+    /**
+     * [NEW] Clears all drawings across all symbols. Used for full resets.
+     */
+    public void clearAllDrawingsForAllSymbols() {
+        drawingsBySymbol.clear();
+        selectedDrawingId = null;
+        logger.debug("All drawings for all symbols have been cleared.");
+        pcs.firePropertyChange("activeSymbolChanged", null, null);
     }
 
-    public void restoreDrawings(List<DrawingObject> drawingsToRestore) {
-        clearAllDrawings();
-        if (drawingsToRestore == null) return;
-        for (DrawingObject drawing : drawingsToRestore) {
-            this.drawings.put(drawing.id(), drawing);
+    /**
+     * [MODIFIED] Restores drawings for a specific symbol, typically from a saved session.
+     * @param symbol The symbol to restore drawings for.
+     * @param drawingsToRestore The list of drawings.
+     */
+    public void restoreDrawingsForSymbol(String symbol, List<DrawingObject> drawingsToRestore) {
+        if (symbol == null) return;
+        Map<UUID, DrawingObject> symbolDrawings = drawingsBySymbol.computeIfAbsent(symbol, k -> new ConcurrentHashMap<>());
+        symbolDrawings.clear();
+
+        if (drawingsToRestore != null) {
+            for (DrawingObject drawing : drawingsToRestore) {
+                symbolDrawings.put(drawing.id(), drawing);
+            }
         }
-        logger.info("Restored {} drawings from session state.", drawingsToRestore.size());
+        logger.info("Restored {} drawings for symbol {}.", drawingsToRestore != null ? drawingsToRestore.size() : 0, symbol);
+        if (symbol.equals(activeSymbol)) {
+             pcs.firePropertyChange("activeSymbolChanged", null, symbol);
+        }
     }
 
     public void addDrawing(DrawingObject drawingObject) {
-        if (drawingObject == null) {
-            logger.warn("Attempted to add a null drawing object.");
+        if (drawingObject == null || activeSymbol == null) {
+            logger.warn("Attempted to add a null drawing object or no active symbol is set.");
             return;
         }
+        // NOTE: Assumes command objects are updated to handle the symbol context implicitly via performAdd.
         UndoableCommand command = new AddDrawingCommand(drawingObject);
         UndoManager.getInstance().executeCommand(command);
     }
 
     public void updateDrawing(DrawingObject drawingObject) {
-        if (drawingObject == null) {
-            logger.warn("Attempted to update a null drawing object.");
+        if (drawingObject == null || activeSymbol == null) {
+            logger.warn("Attempted to update a null drawing object or no active symbol is set.");
             return;
         }
-        DrawingObject stateBefore = drawings.get(drawingObject.id());
+        Map<UUID, DrawingObject> activeDrawings = getActiveDrawingsMap();
+        if (activeDrawings == null) return;
+        
+        DrawingObject stateBefore = activeDrawings.get(drawingObject.id());
         if (stateBefore == null) {
             logger.error("Attempted to update a drawing that does not exist in the manager: {}", drawingObject.id());
             return;
@@ -132,22 +197,20 @@ public final class DrawingManager {
         UndoManager.getInstance().executeCommand(command);
     }
 
-    /**
-     * MODIFICATION: New method to update a drawing for live feedback (e.g., dragging)
-     * without creating an undo/redo command. This directly calls the internal performUpdate.
-     * @param drawingObject The temporary state of the drawing object.
-     */
     public void updateDrawingPreview(DrawingObject drawingObject) {
-        if (drawingObject == null) {
-            logger.warn("Attempted to update a null drawing preview.");
+        if (drawingObject == null || activeSymbol == null) {
+            logger.warn("Attempted to update a null drawing preview or no active symbol is set.");
             return;
         }
         performUpdate(drawingObject);
     }
 
     public void removeDrawing(UUID drawingObjectId) {
-        if (drawingObjectId == null) return;
-        DrawingObject objectToRemove = drawings.get(drawingObjectId);
+        if (drawingObjectId == null || activeSymbol == null) return;
+        Map<UUID, DrawingObject> activeDrawings = getActiveDrawingsMap();
+        if (activeDrawings == null) return;
+
+        DrawingObject objectToRemove = activeDrawings.get(drawingObjectId);
         if (objectToRemove != null) {
             UndoableCommand command = new RemoveDrawingCommand(objectToRemove);
             UndoManager.getInstance().executeCommand(command);
@@ -156,36 +219,45 @@ public final class DrawingManager {
         }
     }
 
-
     // --- Internal Command Methods ---
+    // These now operate on the active symbol's drawing map.
 
     public void performAdd(DrawingObject drawingObject) {
-        drawings.put(drawingObject.id(), drawingObject);
-        logger.debug("Performed add for drawing: {}", drawingObject.id());
-        notifyDrawingAdded(drawingObject);
+        Map<UUID, DrawingObject> activeDrawings = getActiveDrawingsMap();
+        if (activeDrawings != null) {
+            activeDrawings.put(drawingObject.id(), drawingObject);
+            logger.debug("Performed add for drawing: {} on symbol {}", drawingObject.id(), activeSymbol);
+            notifyDrawingAdded(drawingObject);
+        }
     }
 
     public void performUpdate(DrawingObject drawingObject) {
-        drawings.put(drawingObject.id(), drawingObject);
-        logger.debug("Performed update for drawing: {}", drawingObject.id());
-        notifyDrawingUpdated(drawingObject);
+        Map<UUID, DrawingObject> activeDrawings = getActiveDrawingsMap();
+        if (activeDrawings != null) {
+            activeDrawings.put(drawingObject.id(), drawingObject);
+            logger.debug("Performed update for drawing: {} on symbol {}", drawingObject.id(), activeSymbol);
+            notifyDrawingUpdated(drawingObject);
+        }
     }
 
     public void performRemove(UUID drawingObjectId) {
-        DrawingObject removedObject = drawings.remove(drawingObjectId);
-        if (removedObject != null) {
-            logger.debug("Performed remove for drawing ID: {}", drawingObjectId);
-            notifyDrawingRemoved(drawingObjectId);
+        Map<UUID, DrawingObject> activeDrawings = getActiveDrawingsMap();
+        if (activeDrawings != null) {
+            DrawingObject removedObject = activeDrawings.remove(drawingObjectId);
+            if (removedObject != null) {
+                logger.debug("Performed remove for drawing ID: {} on symbol {}", drawingObjectId, activeSymbol);
+                notifyDrawingRemoved(drawingObjectId);
+            }
         }
     }
 
-
     public List<DrawingObject> getVisibleDrawings(TimeRange timeRange, PriceRange priceRange) {
         List<DrawingObject> visibleDrawings = new ArrayList<>();
-        if (timeRange == null || priceRange == null) {
+        Map<UUID, DrawingObject> activeDrawings = getActiveDrawingsMap();
+        if (timeRange == null || priceRange == null || activeDrawings == null) {
             return visibleDrawings;
         }
-        for (DrawingObject drawing : drawings.values()) {
+        for (DrawingObject drawing : activeDrawings.values()) {
             if (isDrawingVisible(drawing, timeRange, priceRange)) {
                 visibleDrawings.add(drawing);
             }
@@ -198,7 +270,20 @@ public final class DrawingManager {
     }
 
     public List<DrawingObject> getAllDrawings() {
-        return new ArrayList<>(drawings.values());
+        Map<UUID, DrawingObject> activeDrawings = getActiveDrawingsMap();
+        if (activeDrawings == null) {
+            return Collections.emptyList();
+        }
+        return new ArrayList<>(activeDrawings.values());
+    }
+    
+    // Deprecated methods that are replaced by symbol-aware versions.
+    @Deprecated
+    public void restoreDrawings(List<DrawingObject> drawingsToRestore) {
+        logger.warn("Deprecated method restoreDrawings called. Use restoreDrawingsForSymbol instead.");
+        if (activeSymbol != null) {
+            restoreDrawingsForSymbol(activeSymbol, drawingsToRestore);
+        }
     }
 
     public void addPropertyChangeListener(String propertyName, PropertyChangeListener listener) {

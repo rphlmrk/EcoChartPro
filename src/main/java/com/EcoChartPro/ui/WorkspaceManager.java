@@ -1,6 +1,5 @@
 package com.EcoChartPro.ui;
 
-import com.EcoChartPro.api.indicator.IndicatorType;
 import com.EcoChartPro.core.controller.ChartController;
 import com.EcoChartPro.core.controller.ReplaySessionManager;
 import com.EcoChartPro.core.indicator.Indicator;
@@ -143,6 +142,7 @@ public class WorkspaceManager {
         DataSourceManager.ChartDataSource replaySource = ReplaySessionManager.getInstance().getCurrentSource();
         if (replaySource != null) {
             model.configureForReplay(tf, replaySource);
+            model.setDatabaseManager(owner.getActiveDbManager(), replaySource);
             ReplaySessionManager.getInstance().addListener(model);
         } else {
             DataSourceManager.ChartDataSource standardSource = owner.getTopToolbarPanel().getSelectedDataSource();
@@ -174,7 +174,6 @@ public class WorkspaceManager {
         if (targetTimeframe == null) targetTimeframe = Timeframe.H1;
 
         if (replaySource != null) {
-            // Call the overloaded method with forceReload = true for the initial load
             model.setDisplayTimeframe(targetTimeframe, true);
         } else {
             DataSourceManager.ChartDataSource standardSource = owner.getTopToolbarPanel().getSelectedDataSource();
@@ -200,17 +199,14 @@ public class WorkspaceManager {
     }
     
     private Timeframe getNextDefaultTimeframe(List<Timeframe> existingTimeframes) {
-        // Define a preferred sequence of timeframes for new panels
         List<Timeframe> sequence = List.of(Timeframe.M5, Timeframe.M15, Timeframe.H1, Timeframe.D1, Timeframe.M1, Timeframe.H4);
         
-        // Find the first timeframe in the sequence that is not already in use
         for (Timeframe tf : sequence) {
             if (!existingTimeframes.contains(tf)) {
                 return tf;
             }
         }
         
-        // If all preferred timeframes are already used, fall back to the active chart's timeframe or H1
         return (activeChartPanel != null && activeChartPanel.getDataModel().getCurrentDisplayTimeframe() != null)
                ? activeChartPanel.getDataModel().getCurrentDisplayTimeframe() : Timeframe.H1;
     }
@@ -226,7 +222,6 @@ public class WorkspaceManager {
             case FOUR: case FOUR_VERTICAL: requiredPanels = 4; break;
         }
         
-        // Create new panels with smart, cycling timeframes
         while (chartPanels.size() < requiredPanels) {
              List<Timeframe> existingTimeframes = chartPanels.stream()
                 .map(p -> p.getDataModel().getCurrentDisplayTimeframe())

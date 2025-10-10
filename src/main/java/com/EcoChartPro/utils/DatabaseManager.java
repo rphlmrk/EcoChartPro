@@ -60,6 +60,10 @@ public final class DatabaseManager implements AutoCloseable {
         init(DB_URL);
     }
     
+    /**
+     * Public constructor to create a manager for a specific database file.
+     * @param dbUrl The full JDBC URL (e.g., "jdbc:sqlite:/path/to/data.db").
+     */
     public DatabaseManager(String dbUrl) {
         init(dbUrl);
     }

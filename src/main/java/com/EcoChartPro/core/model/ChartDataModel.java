@@ -16,6 +16,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.swing.*;
+import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 import java.beans.PropertyChangeSupport;
 import java.math.BigDecimal;
@@ -25,7 +26,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
 
-public class ChartDataModel implements ReplayStateListener {
+public class ChartDataModel implements ReplayStateListener, PropertyChangeListener {
 
     private static final Logger logger = LoggerFactory.getLogger(ChartDataModel.class);
     private final PropertyChangeSupport pcs = new PropertyChangeSupport(this);
@@ -53,8 +54,6 @@ public class ChartDataModel implements ReplayStateListener {
     private SwingWorker<RebuildResult, Void> activeRebuildWorker = null;
     private List<KLine> baseDataWindow;
 
-    private final Timer debounceTimer;
-
     // --- NEW FIELDS FOR PRE-FETCHING ---
     private volatile boolean isPreFetching = false;
     private RebuildResult preFetchedResult = null;
@@ -69,14 +68,25 @@ public class ChartDataModel implements ReplayStateListener {
         this.currentDisplayTimeframe = Timeframe.M1;
         this.indicatorManager = new IndicatorManager();
         this.baseDataWindow = new ArrayList<>();
-
-        this.debounceTimer = new Timer(250, e -> {
-            if (e.getActionCommand() != null) {
-                int startIndexToLoad = Integer.parseInt(e.getActionCommand());
-                rebuildHistoryAsync(startIndexToLoad, false); // Not a pre-fetch
-            }
-        });
-        this.debounceTimer.setRepeats(false);
+        // Add listener to repaint when drawings change (e.g., symbol switch)
+        DrawingManager.getInstance().addPropertyChangeListener("activeSymbolChanged", this);
+    }
+    
+    // [NEW] Method to handle property changes from listened-to services.
+    @Override
+    public void propertyChange(PropertyChangeEvent evt) {
+        if ("activeSymbolChanged".equals(evt.getPropertyName())) {
+            // A change in the active symbol requires a repaint.
+            fireDataUpdated();
+        }
+    }
+    
+    // [NEW] Cleanup method for good resource management.
+    public void cleanup() {
+        DrawingManager.getInstance().removePropertyChangeListener("activeSymbolChanged", this);
+        if (isConfiguredForReplay) {
+            ReplaySessionManager.getInstance().removeListener(this);
+        }
     }
     
     public void setView(ChartPanel chartPanel) {
@@ -325,6 +335,7 @@ public class ChartDataModel implements ReplayStateListener {
             
             rebuildHistoryAsync(targetStartIndex, false);
         } else {
+            if (dbManager == null) return;
             this.viewingLiveEdge = true;
             this.totalCandleCount = dbManager.getTotalKLineCount(new Symbol(currentSource.symbol()), newTimeframe.getDisplayName());
             int initialStartIndex = Math.max(0, totalCandleCount - barsPerScreen);
@@ -628,7 +639,6 @@ public class ChartDataModel implements ReplayStateListener {
     }
 
     public IndicatorManager getIndicatorManager() { return indicatorManager; }
-    public DrawingManager getDrawingManager() { return DrawingManager.getInstance(); }
     public List<KLine> getVisibleKLines() { return visibleKLines; }
     public DataSourceManager.ChartDataSource getCurrentSymbol() { return this.currentSource; }
     public Timeframe getCurrentDisplayTimeframe() { return this.currentDisplayTimeframe; }

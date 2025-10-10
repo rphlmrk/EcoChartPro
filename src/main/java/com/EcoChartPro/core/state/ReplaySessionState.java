@@ -17,7 +17,7 @@ import java.util.List;
  */
 public record ReplaySessionState(
     /**
-     * The symbol being traded (e.g., "btcusdt").
+     * The symbol being traded (e.g., "btcusdt"). This links the session to a data source.
      */
     String dataSourceSymbol,
 

@@ -1,6 +1,7 @@
 package com.EcoChartPro.utils;
 
 import com.EcoChartPro.core.state.ReplaySessionState;
+import com.EcoChartPro.ui.toolbar.components.SymbolProgressCache;
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.*;
@@ -11,7 +12,7 @@ import org.slf4j.LoggerFactory;
 
 import java.awt.BasicStroke;
 import java.awt.Color;
-import java.awt.Font; 
+import java.awt.Font;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -19,6 +20,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.Instant;
 import java.time.YearMonth;
 import java.util.Optional;
 import java.util.Properties;
@@ -61,6 +63,90 @@ public final class SessionManager {
     }
 
     /**
+     * [MODIFIED] Finds the most recent session state for a symbol by comparing the latest manual save
+     * with the global auto-save file, returning whichever is newer.
+     *
+     * @param symbol The symbol identifier (e.g., "btcusdt").
+     * @return An Optional containing the most recent ReplaySessionState if found, otherwise empty.
+     */
+    public Optional<ReplaySessionState> getLatestSessionStateForSymbol(String symbol) {
+        ReplaySessionState latestState = null;
+
+        try {
+            // 1. Check for the latest MANUALLY saved session file for this symbol.
+            Path sessionsDir = getSessionsDirectory();
+            File[] manualSessionFiles = sessionsDir.toFile().listFiles((dir, name) ->
+                name.toLowerCase().startsWith(symbol.toLowerCase() + "_session_") && name.toLowerCase().endsWith(".json")
+            );
+
+            if (manualSessionFiles != null && manualSessionFiles.length > 0) {
+                File latestManualFile = null;
+                long latestTimestamp = -1;
+
+                for (File file : manualSessionFiles) {
+                    try {
+                        String name = file.getName();
+                        String timestampStr = name.substring(name.lastIndexOf('_') + 1, name.lastIndexOf('.'));
+                        long timestamp = Long.parseLong(timestampStr);
+                        if (timestamp > latestTimestamp) {
+                            latestTimestamp = timestamp;
+                            latestManualFile = file;
+                        }
+                    } catch (Exception e) {
+                        logger.warn("Could not parse timestamp from manual session file: {}", file.getName());
+                    }
+                }
+
+                if (latestManualFile != null) {
+                    try {
+                        latestState = loadSession(latestManualFile);
+                    } catch (IOException e) {
+                        logger.error("Failed to load latest manual session file: {}", latestManualFile.getAbsolutePath(), e);
+                    }
+                }
+            }
+
+            // 2. Check the global AUTO-SAVE file, but ONLY if it's for the correct symbol.
+            Optional<ReplaySessionState> autoSaveStateOpt = AppDataManager.getAutoSaveFilePath()
+                .filter(Files::exists)
+                .flatMap(path -> {
+                    try {
+                        ReplaySessionState state = loadSession(path.toFile());
+                        // VITAL FIX: Check if the auto-save is for the requested symbol BEFORE returning it.
+                        if (state != null && state.dataSourceSymbol().equalsIgnoreCase(symbol)) {
+                            return Optional.of(state);
+                        }
+                    } catch (IOException e) {
+                        logger.error("Failed to load auto-save session file.", e);
+                    }
+                    return Optional.empty(); // Return empty if wrong symbol or error
+                });
+            
+            // 3. Compare the auto-save state (if it exists for this symbol) with the latest manual save.
+            if (autoSaveStateOpt.isPresent()) {
+                ReplaySessionState autoSaveState = autoSaveStateOpt.get();
+                if (latestState == null) {
+                    // No manual save found, so auto-save is the latest.
+                    latestState = autoSaveState;
+                } else {
+                    // Both exist, compare their internal timestamps to see which is truly the latest.
+                    Instant manualSaveTime = latestState.lastTimestamp() != null ? latestState.lastTimestamp() : Instant.EPOCH;
+                    Instant autoSaveTime = autoSaveState.lastTimestamp() != null ? autoSaveState.lastTimestamp() : Instant.EPOCH;
+                    if (autoSaveTime.isAfter(manualSaveTime)) {
+                        logger.debug("Auto-save is newer than manual save for symbol {}. Using auto-save for progress.", symbol);
+                        latestState = autoSaveState;
+                    }
+                }
+            }
+
+        } catch (IOException e) {
+            logger.error("Could not access sessions directory to find latest session for symbol {}", symbol, e);
+        }
+
+        return Optional.ofNullable(latestState);
+    }
+    
+    /**
      * Saves the given session state to the specified file as JSON.
      * Also records this file as the most recently saved session.
      *
@@ -71,8 +157,15 @@ public final class SessionManager {
     public void saveSession(ReplaySessionState state, File file) throws IOException {
         try {
             objectMapper.writeValue(file, state);
-            logger.info("Replay session successfully saved to: {}", file.getAbsolutePath());
+            // Don't log successful auto-saves to prevent spam, only manual saves.
+            if (!file.getName().equals("autosave.json")) {
+                logger.info("Replay session successfully saved to: {}", file.getAbsolutePath());
+            }
             setLastSessionPath(file.toPath());
+
+            // --- FIX: Trigger a live update of the progress cache ---
+            SymbolProgressCache.getInstance().updateProgressForSymbol(state.dataSourceSymbol(), state);
+
         } catch (IOException e) {
             logger.error("Failed to save replay session to file: {}", file.getAbsolutePath(), e);
             throw e; // Re-throw to allow the caller (UI) to handle it.
@@ -89,7 +182,9 @@ public final class SessionManager {
     public ReplaySessionState loadSession(File file) throws IOException {
         try {
             ReplaySessionState state = objectMapper.readValue(file, ReplaySessionState.class);
-            logger.info("Replay session successfully loaded from: {}", file.getAbsolutePath());
+            if (!file.getName().equals("autosave.json")) {
+                logger.info("Replay session successfully loaded from: {}", file.getAbsolutePath());
+            }
             return state;
         } catch (IOException e) {
             logger.error("Failed to load replay session from file: {}", file.getAbsolutePath(), e);
@@ -176,7 +271,9 @@ public final class SessionManager {
 
         try (FileOutputStream out = new FileOutputStream(configPath.toFile())) {
             props.store(out, "Eco Chart Pro Application State");
-            logger.info("Updated property '{}' to: {}", key, value);
+            if (!key.equals(LAST_SESSION_PATH_KEY)) { // Avoid spamming this log
+                logger.info("Updated property '{}' to: {}", key, value);
+            }
         } catch (IOException e) {
             logger.error("Failed to save application state to properties file.", e);
         }

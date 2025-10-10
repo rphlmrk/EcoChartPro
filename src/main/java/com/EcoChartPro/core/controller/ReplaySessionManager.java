@@ -320,8 +320,11 @@ public class ReplaySessionManager {
             logger.error("Could not determine auto-save file path. Auto-save skipped.");
             return;
         }
-
+        
+        // --- VITAL FIX: Get the current bar to ensure the timestamp is up-to-date ---
         KLine currentBar = getCurrentBar();
+        Instant lastUpdatedTimestamp = (currentBar != null) ? currentBar.timestamp() : Instant.EPOCH;
+
         ReplaySessionState state = new ReplaySessionState(
                 currentSource.symbol(),
                 replayHeadIndex,
@@ -330,11 +333,12 @@ public class ReplaySessionManager {
                 PaperTradingService.getInstance().getPendingOrders(),
                 PaperTradingService.getInstance().getTradeHistory(),
                 DrawingManager.getInstance().getAllDrawings(),
-                currentBar != null ? currentBar.timestamp() : Instant.EPOCH
+                lastUpdatedTimestamp // Use the up-to-date timestamp here
         );
 
         try {
             SessionManager.getInstance().saveSession(state, autoSaveFile.get());
+            // This log is very frequent, so keep it at DEBUG level.
             logger.debug("Auto-save completed for session {}", currentSource.symbol());
         } catch (Exception e) {
             logger.error("Auto-save failed for session {}", currentSource.symbol(), e);

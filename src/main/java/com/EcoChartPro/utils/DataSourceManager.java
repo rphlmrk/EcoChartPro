@@ -27,6 +27,13 @@ public class DataSourceManager {
 
     private final List<ChartDataSource> availableSources = new ArrayList<>();
 
+    /**
+     * A record representing a discoverable data source for a specific symbol.
+     * @param symbol The unique, lowercase identifier (e.g., "btcusdt").
+     * @param displayName A user-friendly name (e.g., "BTC/USDT").
+     * @param dbPath The absolute path to the symbol's SQLite database file.
+     * @param timeframes A list of available timeframes found within the database.
+     */
     public record ChartDataSource(String symbol, String displayName, Path dbPath, List<String> timeframes) {
         @Override
         public String toString() {
@@ -50,6 +57,10 @@ public class DataSourceManager {
         return instance;
     }
 
+    /**
+     * Scans the application's data directory to find and register all available
+     * symbol databases. This method should be called at startup.
+     */
     public void scanDataDirectory() {
         this.availableSources.clear();
         logger.info("Starting data source scan...");
@@ -70,7 +81,7 @@ public class DataSourceManager {
     private void processSymbolDirectory(Path symbolDir) {
         String symbolName = symbolDir.getFileName().toString().toLowerCase();
         
-        // Scan for *any* .db file instead of a hardcoded name ---
+        // Scan for *any* .db file instead of a hardcoded name
         Optional<Path> dbPathOpt;
         try (Stream<Path> files = Files.list(symbolDir)) {
             dbPathOpt = files.filter(f -> f.toString().toLowerCase().endsWith(".db")).findFirst();
@@ -93,6 +104,7 @@ public class DataSourceManager {
     }
 
     private List<String> getTimeframesFromDb(Path dbPath) {
+        // Use the new DatabaseManager constructor in a try-with-resources block
         try (DatabaseManager tempDbManager = new DatabaseManager("jdbc:sqlite:" + dbPath.toAbsolutePath())) {
             return tempDbManager.getDistinctTimeframes();
         } catch (Exception e) {
@@ -105,10 +117,19 @@ public class DataSourceManager {
         return rawSymbol.toUpperCase().replace("_", "/");
     }
 
+    /**
+     * Returns an unmodifiable list of all data sources found during the last scan.
+     * @return A list of available ChartDataSource objects.
+     */
     public List<ChartDataSource> getAvailableSources() {
         return Collections.unmodifiableList(availableSources);
     }
 
+    /**
+     * Gets the path to the main data directory where symbol subdirectories are stored.
+     * @return The Path to the data directory.
+     * @throws IOException If the directory doesn't exist.
+     */
     public static Path getProjectDataDirectory() throws IOException {
         String projectRoot = System.getProperty("user.dir");
         Path dataDirectoryPath = Paths.get(projectRoot, DATA_DIR_NAME);

@@ -7,6 +7,7 @@ import com.EcoChartPro.model.Trade;
 import com.EcoChartPro.model.TradeDirection;
 import com.EcoChartPro.ui.MainWindow;
 import com.EcoChartPro.ui.dashboard.DashboardFrame;
+import com.EcoChartPro.ui.toolbar.components.SymbolProgressCache;
 import com.EcoChartPro.utils.DataSourceManager;
 import com.EcoChartPro.utils.SessionManager;
 import org.slf4j.Logger;
@@ -64,6 +65,10 @@ public class SessionController {
     }
 
     public void loadSession(ReplaySessionState state, Frame parentFrame) {
+        // Immediately update the cache with the state we are about to load.
+        // This ensures the progress is correct if the user closes the session and returns to the dashboard.
+        SymbolProgressCache.getInstance().updateProgressForSymbol(state.dataSourceSymbol(), state);
+
         SwingUtilities.invokeLater(() -> {
             if (parentFrame instanceof DashboardFrame) {
                 ((DashboardFrame) parentFrame).getReportPanel().activateLiveMode(LiveSessionTrackerService.getInstance());
@@ -83,7 +88,7 @@ public class SessionController {
 
         PaperTradingService service = PaperTradingService.getInstance();
         if (service.getTradeHistory().isEmpty() && service.getOpenPositions().isEmpty()) {
-            cleanupAndShowDashboard(window);
+            endReplaySessionAndShowDashboard(window);
             return;
         }
 
@@ -103,14 +108,15 @@ public class SessionController {
             saveSessionWithUI(window);
         }
 
-        cleanupAndShowDashboard(window);
+        endReplaySessionAndShowDashboard(window);
     }
 
     /**
-     * Cleans up session artifacts and makes the dashboard visible again.
-     * @param window The MainWindow that is being closed.
+     * [MODIFIED] Made public and renamed.
+     * Cleans up session artifacts, disposes the window, and makes the dashboard visible again.
+     * @param window The MainWindow that is being closed or ended.
      */
-    private void cleanupAndShowDashboard(Window window) {
+    public void endReplaySessionAndShowDashboard(Window window) {
         SessionManager.getInstance().deleteAutoSaveFile();
         window.dispose();
         findAndSetDashboardVisible(true);

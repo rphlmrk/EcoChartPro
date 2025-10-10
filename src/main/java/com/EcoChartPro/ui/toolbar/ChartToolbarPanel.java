@@ -7,19 +7,17 @@ import com.EcoChartPro.ui.chart.ChartPanel;
 import com.EcoChartPro.ui.dashboard.theme.UITheme;
 import com.EcoChartPro.ui.dialogs.IndicatorDialog;
 import com.EcoChartPro.ui.toolbar.components.LayoutSelectionPanel;
+import com.EcoChartPro.ui.toolbar.components.SymbolSelectionPanel;
 import com.EcoChartPro.ui.toolbar.components.TimeframeSelectionPanel;
 import com.EcoChartPro.utils.DataSourceManager.ChartDataSource;
 import com.EcoChartPro.utils.DataSourceManager;
 import javax.swing.*;
-import javax.swing.event.DocumentEvent;
-import javax.swing.event.DocumentListener;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.List;
-import java.util.stream.Collectors;
 
 public class ChartToolbarPanel extends JPanel {
 
@@ -57,15 +55,15 @@ public class ChartToolbarPanel extends JPanel {
         JPanel leftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 8));
         leftPanel.setOpaque(false);
 
-        // --- SYMBOL SELECTOR ---
-        symbolSelectorButton = new JButton(UITheme.getIcon(UITheme.Icons.SEARCH, 18, 18));
+        // --- SYMBOL SELECTOR [MODIFIED] ---
+        symbolSelectorButton = new JButton();
         styleToolbarButton(symbolSelectorButton);
-        symbolSelectorButton.setToolTipText("Search and select a symbol");
         leftPanel.add(symbolSelectorButton);
+
+        symbolSelectorButton.setIcon(UITheme.getIcon(UITheme.Icons.SEARCH, 18, 18));
         symbolSelectorButton.addActionListener(e -> showSymbolSelectionMenu());
-        if (isReplayMode) {
-            symbolSelectorButton.setEnabled(false);
-        }
+        setCurrentSymbol(null); // Set initial text and tooltip
+        
         leftPanel.add(Box.createHorizontalStrut(10));
         leftPanel.add(createToolbarSeparator());
         leftPanel.add(Box.createHorizontalStrut(5));
@@ -81,7 +79,7 @@ public class ChartToolbarPanel extends JPanel {
         layoutButton = new JButton(UITheme.getIcon(UITheme.Icons.LAYOUT_GRID, 18, 18));
         styleToolbarButton(layoutButton);
         layoutButton.setToolTipText("Change Chart Layout");
-        layoutButton.setEnabled(isReplayMode); // [CORRECTION] This should be enabled in both modes. Changed to true.
+        layoutButton.setEnabled(true);
         leftPanel.add(layoutButton);
         
         leftPanel.add(Box.createHorizontalStrut(5));
@@ -152,7 +150,6 @@ public class ChartToolbarPanel extends JPanel {
         this.layoutPopup = createPopupMenu(new LayoutSelectionPanel());
 
         setupHoverPopup(timeframeButton, timeframePopup);
-        // [CORRECTION] Layout button should be available in both modes.
         setupHoverPopup(layoutButton, layoutPopup);
     }
 
@@ -272,73 +269,40 @@ public class ChartToolbarPanel extends JPanel {
     }
     
     public void populateTimeframes(List<String> availableTimeframes) {
-        if (isReplayMode) return;
         timeframeButton.setEnabled(availableTimeframes != null && !availableTimeframes.isEmpty());
     }
 
     private void showSymbolSelectionMenu() {
         JPopupMenu popupMenu = new JPopupMenu();
         popupMenu.setFocusable(false);
-        popupMenu.setBackground(UIManager.getColor("Panel.background"));
-        JPanel menuPanel = createMenuPanel(popupMenu);
+        popupMenu.setBorder(BorderFactory.createLineBorder(UIManager.getColor("Component.borderColor")));
+        
+        SymbolSelectionPanel menuPanel = new SymbolSelectionPanel();
+        
+        menuPanel.addActionListener(e -> {
+            if (e.getSource() instanceof ChartDataSource) {
+                ChartDataSource selected = (ChartDataSource) e.getSource();
+                setCurrentSymbol(selected);
+                popupMenu.setVisible(false);
+                fireActionEvent("selectionChanged");
+            }
+        });
+
         popupMenu.add(menuPanel);
         popupMenu.show(symbolSelectorButton, 0, symbolSelectorButton.getHeight() + 5);
-    }
-
-    private JPanel createMenuPanel(JPopupMenu popupMenu) {
-        JPanel menuPanel = new JPanel(new BorderLayout());
-        menuPanel.setBackground(UIManager.getColor("Panel.background"));
-        menuPanel.setBorder(BorderFactory.createLineBorder(UIManager.getColor("Component.borderColor")));
-        JTextField searchField = new JTextField();
-        searchField.setBackground(UIManager.getColor("TextField.background"));
-        searchField.setForeground(UIManager.getColor("TextField.foreground"));
-        searchField.setBorder(BorderFactory.createTitledBorder(
-            BorderFactory.createEmptyBorder(2, 2, 2, 2), "Search Symbol"));
-        DefaultListModel<ChartDataSource> listModel = new DefaultListModel<>();
-        List<ChartDataSource> allSources = DataSourceManager.getInstance().getAvailableSources();
-        listModel.addAll(allSources);
-        JList<ChartDataSource> suggestionsList = new JList<>(listModel);
-        suggestionsList.setBackground(UIManager.getColor("List.background"));
-        suggestionsList.setForeground(UIManager.getColor("List.foreground"));
-        suggestionsList.setSelectionBackground(UIManager.getColor("List.selectionBackground"));
-        suggestionsList.setSelectionForeground(UIManager.getColor("List.selectionForeground"));
-        searchField.getDocument().addDocumentListener(new DocumentListener() {
-            private void filter() {
-                String searchText = searchField.getText().toLowerCase().trim();
-                List<ChartDataSource> filteredSources = allSources.stream()
-                        .filter(source -> source.toString().toLowerCase().contains(searchText))
-                        .collect(Collectors.toList());
-                listModel.clear();
-                listModel.addAll(filteredSources);
-            }
-            @Override public void insertUpdate(DocumentEvent e) { filter(); }
-            @Override public void removeUpdate(DocumentEvent e) { filter(); }
-            @Override public void changedUpdate(DocumentEvent e) { filter(); }
-        });
-        suggestionsList.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseClicked(MouseEvent e) {
-                if (e.getClickCount() == 1) {
-                    ChartDataSource selected = suggestionsList.getSelectedValue();
-                    if (selected != null) {
-                        setCurrentSymbol(selected);
-                        popupMenu.setVisible(false);
-                        fireActionEvent("selectionChanged");
-                    }
-                }
-            }
-        });
-        menuPanel.add(searchField, BorderLayout.NORTH);
-        menuPanel.add(new JScrollPane(suggestionsList), BorderLayout.CENTER);
-        menuPanel.setPreferredSize(new Dimension(250, 300));
-        return menuPanel;
     }
 
     public void setCurrentSymbol(ChartDataSource source) {
         this.selectedDataSource = source;
         if (source != null) {
-            symbolSelectorButton.setToolTipText("Symbol: " + source.displayName());
+            symbolSelectorButton.setText(source.displayName());
+            if (isReplayMode) {
+                symbolSelectorButton.setToolTipText("Current Session: " + source.displayName() + ". Click to start a new session.");
+            } else {
+                symbolSelectorButton.setToolTipText("Symbol: " + source.displayName());
+            }
         } else {
+            symbolSelectorButton.setText("Select Symbol");
             symbolSelectorButton.setToolTipText("Search and select a symbol");
         }
     }
@@ -346,9 +310,7 @@ public class ChartToolbarPanel extends JPanel {
     public ChartDataSource getSelectedDataSource() { return this.selectedDataSource; }
     public void addActionListener(ActionListener l) { listenerList.add(ActionListener.class, l); }
     public void removeActionListener(ActionListener l) { listenerList.remove(ActionListener.class, l); }
-    public boolean isReplayMode() { return this.isReplayMode; }
 
-    // [NEW GETTER]
     public JButton getTimeframeButton() {
         return timeframeButton;
     }

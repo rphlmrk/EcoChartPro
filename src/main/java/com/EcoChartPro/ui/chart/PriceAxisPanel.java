@@ -2,6 +2,7 @@ package com.EcoChartPro.ui.chart;
 
 import com.EcoChartPro.core.controller.ReplaySessionManager;
 import com.EcoChartPro.core.manager.CrosshairManager;
+import com.EcoChartPro.core.manager.DrawingManager;
 import com.EcoChartPro.core.model.ChartDataModel;
 import com.EcoChartPro.core.settings.SettingsManager;
 import com.EcoChartPro.core.trading.PaperTradingService;
@@ -19,7 +20,6 @@ import com.EcoChartPro.model.drawing.Trendline;
 import com.EcoChartPro.model.trading.Order;
 import com.EcoChartPro.model.trading.Position;
 import com.EcoChartPro.ui.chart.axis.ChartAxis;
-import com.EcoChartPro.ui.dashboard.theme.UITheme;
 
 import javax.swing.*;
 import java.awt.*;
@@ -120,7 +120,7 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
         int y = yAxis.priceToY(price);
         
         int scale = 2;
-        if (dataModel != null && yAxis.getMaxPrice() != null) {
+        if (dataModel != null && yAxis.getMaxPrice() != null && yAxis.getMinPrice() != null) {
             BigDecimal priceRange = yAxis.getMaxPrice().subtract(yAxis.getMinPrice());
             if (priceRange.doubleValue() < 1.0) {
                 scale = 8;
@@ -280,19 +280,17 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
 
     private void collectDrawingLabels(List<PriceLabel> labelsToDraw) {
         if (dataModel == null) return;
-        List<DrawingObject> allDrawings = dataModel.getDrawingManager().getAllDrawings();
+        List<DrawingObject> allDrawings = DrawingManager.getInstance().getAllDrawings();
 
         // Get global category settings once to avoid repeated calls in the loop.
         boolean showDrawings = SettingsManager.getInstance().isPriceAxisLabelsShowDrawings();
         boolean showFibonaccis = SettingsManager.getInstance().isPriceAxisLabelsShowFibonaccis();
 
         for (DrawingObject drawing : allDrawings) {
-            // STEP 3.1: Check the individual drawing's setting first. If it's off, skip.
             if (!drawing.showPriceLabel()) {
                 continue;
             }
 
-            // STEP 3.2: Check the global category setting and add labels if enabled.
             if (drawing instanceof HorizontalLineObject hl) {
                 if (showDrawings) {
                     labelsToDraw.add(new PriceLabel("H-Line", hl.anchor().price(), getLabelColorForDrawing(drawing), 0));

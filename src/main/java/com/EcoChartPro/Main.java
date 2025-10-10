@@ -5,6 +5,7 @@ import com.EcoChartPro.core.plugin.PluginManager;
 import com.EcoChartPro.core.settings.SettingsManager;
 import com.EcoChartPro.core.theme.ThemeManager;
 import com.EcoChartPro.ui.dashboard.DashboardFrame;
+import com.EcoChartPro.ui.toolbar.components.SymbolProgressCache;
 import com.EcoChartPro.utils.AppDataManager;
 import com.EcoChartPro.utils.DataSourceManager;
 
@@ -19,6 +20,7 @@ import java.util.ArrayList;
 import javax.swing.JDialog;
 import javax.swing.JFrame;
 import javax.swing.SwingUtilities;
+import javax.swing.SwingWorker;
 
 public class Main {
 
@@ -80,6 +82,16 @@ public class Main {
 
         try {
             DataSourceManager.getInstance().scanDataDirectory();
+
+            // [NEW] Build the symbol progress cache on a background thread after scanning.
+            new SwingWorker<Void, Void>() {
+                @Override
+                protected Void doInBackground() throws Exception {
+                    SymbolProgressCache.getInstance().buildCache();
+                    return null;
+                }
+            }.execute();
+            
         } catch (Exception e) {
             logger.error("CRITICAL: A fatal error occurred during data source scanning. Application may not function correctly.", e);
         }
