@@ -3,6 +3,7 @@ package com.EcoChartPro.ui.dashboard;
 import com.EcoChartPro.core.controller.SessionController;
 import com.EcoChartPro.core.journal.JournalAnalysisService;
 import com.EcoChartPro.core.state.ReplaySessionState;
+import com.EcoChartPro.model.Trade;
 import com.EcoChartPro.ui.dashboard.components.FloatingToolbarPanel;
 import com.EcoChartPro.ui.dialogs.NewReplayDialog;
 import com.EcoChartPro.utils.AppDataManager;
@@ -18,7 +19,10 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 public class ReplayViewPanel extends JPanel {
 
@@ -56,16 +60,32 @@ public class ReplayViewPanel extends JPanel {
     }
     
     public void updateReportWithSession(ReplaySessionState state) {
-        if (state == null || state.tradeHistory() == null || state.tradeHistory().isEmpty()) {
+        if (state == null || state.symbolStates() == null || state.symbolStates().isEmpty()) {
             return;
         }
+
+        // [FIXED] Consolidate all trades from all symbols in the session
+        List<Trade> allTradesInSession = state.symbolStates().values().stream()
+            .flatMap(symbolState -> {
+                if (symbolState.tradeHistory() != null) {
+                    return symbolState.tradeHistory().stream();
+                }
+                return null;
+            })
+            .filter(java.util.Objects::nonNull)
+            .collect(Collectors.toList());
+
+        if (allTradesInSession.isEmpty()) {
+            return;
+        }
+
         JournalAnalysisService service = new JournalAnalysisService();
-        BigDecimal totalPnl = state.tradeHistory().stream()
-            .map(t -> t.profitAndLoss())
+        BigDecimal totalPnl = allTradesInSession.stream()
+            .map(Trade::profitAndLoss)
             .reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal initialBalance = state.accountBalance().subtract(totalPnl);
         
-        JournalAnalysisService.OverallStats stats = service.analyzeOverallPerformance(state.tradeHistory(), initialBalance);
+        JournalAnalysisService.OverallStats stats = service.analyzeOverallPerformance(allTradesInSession, initialBalance);
         reportView.updateData(stats, service, state);
     }
 

@@ -4,6 +4,7 @@ import com.EcoChartPro.core.coaching.CoachingInsight;
 import com.EcoChartPro.core.coaching.CoachingService;
 import com.EcoChartPro.core.state.ReplaySessionState;
 import com.EcoChartPro.model.MistakeStats;
+import com.EcoChartPro.model.Trade;
 import com.EcoChartPro.ui.Analysis.ComparativeAnalysisPanel;
 import com.EcoChartPro.ui.Analysis.JournalViewPanel;
 import com.EcoChartPro.ui.Analysis.MistakeAnalysisPanel;
@@ -19,10 +20,12 @@ import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
 import java.io.File;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ExecutionException;
+import java.util.stream.Collectors;
 
 /**
  * A comprehensive dialog that provides deep insights into trading performance.
@@ -139,6 +142,16 @@ public class InsightsDialog extends JDialog {
         SwingWorker<AnalysisResult, Void> worker = new SwingWorker<>() {
             @Override
             protected AnalysisResult doInBackground() throws Exception {
+                // [FIXED] Collect all trades from all symbols for a comprehensive analysis
+                List<Trade> allTrades = new ArrayList<>();
+                if (state != null && state.symbolStates() != null) {
+                    state.symbolStates().values().forEach(s -> {
+                        if (s.tradeHistory() != null) {
+                            allTrades.addAll(s.tradeHistory());
+                        }
+                    });
+                }
+                
                 // Perform all heavy analysis in the background
                 CoachingService coachingService = CoachingService.getInstance();
                 com.EcoChartPro.core.journal.JournalAnalysisService journalService = new com.EcoChartPro.core.journal.JournalAnalysisService();
@@ -146,8 +159,8 @@ public class InsightsDialog extends JDialog {
                 int optimalTrades = com.EcoChartPro.core.gamification.GamificationService.getInstance().getOptimalTradeCount();
                 List<Integer> peakHours = com.EcoChartPro.core.gamification.GamificationService.getInstance().getPeakPerformanceHours();
                 
-                List<CoachingInsight> insights = coachingService.analyze(state.tradeHistory(), optimalTrades, peakHours);
-                Map<String, MistakeStats> mistakeStats = journalService.analyzeMistakes(state.tradeHistory());
+                List<CoachingInsight> insights = coachingService.analyze(allTrades, optimalTrades, peakHours, Optional.empty());
+                Map<String, MistakeStats> mistakeStats = journalService.analyzeMistakes(allTrades);
                 
                 return new AnalysisResult(insights, mistakeStats);
             }
@@ -156,6 +169,16 @@ public class InsightsDialog extends JDialog {
             protected void done() {
                 try {
                     AnalysisResult result = get();
+
+                    // [FIXED] Collect all trades again for UI panels
+                    List<Trade> allTrades = new ArrayList<>();
+                    if (state != null && state.symbolStates() != null) {
+                        state.symbolStates().values().forEach(s -> {
+                            if (s.tradeHistory() != null) {
+                                allTrades.addAll(s.tradeHistory());
+                            }
+                        });
+                    }
                     
                     insightsContainer.removeAll();
                     if (result.insights().isEmpty()) {
@@ -171,9 +194,9 @@ public class InsightsDialog extends JDialog {
 
                     performancePanel.loadSessionData(state);
                     mistakePanel.updateData(result.mistakeStats());
-                    journalPanel.loadSessionData(state.tradeHistory());
-                    comparativePanel.loadData(state.tradeHistory());
-                    explorerPanel.loadData(state.tradeHistory());
+                    journalPanel.loadSessionData(allTrades);
+                    comparativePanel.loadData(allTrades);
+                    explorerPanel.loadData(allTrades);
 
                     cardLayout.show(mainPanel, "content");
                 } catch (InterruptedException | ExecutionException e) {
@@ -188,7 +211,7 @@ public class InsightsDialog extends JDialog {
     }
 
     private void exportReport(String format) {
-        if (this.currentSessionState == null || this.currentSessionState.tradeHistory().isEmpty()) {
+        if (this.currentSessionState == null || this.currentSessionState.symbolStates() == null || this.currentSessionState.symbolStates().isEmpty()) {
             JOptionPane.showMessageDialog(this, "No session data available to export.", "Export Error", JOptionPane.ERROR_MESSAGE);
             return;
         }
@@ -202,7 +225,7 @@ public class InsightsDialog extends JDialog {
         fileChooser.setFileFilter(new FileNameExtensionFilter(fileDesc, fileExt));
 
         String defaultFilename = String.format("EcoChartPro_Report_%s_%s.%s",
-                this.currentSessionState.dataSourceSymbol(), LocalDate.now().toString(), fileExt);
+                this.currentSessionState.lastActiveSymbol(), LocalDate.now().toString(), fileExt);
         fileChooser.setSelectedFile(new File(defaultFilename));
 
         if (fileChooser.showSaveDialog(this) == JFileChooser.APPROVE_OPTION) {

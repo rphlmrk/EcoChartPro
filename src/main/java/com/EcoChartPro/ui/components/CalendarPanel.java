@@ -72,6 +72,18 @@ public class CalendarPanel extends JPanel {
         updateView();
     }
     
+    /**
+     * [NEW] Clears the current date selection visually and internally.
+     */
+    public void clearSelection() {
+        this.selectedDate = null;
+        dayButtonsGroup.clearSelection();
+        // Repaint the month view if it's the current one to remove visual selection
+        if (currentViewMode == ViewMode.MONTH) {
+            rebuildMonthView();
+        }
+    }
+
     public void setHighlightedDates(Set<LocalDate> dates) {
         this.highlightedDates = (dates != null) ? dates : Collections.emptySet();
         updateView();
@@ -328,12 +340,14 @@ public class CalendarPanel extends JPanel {
             setHorizontalAlignment(SwingConstants.CENTER);
             setVerticalAlignment(SwingConstants.CENTER);
             addActionListener(e -> {
-                if(hasData) {
+                // [FIX] Allow selection as long as the button is enabled, regardless of hasData.
+                if (isEnabled()) {
                     selectedDate = this.date;
                     if (onDateSelectCallback != null) {
                         onDateSelectCallback.accept(selectedDate);
                     }
                 } else {
+                    // If the button is not enabled, ensure it cannot be selected.
                     setSelected(false);
                 }
             });

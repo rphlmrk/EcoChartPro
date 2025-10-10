@@ -1,6 +1,7 @@
 package com.EcoChartPro.core.controller;
 
 import com.EcoChartPro.core.state.ReplaySessionState;
+import com.EcoChartPro.core.state.SymbolSessionState;
 import com.EcoChartPro.core.trading.PaperTradingService;
 import com.EcoChartPro.model.Symbol;
 import com.EcoChartPro.model.Trade;
@@ -28,7 +29,10 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -67,7 +71,12 @@ public class SessionController {
     public void loadSession(ReplaySessionState state, Frame parentFrame) {
         // Immediately update the cache with the state we are about to load.
         // This ensures the progress is correct if the user closes the session and returns to the dashboard.
-        SymbolProgressCache.getInstance().updateProgressForSymbol(state.dataSourceSymbol(), state);
+        if (state.symbolStates() != null) {
+            // [FIXED] Use an explicit lambda to match the BiConsumer signature
+            state.symbolStates().forEach((symbol, symbolState) -> 
+                SymbolProgressCache.getInstance().updateProgressForSymbol(symbol, symbolState)
+            );
+        }
 
         SwingUtilities.invokeLater(() -> {
             if (parentFrame instanceof DashboardFrame) {
@@ -86,8 +95,10 @@ public class SessionController {
             return;
         }
 
-        PaperTradingService service = PaperTradingService.getInstance();
-        if (service.getTradeHistory().isEmpty() && service.getOpenPositions().isEmpty()) {
+        // [REFACTORED] Check if any trade has been made on any symbol
+        boolean hasAnyTrades = PaperTradingService.getInstance().hasAnyTradesOrPositions();
+
+        if (!hasAnyTrades) {
             endReplaySessionAndShowDashboard(window);
             return;
         }
@@ -136,7 +147,9 @@ public class SessionController {
             fileChooser.setCurrentDirectory(new File(System.getProperty("user.home")));
         }
         fileChooser.setDialogTitle("Save Replay Session");
-        String defaultFileName = state.dataSourceSymbol() + "_session_" + System.currentTimeMillis() + ".json";
+        // Use the last active symbol for the default filename
+        String defaultFileName = (state.lastActiveSymbol() != null ? state.lastActiveSymbol() : "multisymbol") 
+                                 + "_session_" + System.currentTimeMillis() + ".json";
         fileChooser.setSelectedFile(new File(defaultFileName));
         fileChooser.setFileFilter(new FileNameExtensionFilter("Replay Session (*.json)", "json"));
 

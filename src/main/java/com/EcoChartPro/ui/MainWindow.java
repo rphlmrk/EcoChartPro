@@ -483,9 +483,8 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
     }
 
     public void startReplaySession(DataSourceManager.ChartDataSource source, int startIndex) {
-        setDbManagerForSource(source);
-        DrawingManager.getInstance().setActiveSymbol(source.symbol());
         ReplaySessionManager.getInstance().startSession(source, startIndex);
+        setDbManagerForSource(source); // DB manager is now set after session starts
         workspaceManager.applyLayout(WorkspaceManager.LayoutType.ONE);
         workspaceManager.getChartPanels().get(0).getDataModel().setDisplayTimeframe(Timeframe.M5);
         workspaceManager.setActiveChartPanel(workspaceManager.getChartPanels().get(0));
@@ -494,18 +493,26 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
 
     public void loadReplaySession(ReplaySessionState state) {
         DrawingManager.getInstance().clearAllDrawingsForAllSymbols();
+        ReplaySessionManager.getInstance().startSessionFromState(state);
 
         Optional<ChartDataSource> sourceOpt = DataSourceManager.getInstance().getAvailableSources().stream()
-                .filter(s -> s.symbol().equalsIgnoreCase(state.dataSourceSymbol())).findFirst();
+                .filter(s -> s.symbol().equalsIgnoreCase(state.lastActiveSymbol())).findFirst();
         if (sourceOpt.isEmpty()) {
-            JOptionPane.showMessageDialog(this, "Data source for symbol '" + state.dataSourceSymbol() + "' not found.", "Load Error", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(this, "Data source for symbol '" + state.lastActiveSymbol() + "' not found.", "Load Error", JOptionPane.ERROR_MESSAGE);
             dispose(); return;
         }
+        
         setDbManagerForSource(sourceOpt.get());
-        DrawingManager.getInstance().setActiveSymbol(state.dataSourceSymbol());
-        DrawingManager.getInstance().restoreDrawingsForSymbol(state.dataSourceSymbol(), state.drawings());
+        
+        // Restore drawings for all symbols in the state
+        if (state.symbolStates() != null) {
+            state.symbolStates().forEach((symbol, symbolState) -> 
+                DrawingManager.getInstance().restoreDrawingsForSymbol(symbol, symbolState.drawings())
+            );
+        }
+        
         PaperTradingService.getInstance().restoreState(state);
-        ReplaySessionManager.getInstance().startSessionFromState(state);
+        
         workspaceManager.applyLayout(WorkspaceManager.LayoutType.ONE);
         if (!workspaceManager.getChartPanels().isEmpty()) {
             workspaceManager.getChartPanels().get(0).getDataModel().setDisplayTimeframe(Timeframe.M5);
@@ -568,7 +575,7 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
     }
 
     /**
-     * [NEW] Handles the logic for changing symbols while in replay mode.
+     * [REWRITTEN] Handles seamlessly switching symbols in replay mode.
      */
     private void handleReplaySymbolChange() {
         DataSourceManager.ChartDataSource newSource = topToolbarPanel.getSelectedDataSource();
@@ -578,20 +585,27 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
             return; // No change, do nothing.
         }
 
-        int choice = JOptionPane.showConfirmDialog(
-            this,
-            "This will end the current replay session and return to the dashboard.\n" +
-            "You can then start a new session for " + newSource.displayName() + ".\n\n" +
-            "Do you want to proceed?",
-            "Start New Replay Session",
-            JOptionPane.YES_NO_OPTION,
-            JOptionPane.WARNING_MESSAGE
-        );
+        // 1. Switch active symbol in all core managers
+        ReplaySessionManager.getInstance().switchActiveSymbol(newSource.symbol());
 
-        if (choice == JOptionPane.YES_OPTION) {
-            // The SessionController will handle closing this window and showing the dashboard.
-            sessionController.endReplaySessionAndShowDashboard(this);
+        // 2. Update this window's DB connection
+        setDbManagerForSource(newSource);
+        
+        // 3. Force all chart panels to reload data for the new symbol
+        // Use the active panel's timeframe as the default for all panels on switch.
+        String newTimeframe = workspaceManager.getActiveChartPanel() != null
+                ? workspaceManager.getActiveChartPanel().getDataModel().getCurrentDisplayTimeframe().getDisplayName()
+                : "5m"; // Fallback to 5m if no panel is active
+
+        topToolbarPanel.populateTimeframes(newSource.timeframes());
+        topToolbarPanel.selectTimeframe(newTimeframe);
+        
+        for (ChartPanel panel : workspaceManager.getChartPanels()) {
+            panel.getDataModel().configureForReplay(Timeframe.fromString(newTimeframe), newSource);
+            panel.getDataModel().setDisplayTimeframe(Timeframe.fromString(newTimeframe), true); // Force reload
         }
+        
+        titleBarManager.setStaticTitle(newSource.displayName() + " (" + newTimeframe + ")");
     }
 
     private void loadChartForSource(DataSourceManager.ChartDataSource source) {

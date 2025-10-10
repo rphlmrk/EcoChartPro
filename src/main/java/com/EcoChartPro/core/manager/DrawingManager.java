@@ -19,6 +19,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -275,6 +276,30 @@ public final class DrawingManager {
             return Collections.emptyList();
         }
         return new ArrayList<>(activeDrawings.values());
+    }
+
+    /**
+     * [NEW] Gets all drawings for a specific symbol, regardless of whether it's active.
+     * @param symbol The symbol identifier.
+     * @return A list of all drawings for that symbol.
+     */
+    public List<DrawingObject> getAllDrawingsForSymbol(String symbol) {
+        if (symbol == null) {
+            return Collections.emptyList();
+        }
+        Map<UUID, DrawingObject> symbolDrawings = drawingsBySymbol.get(symbol);
+        if (symbolDrawings == null) {
+            return Collections.emptyList();
+        }
+        return new ArrayList<>(symbolDrawings.values());
+    }
+    
+    /**
+     * [NEW] Gets a set of all symbol identifiers for which drawings have been stored.
+     * @return A set of known symbol strings.
+     */
+    public Set<String> getAllKnownSymbols() {
+        return drawingsBySymbol.keySet();
     }
     
     // Deprecated methods that are replaced by symbol-aware versions.

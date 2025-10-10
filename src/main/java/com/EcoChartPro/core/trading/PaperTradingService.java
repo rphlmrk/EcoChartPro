@@ -6,6 +6,7 @@ import com.EcoChartPro.core.service.PnlCalculationService;
 import com.EcoChartPro.core.settings.SettingsManager;
 import com.EcoChartPro.core.manager.DrawingManager;
 import com.EcoChartPro.core.state.ReplaySessionState;
+import com.EcoChartPro.core.state.SymbolSessionState;
 import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.Symbol;
 import com.EcoChartPro.model.Trade;
@@ -24,8 +25,12 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
@@ -38,10 +43,14 @@ public class PaperTradingService implements TradingService {
 
     private BigDecimal accountBalance;
     private BigDecimal leverage;
-    private final Map<UUID, Position> openPositions = new ConcurrentHashMap<>();
-    private final Map<UUID, Order> pendingOrders = new ConcurrentHashMap<>();
-    private final List<Trade> tradeHistory = Collections.synchronizedList(new ArrayList<>());
-    private final List<Trade> sessionTradeHistory = Collections.synchronizedList(new ArrayList<>());
+    // --- [REFACTORED] State is now managed per symbol ---
+    private final Map<String, Map<UUID, Position>> openPositionsBySymbol = new ConcurrentHashMap<>();
+    private final Map<String, Map<UUID, Order>> pendingOrdersBySymbol = new ConcurrentHashMap<>();
+    private final Map<String, List<Trade>> tradeHistoryBySymbol = new ConcurrentHashMap<>();
+    private final List<Trade> sessionTradeHistory = Collections.synchronizedList(new ArrayList<>()); // This remains for live session UI, will be cleared on symbol switch
+    private String activeSymbol;
+    // --- End Refactor ---
+
     private final PropertyChangeSupport pcs = new PropertyChangeSupport(this);
     private final AutomatedTaggingService automatedTaggingService;
 
@@ -61,6 +70,30 @@ public class PaperTradingService implements TradingService {
         }
         return instance;
     }
+    
+    /**
+     * [NEW] Switches the active context for the trading service.
+     * Ensures that data structures exist for the new symbol.
+     * @param newSymbol The symbol identifier to switch to (e.g., "btcusdt").
+     */
+    public void switchActiveSymbol(String newSymbol) {
+        if (newSymbol != null && !newSymbol.equals(this.activeSymbol)) {
+            logger.debug("PaperTradingService switching active symbol to: {}", newSymbol);
+            this.activeSymbol = newSymbol;
+            // Ensure data structures are initialized for the new symbol
+            openPositionsBySymbol.computeIfAbsent(newSymbol, k -> new ConcurrentHashMap<>());
+            pendingOrdersBySymbol.computeIfAbsent(newSymbol, k -> new ConcurrentHashMap<>());
+            tradeHistoryBySymbol.computeIfAbsent(newSymbol, k -> Collections.synchronizedList(new ArrayList<>()));
+
+            // Clear the live session tracker and notify UI components to update
+            sessionTradeHistory.clear();
+            sessionTradeHistory.addAll(getTradeHistory()); // Populate with history of new symbol
+            
+            pcs.firePropertyChange("openPositionsUpdated", null, getOpenPositions());
+            pcs.firePropertyChange("pendingOrdersUpdated", null, getPendingOrders());
+            pcs.firePropertyChange("tradeHistoryUpdated", null, getTradeHistory());
+        }
+    }
 
     public void addPropertyChangeListener(PropertyChangeListener listener) {
         this.pcs.addPropertyChangeListener(listener);
@@ -73,61 +106,93 @@ public class PaperTradingService implements TradingService {
     @Override
     public ReplaySessionState getCurrentSessionState() {
         ReplaySessionManager rsm = ReplaySessionManager.getInstance();
+        DrawingManager dm = DrawingManager.getInstance();
+
+        Map<String, SymbolSessionState> allSymbolStates = new HashMap<>();
+
+        // Create a set of all symbols that have any state associated with them
+        Set<String> allSymbols = new HashSet<>();
+        allSymbols.addAll(openPositionsBySymbol.keySet());
+        allSymbols.addAll(pendingOrdersBySymbol.keySet());
+        allSymbols.addAll(tradeHistoryBySymbol.keySet());
+        allSymbols.addAll(dm.getAllKnownSymbols());
+        allSymbols.addAll(rsm.getAllKnownSymbols());
+
+        for (String symbol : allSymbols) {
+            SymbolSessionState symbolState = new SymbolSessionState(
+                rsm.getReplayHeadIndex(symbol),
+                new ArrayList<>(openPositionsBySymbol.getOrDefault(symbol, Collections.emptyMap()).values()),
+                new ArrayList<>(pendingOrdersBySymbol.getOrDefault(symbol, Collections.emptyMap()).values()),
+                new ArrayList<>(tradeHistoryBySymbol.getOrDefault(symbol, Collections.emptyList())),
+                dm.getAllDrawingsForSymbol(symbol),
+                rsm.getLastTimestamp(symbol)
+            );
+            allSymbolStates.put(symbol, symbolState);
+        }
+        
+        // [FIX] Ensure the activeSymbol from ReplaySessionManager is used, as it's the source of truth
+        String lastActiveSymbol = rsm.getActiveSymbol();
+
         return new ReplaySessionState(
-                rsm.getCurrentSource() != null ? rsm.getCurrentSource().symbol() : "",
-                rsm.getReplayHeadIndex(),
-                accountBalance,
-                new ArrayList<>(openPositions.values()),
-                new ArrayList<>(pendingOrders.values()),
-                new ArrayList<>(tradeHistory),
-                DrawingManager.getInstance().getAllDrawings(),
-                rsm.getCurrentBar() != null ? rsm.getCurrentBar().timestamp() : Instant.EPOCH
+            accountBalance,
+            lastActiveSymbol,
+            allSymbolStates
         );
     }
 
 
     public void restoreState(ReplaySessionState state) {
-        resetSession(state.accountBalance(), BigDecimal.ONE);
+        resetSession(state.accountBalance(), BigDecimal.ONE); // Leverage is not saved in state yet
 
-        if (state.tradeHistory() != null) {
-            this.tradeHistory.addAll(state.tradeHistory());
+        if (state.symbolStates() != null) {
+            for (Map.Entry<String, SymbolSessionState> entry : state.symbolStates().entrySet()) {
+                String symbol = entry.getKey();
+                SymbolSessionState symbolState = entry.getValue();
+
+                if (symbolState.tradeHistory() != null) {
+                    tradeHistoryBySymbol.computeIfAbsent(symbol, k -> Collections.synchronizedList(new ArrayList<>())).addAll(symbolState.tradeHistory());
+                }
+                if (symbolState.pendingOrders() != null) {
+                    pendingOrdersBySymbol.computeIfAbsent(symbol, k -> new ConcurrentHashMap<>()).putAll(
+                        symbolState.pendingOrders().stream().collect(Collectors.toMap(Order::id, Function.identity()))
+                    );
+                }
+                if (symbolState.openPositions() != null) {
+                    openPositionsBySymbol.computeIfAbsent(symbol, k -> new ConcurrentHashMap<>()).putAll(
+                        symbolState.openPositions().stream().collect(Collectors.toMap(Position::id, Function.identity()))
+                    );
+                }
+            }
         }
-        if (state.pendingOrders() != null) {
-            this.pendingOrders.putAll(state.pendingOrders().stream()
-                    .collect(Collectors.toMap(Order::id, Function.identity())));
-        }
-        if (state.openPositions() != null) {
-            this.openPositions.putAll(state.openPositions().stream()
-                    .collect(Collectors.toMap(Position::id, Function.identity())));
-        }
+        
+        // Set the active symbol from the loaded state
+        switchActiveSymbol(state.lastActiveSymbol());
 
-        pcs.firePropertyChange("openPositionsUpdated", null, new ArrayList<>(openPositions.values()));
-        pcs.firePropertyChange("tradeHistoryUpdated", null, new ArrayList<>(tradeHistory));
-        pcs.firePropertyChange("pendingOrdersUpdated", null, new ArrayList<>(pendingOrders.values()));
-
-
-        logger.info("Paper trading state restored. Balance: {}. Open Positions: {}. Pending Orders: {}. Trade History: {}",
-                accountBalance, openPositions.size(), pendingOrders.size(), tradeHistory.size());
+        logger.info("Paper trading multi-symbol state restored. Active Symbol: {}. Balance: {}", activeSymbol, accountBalance);
     }
 
     @Override
     public void onBarUpdate(KLine newBar) {
-        checkPendingOrders(newBar);
-        updateTrailingStops(newBar);
-        checkOpenPositions(newBar);
+        // All updates happen for the currently active symbol during replay ticks.
+        if (activeSymbol == null) return;
         
-        // [MODIFIED] Reliably fire the PNL calculation event on every bar if any position is open.
-        // This ensures the UI's unrealized PNL is always kept in sync during playback.
-        if (!openPositions.isEmpty()) {
+        checkPendingOrders(newBar, activeSymbol);
+        updateTrailingStops(newBar, activeSymbol);
+        checkOpenPositions(newBar, activeSymbol);
+        
+        if (!getOpenPositions().isEmpty()) {
             Map<UUID, BigDecimal> pnlMap = PnlCalculationService.getInstance()
-                    .calculateUnrealizedPnl(new ArrayList<>(openPositions.values()), newBar);
+                    .calculateUnrealizedPnl(getOpenPositions(), newBar);
             pcs.firePropertyChange("unrealizedPnlCalculated", null, pnlMap);
         }
     }
 
-    private void checkPendingOrders(KLine bar) {
+    private void checkPendingOrders(KLine bar, String symbol) {
+        Map<UUID, Order> symbolOrders = pendingOrdersBySymbol.get(symbol);
+        if (symbolOrders == null || symbolOrders.isEmpty()) return;
+
         boolean ordersChanged = false;
-        for (Order order : new ArrayList<>(pendingOrders.values())) {
+        for (Order order : new ArrayList<>(symbolOrders.values())) {
             BigDecimal fillPrice = null;
             if (order.direction() == TradeDirection.LONG) {
                 if (order.type() == OrderType.LIMIT && bar.low().compareTo(order.limitPrice()) <= 0) {
@@ -144,18 +209,21 @@ public class PaperTradingService implements TradingService {
             }
             if (fillPrice != null) {
                 openPosition(order, fillPrice, bar.timestamp());
-                pendingOrders.remove(order.id());
-                logger.info("Filled order {} at price {}", order.id(), fillPrice);
+                symbolOrders.remove(order.id());
+                logger.info("Filled order {} for symbol {} at price {}", order.id(), symbol, fillPrice);
                 ordersChanged = true;
             }
         }
         if (ordersChanged) {
-            pcs.firePropertyChange("pendingOrdersUpdated", null, new ArrayList<>(pendingOrders.values()));
+            pcs.firePropertyChange("pendingOrdersUpdated", null, getPendingOrders());
         }
     }
 
-    private void updateTrailingStops(KLine bar) {
-        new ArrayList<>(openPositions.values()).forEach(position -> {
+    private void updateTrailingStops(KLine bar, String symbol) {
+        Map<UUID, Position> symbolPositions = openPositionsBySymbol.get(symbol);
+        if (symbolPositions == null || symbolPositions.isEmpty()) return;
+
+        symbolPositions.values().forEach(position -> {
             if (position.trailingStopDistance() == null || position.trailingStopDistance().compareTo(BigDecimal.ZERO) <= 0) {
                 return;
             }
@@ -175,13 +243,16 @@ public class PaperTradingService implements TradingService {
 
             if (newStopLoss != null) {
                 modifyOrder(position.id(), null, newStopLoss, position.takeProfit(), position.trailingStopDistance());
-                logger.info("Position {} SL trailed to {}", position.id(), newStopLoss.toPlainString());
+                logger.info("Position {} SL for symbol {} trailed to {}", position.id(), symbol, newStopLoss.toPlainString());
             }
         });
     }
 
-    private void checkOpenPositions(KLine bar) {
-        new ArrayList<>(openPositions.values()).forEach(position -> {
+    private void checkOpenPositions(KLine bar, String symbol) {
+        Map<UUID, Position> symbolPositions = openPositionsBySymbol.get(symbol);
+        if (symbolPositions == null || symbolPositions.isEmpty()) return;
+        
+        new ArrayList<>(symbolPositions.values()).forEach(position -> {
             BigDecimal closePrice = null;
             String closeReason = "";
             if (position.direction() == TradeDirection.LONG) {
@@ -203,7 +274,7 @@ public class PaperTradingService implements TradingService {
             }
             if (closePrice != null) {
                 Trade closedTrade = finalizeTrade(position, closePrice, bar.timestamp(), true);
-                logger.info("Closed position {} via {}.", position.id(), closeReason);
+                logger.info("Closed position {} for symbol {} via {}.", position.id(), symbol, closeReason);
 
                 if (SettingsManager.getInstance().isAutoJournalOnTradeClose()) {
                     ReplaySessionManager.getInstance().pause();
@@ -215,28 +286,31 @@ public class PaperTradingService implements TradingService {
 
     @Override
     public void placeOrder(Order order, KLine currentBar) {
+        String symbol = order.symbol().name();
+        
         if (order.type() == OrderType.MARKET) {
             if (currentBar == null) {
                 logger.error("Cannot place market order without a current bar context.");
                 return;
             }
             openPosition(order, currentBar.close(), currentBar.timestamp());
-            logger.info("Filled market order {} at {}", order.id(), currentBar.close());
+            logger.info("Filled market order {} for {} at {}", order.id(), symbol, currentBar.close());
         } else {
-            pendingOrders.put(order.id(), order);
-            pcs.firePropertyChange("pendingOrdersUpdated", null, new ArrayList<>(pendingOrders.values()));
-            logger.info("Placed pending order: {}", order);
+            pendingOrdersBySymbol.computeIfAbsent(symbol, k -> new ConcurrentHashMap<>()).put(order.id(), order);
+            pcs.firePropertyChange("pendingOrdersUpdated", null, getPendingOrders());
+            logger.info("Placed pending order for {}: {}", symbol, order);
         }
     }
 
     private void openPosition(Order fromOrder, BigDecimal entryPrice, Instant timestamp) {
+        String symbol = fromOrder.symbol().name();
         Position newPosition = new Position(
             fromOrder.id(), fromOrder.symbol(), fromOrder.direction(),
             fromOrder.size(), entryPrice, fromOrder.stopLoss(),
             fromOrder.takeProfit(), fromOrder.trailingStopDistance(),
             timestamp, fromOrder.checklistId()
         );
-        openPositions.put(newPosition.id(), newPosition);
+        openPositionsBySymbol.computeIfAbsent(symbol, k -> new ConcurrentHashMap<>()).put(newPosition.id(), newPosition);
 
         BigDecimal commission = SettingsManager.getInstance().getCommissionPerTrade();
         if (commission != null && commission.compareTo(BigDecimal.ZERO) > 0) {
@@ -245,10 +319,11 @@ public class PaperTradingService implements TradingService {
                 commission, newPosition.id(), accountBalance);
         }
 
-        pcs.firePropertyChange("openPositionsUpdated", null, new ArrayList<>(openPositions.values()));
+        pcs.firePropertyChange("openPositionsUpdated", null, getOpenPositions());
     }
 
     private Trade finalizeTrade(Position position, BigDecimal exitPrice, Instant exitTime, boolean planFollowed) {
+        String symbol = position.symbol().name();
         BigDecimal pnl;
         if (position.direction() == TradeDirection.LONG) {
             pnl = exitPrice.subtract(position.entryPrice()).multiply(position.size());
@@ -266,9 +341,9 @@ public class PaperTradingService implements TradingService {
 
         ReplaySessionManager rsm = ReplaySessionManager.getInstance();
         List<String> autoTags = new ArrayList<>();
-        if (rsm.getCurrentSource() != null) {
+        if (rsm.getCurrentSource() != null && rsm.getCurrentSource().symbol().equals(symbol)) {
             try (DatabaseManager db = new DatabaseManager("jdbc:sqlite:" + rsm.getCurrentSource().dbPath().toAbsolutePath())) {
-                List<KLine> tradeKlines = db.getKLinesBetween(new Symbol(position.symbol().name()), "1m", position.openTimestamp(), exitTime);
+                List<KLine> tradeKlines = db.getKLinesBetween(new Symbol(symbol), "1m", position.openTimestamp(), exitTime);
                 Trade tempTrade = new Trade(position.id(), position.symbol(), position.direction(), position.openTimestamp(), position.entryPrice(), exitTime, exitPrice, position.size(), pnl, planFollowed);
                 autoTags = automatedTaggingService.generateTags(tempTrade, tradeKlines);
             } catch (Exception e) {
@@ -281,21 +356,29 @@ public class PaperTradingService implements TradingService {
             position.entryPrice(), exitTime, exitPrice, position.size(), pnl, planFollowed,
             null, autoTags, position.checklistId()
         );
-        tradeHistory.add(completedTrade);
+        tradeHistoryBySymbol.computeIfAbsent(symbol, k -> Collections.synchronizedList(new ArrayList<>())).add(completedTrade);
         sessionTradeHistory.add(completedTrade);
         accountBalance = accountBalance.add(pnl);
-        openPositions.remove(position.id());
+        openPositionsBySymbol.get(symbol).remove(position.id());
         
-        pcs.firePropertyChange("tradeHistoryUpdated", null, new ArrayList<>(tradeHistory));
-        pcs.firePropertyChange("openPositionsUpdated", null, new ArrayList<>(openPositions.values()));
+        pcs.firePropertyChange("tradeHistoryUpdated", null, getTradeHistory());
+        pcs.firePropertyChange("openPositionsUpdated", null, getOpenPositions());
         
-        logger.info("Trade finalized. Position: {}. PnL: {}. Plan Followed: {}. New Balance: {}. Auto-tags: {}", position.id(), pnl, planFollowed, accountBalance, autoTags);
+        logger.info("Trade finalized for {}. Position: {}. PnL: {}. Plan Followed: {}. New Balance: {}. Auto-tags: {}", symbol, position.id(), pnl, planFollowed, accountBalance, autoTags);
         return completedTrade;
     }
 
     @Override
     public void modifyOrder(UUID orderId, BigDecimal newPrice, BigDecimal newStopLoss, BigDecimal newTakeProfit, BigDecimal newTrailingStopDistance) {
-        Order existingOrder = pendingOrders.get(orderId);
+        // Find which symbol the order/position belongs to
+        Optional<String> symbolOpt = findSymbolForTradable(orderId);
+        if (symbolOpt.isEmpty()) {
+            logger.warn("Could not find order/position with ID {} to modify.", orderId);
+            return;
+        }
+        String symbol = symbolOpt.get();
+
+        Order existingOrder = pendingOrdersBySymbol.get(symbol).get(orderId);
         if (existingOrder != null) {
             Order updatedOrder = new Order(
                 existingOrder.id(), existingOrder.symbol(), existingOrder.type(),
@@ -303,12 +386,12 @@ public class PaperTradingService implements TradingService {
                 newPrice, newStopLoss, newTakeProfit, newTrailingStopDistance,
                 existingOrder.creationTime(), existingOrder.checklistId()
             );
-            pendingOrders.put(orderId, updatedOrder);
-            pcs.firePropertyChange("pendingOrdersUpdated", null, new ArrayList<>(pendingOrders.values()));
-            logger.info("Modified pending order: {}", orderId);
+            pendingOrdersBySymbol.get(symbol).put(orderId, updatedOrder);
+            pcs.firePropertyChange("pendingOrdersUpdated", null, getPendingOrders());
+            logger.info("Modified pending order {} for symbol {}", orderId, symbol);
             return;
         }
-        Position existingPosition = openPositions.get(orderId);
+        Position existingPosition = openPositionsBySymbol.get(symbol).get(orderId);
         if (existingPosition != null) {
              Position updatedPosition = new Position(
                 existingPosition.id(), existingPosition.symbol(), existingPosition.direction(),
@@ -316,25 +399,20 @@ public class PaperTradingService implements TradingService {
                 newStopLoss, newTakeProfit, newTrailingStopDistance,
                 existingPosition.openTimestamp(), existingPosition.checklistId()
              );
-             openPositions.put(orderId, updatedPosition);
-             pcs.firePropertyChange("openPositionsUpdated", null, new ArrayList<>(openPositions.values()));
-             logger.info("Modified open position SL/TP: {}", orderId);
+             openPositionsBySymbol.get(symbol).put(orderId, updatedPosition);
+             pcs.firePropertyChange("openPositionsUpdated", null, getOpenPositions());
+             logger.info("Modified open position SL/TP for {} on symbol {}", orderId, symbol);
         }
     }
 
     @Override
     public void updateTradeJournalEntry(UUID tradeId, String notes, List<String> tags) {
-        for (int i = 0; i < tradeHistory.size(); i++) {
-            Trade oldTrade = tradeHistory.get(i);
-            if (oldTrade.id().equals(tradeId)) {
-                oldTrade.setNotes(notes);
-                oldTrade.setTags(tags);
-                logger.info("Updated basic journal entry for trade ID: {}", tradeId);
-                pcs.firePropertyChange("tradeHistoryUpdated", null, new ArrayList<>(tradeHistory));
-                return;
-            }
-        }
-        logger.warn("Attempted to update journal for a non-existent trade with ID: {}", tradeId);
+        findTradeById(tradeId).ifPresent(trade -> {
+            trade.setNotes(notes);
+            trade.setTags(tags);
+            logger.info("Updated basic journal entry for trade ID: {}", tradeId);
+            pcs.firePropertyChange("tradeHistoryUpdated", null, getTradeHistory());
+        });
     }
 
     @Override
@@ -343,32 +421,33 @@ public class PaperTradingService implements TradingService {
             logger.warn("Attempted to update trade journal with a null trade or ID.");
             return;
         }
+        String symbol = updatedTrade.symbol().name();
+        List<Trade> history = tradeHistoryBySymbol.get(symbol);
+        if (history == null) {
+            logger.warn("Attempted to update journal for trade {} in a symbol ({}) with no history.", updatedTrade.id(), symbol);
+            return;
+        }
 
         boolean wasUpdated = false;
-        for (int i = 0; i < tradeHistory.size(); i++) {
-            if (tradeHistory.get(i).id().equals(updatedTrade.id())) {
-                tradeHistory.set(i, updatedTrade);
+        for (int i = 0; i < history.size(); i++) {
+            if (history.get(i).id().equals(updatedTrade.id())) {
+                history.set(i, updatedTrade);
                 wasUpdated = true;
                 break;
             }
         }
-
+        
         if (wasUpdated) {
-            for (int i = 0; i < sessionTradeHistory.size(); i++) {
-                if (sessionTradeHistory.get(i).id().equals(updatedTrade.id())) {
-                    sessionTradeHistory.set(i, updatedTrade);
-                    break;
-                }
-            }
+            // Update session history as well if present
+            sessionTradeHistory.removeIf(t -> t.id().equals(updatedTrade.id()));
+            sessionTradeHistory.add(updatedTrade);
 
             logger.info("Updated detailed journal reflection for trade ID: {}", updatedTrade.id());
-
             if (updatedTrade.identifiedMistakes() != null && !updatedTrade.identifiedMistakes().isEmpty()
                 && !(updatedTrade.identifiedMistakes().size() == 1 && "No Mistakes Made".equals(updatedTrade.identifiedMistakes().get(0)))) {
                 pcs.firePropertyChange("mistakeLogged", null, updatedTrade);
             }
-
-            pcs.firePropertyChange("tradeHistoryUpdated", null, new ArrayList<>(tradeHistory));
+            pcs.firePropertyChange("tradeHistoryUpdated", null, getTradeHistory());
         } else {
             logger.warn("Attempted to update journal for a non-existent trade with ID: {}", updatedTrade.id());
         }
@@ -376,27 +455,30 @@ public class PaperTradingService implements TradingService {
 
     @Override
     public void cancelOrder(UUID orderId) {
-        if (pendingOrders.remove(orderId) != null) {
-            logger.info("Cancelled pending order: {}", orderId);
-            pcs.firePropertyChange("pendingOrdersUpdated", null, new ArrayList<>(pendingOrders.values()));
-        }
+        findSymbolForTradable(orderId).ifPresent(symbol -> {
+            if (pendingOrdersBySymbol.get(symbol).remove(orderId) != null) {
+                logger.info("Cancelled pending order {} for symbol {}", orderId, symbol);
+                pcs.firePropertyChange("pendingOrdersUpdated", null, getPendingOrders());
+            }
+        });
     }
 
     @Override
     public void closePosition(UUID positionId, KLine closingBar) {
-        Position positionToClose = openPositions.get(positionId);
-        if (positionToClose != null) {
-            if (closingBar == null) {
-                logger.error("Cannot close position at market without a closing bar context.");
-                return;
-            }
-            Trade closedTrade = finalizeTrade(positionToClose, closingBar.close(), closingBar.timestamp(), false);
-            logger.info("Market-closed position: {}", positionId);
+        Optional<Position> positionOpt = findPositionById(positionId);
+        if (positionOpt.isEmpty()) return;
+        
+        Position positionToClose = positionOpt.get();
+        if (closingBar == null) {
+            logger.error("Cannot close position at market without a closing bar context.");
+            return;
+        }
+        Trade closedTrade = finalizeTrade(positionToClose, closingBar.close(), closingBar.timestamp(), false);
+        logger.info("Market-closed position: {}", positionId);
 
-            if (SettingsManager.getInstance().isAutoJournalOnTradeClose()) {
-                ReplaySessionManager.getInstance().pause();
-                pcs.firePropertyChange("tradeClosedForJournaling", null, closedTrade);
-            }
+        if (SettingsManager.getInstance().isAutoJournalOnTradeClose()) {
+            ReplaySessionManager.getInstance().pause();
+            pcs.firePropertyChange("tradeClosedForJournaling", null, closedTrade);
         }
     }
 
@@ -404,10 +486,11 @@ public class PaperTradingService implements TradingService {
     public void resetSession(BigDecimal startingBalance, BigDecimal leverage) {
         this.accountBalance = startingBalance;
         this.leverage = (leverage != null && leverage.compareTo(BigDecimal.ZERO) > 0) ? leverage : BigDecimal.ONE;
-        this.openPositions.clear();
-        this.pendingOrders.clear();
-        this.tradeHistory.clear();
+        this.openPositionsBySymbol.clear();
+        this.pendingOrdersBySymbol.clear();
+        this.tradeHistoryBySymbol.clear();
         this.sessionTradeHistory.clear();
+        this.activeSymbol = null;
         pcs.firePropertyChange("openPositionsUpdated", null, Collections.emptyList());
         pcs.firePropertyChange("tradeHistoryUpdated", null, Collections.emptyList());
         pcs.firePropertyChange("pendingOrdersUpdated", null, Collections.emptyList());
@@ -416,51 +499,93 @@ public class PaperTradingService implements TradingService {
 
     public void importTradeHistory(List<Trade> newHistory, BigDecimal startingBalance) {
         resetSession(startingBalance, BigDecimal.ONE);
-
         if (newHistory != null && !newHistory.isEmpty()) {
-            this.tradeHistory.addAll(newHistory);
+            // Group imported trades by symbol
+            Map<String, List<Trade>> groupedTrades = newHistory.stream().collect(Collectors.groupingBy(t -> t.symbol().name()));
+            tradeHistoryBySymbol.putAll(groupedTrades);
+            
             BigDecimal totalPnl = newHistory.stream()
                 .map(Trade::profitAndLoss)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
             this.accountBalance = this.accountBalance.add(totalPnl);
         }
-        
-        pcs.firePropertyChange("tradeHistoryUpdated", null, new ArrayList<>(this.tradeHistory));
-        pcs.firePropertyChange("openPositionsUpdated", null, Collections.emptyList());
-        logger.info("Trade history imported. {} trades loaded. New current balance: {}", 
-            this.tradeHistory.size(), this.accountBalance);
+        pcs.firePropertyChange("tradeHistoryUpdated", null, new ArrayList<>(this.tradeHistoryBySymbol.values().stream().flatMap(List::stream).collect(Collectors.toList())));
+        logger.info("Trade history imported. {} total trades across {} symbols. New balance: {}", newHistory.size(), tradeHistoryBySymbol.size(), this.accountBalance);
     }
 
     @Override
     public List<Position> getOpenPositions() {
-        return new ArrayList<>(openPositions.values());
+        if (activeSymbol == null) return Collections.emptyList();
+        return new ArrayList<>(openPositionsBySymbol.getOrDefault(activeSymbol, Collections.emptyMap()).values());
     }
 
     @Override
     public List<Order> getPendingOrders() {
-        return new ArrayList<>(pendingOrders.values());
+        if (activeSymbol == null) return Collections.emptyList();
+        return new ArrayList<>(pendingOrdersBySymbol.getOrDefault(activeSymbol, Collections.emptyMap()).values());
     }
 
     @Override
     public List<Trade> getTradeHistory() {
-        return new ArrayList<>(tradeHistory);
+        if (activeSymbol == null) return Collections.emptyList();
+        return new ArrayList<>(tradeHistoryBySymbol.getOrDefault(activeSymbol, Collections.emptyList()));
+    }
+
+    /**
+     * [NEW] Checks if any trades have been made or positions are open across ALL symbols.
+     * @return true if there is any trading activity in the session.
+     */
+    public boolean hasAnyTradesOrPositions() {
+        if (!tradeHistoryBySymbol.isEmpty() && tradeHistoryBySymbol.values().stream().anyMatch(list -> !list.isEmpty())) {
+            return true;
+        }
+        if (!openPositionsBySymbol.isEmpty() && openPositionsBySymbol.values().stream().anyMatch(map -> !map.isEmpty())) {
+            return true;
+        }
+        return false;
     }
 
     @Override
-    public BigDecimal getAccountBalance() {
-        return accountBalance;
-    }
+    public BigDecimal getAccountBalance() { return accountBalance; }
 
     @Override
-    public BigDecimal getLeverage() {
-        return leverage;
+    public BigDecimal getLeverage() { return leverage; }
+    
+    // --- Helper methods to find tradable objects by ID across all symbols ---
+    private Optional<String> findSymbolForTradable(UUID id) {
+        for (String symbol : pendingOrdersBySymbol.keySet()) {
+            if (pendingOrdersBySymbol.get(symbol).containsKey(id)) {
+                return Optional.of(symbol);
+            }
+        }
+        for (String symbol : openPositionsBySymbol.keySet()) {
+            if (openPositionsBySymbol.get(symbol).containsKey(id)) {
+                return Optional.of(symbol);
+            }
+        }
+        return Optional.empty();
+    }
+
+    private Optional<Position> findPositionById(UUID id) {
+        return openPositionsBySymbol.values().stream()
+            .map(map -> map.get(id))
+            .filter(java.util.Objects::nonNull)
+            .findFirst();
+    }
+
+    private Optional<Trade> findTradeById(UUID id) {
+        return tradeHistoryBySymbol.values().stream()
+            .flatMap(List::stream)
+            .filter(trade -> trade.id().equals(id))
+            .findFirst();
     }
 
     @Override
     @Deprecated
     public void updateTradeNotes(UUID tradeId, String notes) {
-        Trade oldTrade = tradeHistory.stream().filter(t -> t.id().equals(tradeId)).findFirst().orElse(null);
-        List<String> tags = (oldTrade != null && oldTrade.tags() != null) ? oldTrade.tags() : Collections.emptyList();
-        updateTradeJournalEntry(tradeId, notes, tags);
+        findTradeById(tradeId).ifPresent(trade -> {
+            List<String> tags = (trade.tags() != null) ? trade.tags() : Collections.emptyList();
+            updateTradeJournalEntry(tradeId, notes, tags);
+        });
     }
 }

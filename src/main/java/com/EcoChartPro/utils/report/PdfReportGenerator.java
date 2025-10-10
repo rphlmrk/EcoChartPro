@@ -71,9 +71,20 @@ public class PdfReportGenerator {
 
     private void createReport(ReplaySessionState state, File outputFile) throws IOException {
         JournalAnalysisService service = new JournalAnalysisService();
-        BigDecimal initialBalance = state.accountBalance().subtract(state.tradeHistory().stream()
-                .map(Trade::profitAndLoss).reduce(BigDecimal.ZERO, BigDecimal::add));
-        OverallStats stats = service.analyzeOverallPerformance(state.tradeHistory(), initialBalance);
+
+        // [FIXED] Collect all trades from all symbols for a comprehensive report
+        List<Trade> allTrades = new ArrayList<>();
+        if (state.symbolStates() != null) {
+            state.symbolStates().values().forEach(s -> {
+                if (s.tradeHistory() != null) {
+                    allTrades.addAll(s.tradeHistory());
+                }
+            });
+        }
+        
+        BigDecimal totalPnl = allTrades.stream().map(Trade::profitAndLoss).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal initialBalance = state.accountBalance().subtract(totalPnl);
+        OverallStats stats = service.analyzeOverallPerformance(allTrades, initialBalance);
 
         // --- Pre-calculate all necessary data ---
         List<PnlDistributionBin> pnlDistribution = service.getPnlDistribution(stats.trades(), 15);
@@ -81,7 +92,7 @@ public class PdfReportGenerator {
         
         GamificationService gs = GamificationService.getInstance();
         Optional<DataSourceManager.ChartDataSource> sourceOpt = DataSourceManager.getInstance().getAvailableSources().stream()
-                .filter(s -> s.symbol().equalsIgnoreCase(state.dataSourceSymbol())).findFirst();
+                .filter(s -> s.symbol().equalsIgnoreCase(state.lastActiveSymbol())).findFirst();
         List<CoachingInsight> insights = CoachingService.getInstance().analyze(stats.trades(), gs.getOptimalTradeCount(), gs.getPeakPerformanceHours(), sourceOpt);
 
         try (PDDocument doc = new PDDocument()) {
@@ -113,7 +124,6 @@ public class PdfReportGenerator {
     }
 
     private void drawHeader(ReplaySessionState state, OverallStats stats) throws IOException {
-        // ... (no changes)
         String dateRange = "N/A";
         if (!stats.trades().isEmpty()) {
             Instant first = stats.trades().get(0).entryTime();
@@ -123,12 +133,11 @@ public class PdfReportGenerator {
 
         drawText(FONT_BOLD, 18, 50, yPosition, "Trading Performance Report");
         yPosition -= 20;
-        drawText(FONT_NORMAL, 12, 50, yPosition, String.format("Symbol: %s  |  Period: %s", state.dataSourceSymbol(), dateRange));
+        drawText(FONT_NORMAL, 12, 50, yPosition, String.format("Session Context: %s  |  Period: %s", state.lastActiveSymbol(), dateRange));
         yPosition -= 30;
     }
 
     private void drawKeyMetrics(OverallStats stats) throws IOException {
-        // ... (no changes)
         drawSectionHeader("Key Performance Metrics");
         float x = 60;
         float yStart = yPosition;
@@ -144,7 +153,6 @@ public class PdfReportGenerator {
     }
 
     private void drawEquityCurveChart(OverallStats stats) throws IOException {
-        // ... (no changes)
         drawSectionHeader("Equity Curve");
         int chartWidth = 500;
         int chartHeight = 250;
@@ -243,7 +251,6 @@ public class PdfReportGenerator {
     }
 
     private void drawTradeHistory(List<Trade> trades) throws IOException {
-        // ... (no changes)
         if (checkPageBreak(80)) startNewPageWithHeader("Trade History");
         else drawSectionHeader("Trade History");
 
@@ -251,8 +258,8 @@ public class PdfReportGenerator {
                 .collect(Collectors.groupingBy(t -> YearMonth.from(t.exitTime().atZone(ZoneOffset.UTC)), TreeMap::new, Collectors.toList()));
         
         DateTimeFormatter monthFormatter = DateTimeFormatter.ofPattern("MMMM yyyy");
-        float[] colWidths = {30, 50, 110, 110, 60, 80};
-        String[] headers = {"#", "Side", "Entry Time", "Exit Time", "Duration", "P&L"};
+        float[] colWidths = {30, 80, 50, 100, 100, 60, 70};
+        String[] headers = {"#", "Symbol", "Side", "Entry Time", "Exit Time", "Duration", "P&L"};
         
         int globalTradeNum = 1;
         for(Map.Entry<YearMonth, List<Trade>> entry : tradesByMonth.entrySet()) {
@@ -288,7 +295,7 @@ public class PdfReportGenerator {
             float barY = y - height;
 
             if (bin.upperBound().signum() <= 0) contentStream.setStrokingColor(Color.RED);
-            else if (bin.lowerBound().signum() >= 0) contentStream.setStrokingColor(Color.GREEN);
+            else if (bin.lowerBound().signum() >= 0) contentStream.setStrokingColor(new Color(0, 150, 0));
             else contentStream.setStrokingColor(Color.BLUE);
             contentStream.addRect(barX, barY, barWidth, barHeight);
             contentStream.stroke();
@@ -298,7 +305,6 @@ public class PdfReportGenerator {
     }
 
     private void drawSectionHeader(String title) throws IOException {
-        // ... (no changes)
         contentStream.setStrokingColor(Color.LIGHT_GRAY);
         contentStream.moveTo(50, yPosition);
         contentStream.lineTo(545, yPosition);
@@ -309,13 +315,11 @@ public class PdfReportGenerator {
     }
 
     private void drawMetric(float x, float y, String label, String value) throws IOException {
-        // ... (no changes)
         drawText(FONT_BOLD, 10, x, y, label);
         drawText(FONT_NORMAL, 10, x + 100, y, value);
     }
 
     private void drawText(PDType1Font font, float size, float x, float y, String text) throws IOException {
-        // ... (no changes)
         contentStream.beginText();
         contentStream.setFont(font, size);
         contentStream.newLineAtOffset(x, y);
@@ -324,7 +328,6 @@ public class PdfReportGenerator {
     }
     
     private void drawTable(List<Trade> trades, String[] headers, float[] colWidths, int startNum) throws IOException {
-        // ... (no changes)
         float rowHeight = 15;
         float cellMargin = 5;
         float x = 50;
@@ -356,6 +359,7 @@ public class PdfReportGenerator {
             
             String[] rowData = {
                 String.valueOf(tradeNum++),
+                trade.symbol().name(),
                 trade.direction().toString(),
                 DATETIME_FORMATTER.format(trade.entryTime()),
                 DATETIME_FORMATTER.format(trade.exitTime()),
@@ -403,7 +407,6 @@ public class PdfReportGenerator {
     }
 
     private BufferedImage createEquityCurveImage(OverallStats stats, int width, int height) {
-        // ... (no changes)
         BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
         java.awt.Graphics2D g2 = image.createGraphics();
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);

@@ -127,16 +127,22 @@ public class NewReplayDialog extends JDialog {
 
     private void updateDataRange() {
         ChartDataSource source = (ChartDataSource) symbolComboBox.getSelectedItem();
+        
+        // [FIX] When symbol changes, reset selected date and disable launch button until a new date is picked.
+        this.selectedDate = null;
+        launchButton.setEnabled(false);
+        calendarPanel.setEnabled(true); // Re-enable calendar for new selection
+        calendarPanel.clearSelection(); // Visually clear the selection
+        // End fix
+        
         if (source == null || source.dbPath() == null) {
             dataRangeLabel.setText("No data source selected.");
             calendarPanel.setDataRange(null, null);
-            launchButton.setEnabled(false);
             return;
         }
 
         dataRangeLabel.setText("Loading data range...");
         calendarPanel.setDataRange(null, null);
-        launchButton.setEnabled(false);
 
         SwingWorker<Optional<DatabaseManager.DataRange>, Void> worker = new SwingWorker<>() {
             @Override
@@ -164,18 +170,15 @@ public class NewReplayDialog extends JDialog {
                         
                         calendarPanel.setDataRange(minDate, maxDate);
                         
-                        // [FIX] Jump to the latest month with available data
                         calendarPanel.jumpToDate(maxDate);
                     } else {
                         dataRangeLabel.setText("No 1-minute data found for this symbol.");
                         calendarPanel.setDataRange(null, null);
-                        launchButton.setEnabled(false);
                     }
                 } catch (Exception e) {
                     logger.error("Error retrieving data range in SwingWorker.", e);
                     dataRangeLabel.setText("Error retrieving data range.");
                     calendarPanel.setDataRange(null, null);
-                    launchButton.setEnabled(false);
                 }
             }
         };
@@ -228,12 +231,6 @@ public class NewReplayDialog extends JDialog {
         }
     }
     
-    /**
-     * Helper method to infer a base symbol name from a CSV file name.
-     * This logic is mirrored from DataImportTool to provide a good default name.
-     * @param file The file to inspect.
-     * @return The inferred base symbol name (e.g., "btcusdt" from "BTCUSDT_2023.csv").
-     */
     private String extractBaseSymbolFromFile(File file) {
         if (file == null) return "new_symbol";
         String fileName = file.getName().toLowerCase();
@@ -252,7 +249,6 @@ public class NewReplayDialog extends JDialog {
                 return;
             }
     
-            // Suggest a symbol name based on the first selected file.
             String suggestedName = extractBaseSymbolFromFile(selectedFiles[0]);
             String newSymbolName = (String) JOptionPane.showInputDialog(
                     this,
@@ -265,7 +261,7 @@ public class NewReplayDialog extends JDialog {
             );
     
             if (newSymbolName == null || newSymbolName.trim().isEmpty()) {
-                return; // User cancelled or entered an empty name.
+                return; 
             }
     
             CsvImportWorker worker = new CsvImportWorker(selectedFiles, this, newSymbolName.trim());
@@ -313,12 +309,10 @@ public class NewReplayDialog extends JDialog {
                 Path importDir = Paths.get(System.getProperty("user.dir"), "import_data");
                 Files.createDirectories(importDir);
     
-                // Sanitize the custom name for file system usage and get the original name for replacement.
                 String sanitizedSymbolName = this.customSymbolName.toLowerCase().replaceAll("[^a-z0-9_./-]", "").replace("/", "_");
                 String originalBaseSymbol = parentDialog.extractBaseSymbolFromFile(sourceFiles[0]);
     
                 for (File sourceFile : sourceFiles) {
-                    // Construct the new filename by replacing the old symbol part with the new one.
                     String newFileName = sourceFile.getName().toLowerCase().replace(originalBaseSymbol, sanitizedSymbolName);
                     Path targetPath = importDir.resolve(newFileName);
                     Files.copy(sourceFile.toPath(), targetPath, StandardCopyOption.REPLACE_EXISTING);
@@ -327,7 +321,6 @@ public class NewReplayDialog extends JDialog {
                 DataImportTool importer = new DataImportTool(this::publish);
                 importer.run();
     
-                // Return the new, sanitized symbol name so the UI can select it after the import.
                 return sanitizedSymbolName;
             } catch (Exception e) {
                 this.error = e;

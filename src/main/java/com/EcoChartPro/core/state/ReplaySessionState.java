@@ -1,60 +1,47 @@
 package com.EcoChartPro.core.state;
 
-import com.EcoChartPro.model.Trade;
-import com.EcoChartPro.model.drawing.DrawingObject;
-import com.EcoChartPro.model.trading.Order;
-import com.EcoChartPro.model.trading.Position;
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.io.Serializable;
 import java.math.BigDecimal;
-import java.time.Instant;
-import java.util.List;
+import java.util.Map;
 
 /**
- * Represents the complete, serializable state of a replay session.
+ * [REFACTORED] Represents the complete, serializable state of a multi-symbol replay session.
  * This object can be persisted to a file (e.g., JSON) and loaded
- * to resume a session later.
+ * to resume a session later. It now acts as a container for the states of
+ * individual symbols and the global account balance.
  */
 public record ReplaySessionState(
     /**
-     * The symbol being traded (e.g., "btcusdt"). This links the session to a data source.
-     */
-    String dataSourceSymbol,
-
-    /**
-     * The index of the last processed bar in the 1-minute base data,
-     * allowing the session to resume from the exact point it was saved.
-     */
-    int replayHeadIndex,
-
-    /**
-     * The current account balance at the time the session was saved.
+     * The single, shared account balance for the entire session.
      */
     BigDecimal accountBalance,
-
-    /**
-     * A list of all open positions that have not yet been closed.
-     */
-    List<Position> openPositions,
-
-    /**
-     * A list of all active orders (e.g., limit, stop) that have not yet been filled.
-     */
-    List<Order> pendingOrders,
     
     /**
-     * A complete history of all closed trades made during the session.
+     * The symbol that was active when the session was last saved.
+     * This allows the UI to restore the correct view on load.
      */
-    List<Trade> tradeHistory,
-
-    /**
-     * A list of all user-created drawings on the chart.
-     */
-    List<DrawingObject> drawings,
+    String lastActiveSymbol,
     
     /**
-     * The timestamp of the last bar processed.
+     * A map containing the individual state for each symbol interacted with during the session.
+     * The key is the symbol identifier string (e.g., "btcusdt").
      */
-    Instant lastTimestamp
+    Map<String, SymbolSessionState> symbolStates
 
-) implements Serializable {}
+) implements Serializable {
+
+    // Jackson constructor for robust deserialization
+    @JsonCreator
+    public ReplaySessionState(
+        @JsonProperty("accountBalance") BigDecimal accountBalance,
+        @JsonProperty("lastActiveSymbol") String lastActiveSymbol,
+        @JsonProperty("symbolStates") Map<String, SymbolSessionState> symbolStates
+    ) {
+        this.accountBalance = accountBalance;
+        this.lastActiveSymbol = lastActiveSymbol;
+        this.symbolStates = symbolStates;
+    }
+}

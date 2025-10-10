@@ -1,9 +1,15 @@
 package com.EcoChartPro.utils;
 
 import com.EcoChartPro.core.state.ReplaySessionState;
+import com.EcoChartPro.core.state.SymbolSessionState;
+import com.EcoChartPro.model.Trade;
+import com.EcoChartPro.model.drawing.DrawingObject;
+import com.EcoChartPro.model.trading.Order;
+import com.EcoChartPro.model.trading.Position;
 import com.EcoChartPro.ui.toolbar.components.SymbolProgressCache;
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.*;
 import com.fasterxml.jackson.databind.module.SimpleModule;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
@@ -17,11 +23,16 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Instant;
 import java.time.YearMonth;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
 
@@ -61,144 +72,109 @@ public final class SessionManager {
         }
         return instance;
     }
-
-    /**
-     * [MODIFIED] Finds the most recent session state for a symbol by comparing the latest manual save
-     * with the global auto-save file, returning whichever is newer.
-     *
-     * @param symbol The symbol identifier (e.g., "btcusdt").
-     * @return An Optional containing the most recent ReplaySessionState if found, otherwise empty.
-     */
-    public Optional<ReplaySessionState> getLatestSessionStateForSymbol(String symbol) {
+    
+    public Optional<ReplaySessionState> getLatestSessionState() {
         ReplaySessionState latestState = null;
+        File latestFile = null;
 
-        try {
-            // 1. Check for the latest MANUALLY saved session file for this symbol.
-            Path sessionsDir = getSessionsDirectory();
-            File[] manualSessionFiles = sessionsDir.toFile().listFiles((dir, name) ->
-                name.toLowerCase().startsWith(symbol.toLowerCase() + "_session_") && name.toLowerCase().endsWith(".json")
-            );
-
-            if (manualSessionFiles != null && manualSessionFiles.length > 0) {
-                File latestManualFile = null;
-                long latestTimestamp = -1;
-
-                for (File file : manualSessionFiles) {
-                    try {
-                        String name = file.getName();
-                        String timestampStr = name.substring(name.lastIndexOf('_') + 1, name.lastIndexOf('.'));
-                        long timestamp = Long.parseLong(timestampStr);
-                        if (timestamp > latestTimestamp) {
-                            latestTimestamp = timestamp;
-                            latestManualFile = file;
-                        }
-                    } catch (Exception e) {
-                        logger.warn("Could not parse timestamp from manual session file: {}", file.getName());
-                    }
-                }
-
-                if (latestManualFile != null) {
-                    try {
-                        latestState = loadSession(latestManualFile);
-                    } catch (IOException e) {
-                        logger.error("Failed to load latest manual session file: {}", latestManualFile.getAbsolutePath(), e);
-                    }
-                }
-            }
-
-            // 2. Check the global AUTO-SAVE file, but ONLY if it's for the correct symbol.
-            Optional<ReplaySessionState> autoSaveStateOpt = AppDataManager.getAutoSaveFilePath()
-                .filter(Files::exists)
-                .flatMap(path -> {
-                    try {
-                        ReplaySessionState state = loadSession(path.toFile());
-                        // VITAL FIX: Check if the auto-save is for the requested symbol BEFORE returning it.
-                        if (state != null && state.dataSourceSymbol().equalsIgnoreCase(symbol)) {
-                            return Optional.of(state);
-                        }
-                    } catch (IOException e) {
-                        logger.error("Failed to load auto-save session file.", e);
-                    }
-                    return Optional.empty(); // Return empty if wrong symbol or error
-                });
-            
-            // 3. Compare the auto-save state (if it exists for this symbol) with the latest manual save.
-            if (autoSaveStateOpt.isPresent()) {
-                ReplaySessionState autoSaveState = autoSaveStateOpt.get();
-                if (latestState == null) {
-                    // No manual save found, so auto-save is the latest.
-                    latestState = autoSaveState;
-                } else {
-                    // Both exist, compare their internal timestamps to see which is truly the latest.
-                    Instant manualSaveTime = latestState.lastTimestamp() != null ? latestState.lastTimestamp() : Instant.EPOCH;
-                    Instant autoSaveTime = autoSaveState.lastTimestamp() != null ? autoSaveState.lastTimestamp() : Instant.EPOCH;
-                    if (autoSaveTime.isAfter(manualSaveTime)) {
-                        logger.debug("Auto-save is newer than manual save for symbol {}. Using auto-save for progress.", symbol);
-                        latestState = autoSaveState;
-                    }
-                }
-            }
-
-        } catch (IOException e) {
-            logger.error("Could not access sessions directory to find latest session for symbol {}", symbol, e);
+        Optional<File> lastManualFileOpt = getLastSessionPath().map(Path::toFile);
+        Optional<File> autoSaveFileOpt = AppDataManager.getAutoSaveFilePath().filter(Files::exists).map(Path::toFile);
+        
+        if (lastManualFileOpt.isPresent() && autoSaveFileOpt.isPresent()) {
+            latestFile = lastManualFileOpt.get().lastModified() > autoSaveFileOpt.get().lastModified()
+                         ? lastManualFileOpt.get() : autoSaveFileOpt.get();
+        } else if (lastManualFileOpt.isPresent()) {
+            latestFile = lastManualFileOpt.get();
+        } else if (autoSaveFileOpt.isPresent()) {
+            latestFile = autoSaveFileOpt.get();
         }
 
+        if (latestFile != null) {
+            try {
+                latestState = loadSession(latestFile);
+            } catch (IOException e) {
+                logger.error("Failed to load latest session file: {}", latestFile.getAbsolutePath(), e);
+            }
+        }
+        
         return Optional.ofNullable(latestState);
     }
     
-    /**
-     * Saves the given session state to the specified file as JSON.
-     * Also records this file as the most recently saved session.
-     *
-     * @param state The ReplaySessionState object to save.
-     * @param file  The file to save the session to.
-     * @throws IOException if an error occurs during file writing or serialization.
-     */
     public void saveSession(ReplaySessionState state, File file) throws IOException {
         try {
             objectMapper.writeValue(file, state);
-            // Don't log successful auto-saves to prevent spam, only manual saves.
             if (!file.getName().equals("autosave.json")) {
                 logger.info("Replay session successfully saved to: {}", file.getAbsolutePath());
             }
             setLastSessionPath(file.toPath());
 
-            // --- FIX: Trigger a live update of the progress cache ---
-            SymbolProgressCache.getInstance().updateProgressForSymbol(state.dataSourceSymbol(), state);
+            if (state.symbolStates() != null) {
+                state.symbolStates().forEach(SymbolProgressCache.getInstance()::updateProgressForSymbol);
+            }
 
         } catch (IOException e) {
             logger.error("Failed to save replay session to file: {}", file.getAbsolutePath(), e);
-            throw e; // Re-throw to allow the caller (UI) to handle it.
+            throw e; 
         }
     }
 
     /**
-     * Loads a session state from the specified JSON file.
-     *
-     * @param file The file to load the session from.
-     * @return The deserialized ReplaySessionState object.
-     * @throws IOException if an error occurs during file reading or deserialization.
+     * [MODIFIED] Loads a session state from a JSON file, with backward compatibility for old formats.
      */
     public ReplaySessionState loadSession(File file) throws IOException {
         try {
-            ReplaySessionState state = objectMapper.readValue(file, ReplaySessionState.class);
-            if (!file.getName().equals("autosave.json")) {
-                logger.info("Replay session successfully loaded from: {}", file.getAbsolutePath());
+            JsonNode rootNode = objectMapper.readTree(file);
+
+            // Check for a key unique to the old format
+            if (rootNode.has("dataSourceSymbol")) {
+                logger.info("Detected old session file format. Converting to new multi-symbol format...");
+                return convertOldStateToNew(rootNode);
+            } else {
+                // It's a new format file, deserialize directly
+                ReplaySessionState state = objectMapper.treeToValue(rootNode, ReplaySessionState.class);
+                if (!file.getName().equals("autosave.json")) {
+                    logger.info("Replay session successfully loaded from: {}", file.getAbsolutePath());
+                }
+                return state;
             }
-            return state;
         } catch (IOException e) {
-            logger.error("Failed to load replay session from file: {}", file.getAbsolutePath(), e);
-            throw e; // Re-throw to allow the caller to handle it.
+            logger.error("Failed to load or parse replay session from file: {}", file.getAbsolutePath(), e);
+            throw e;
         }
     }
 
     /**
-     * Gets the dedicated directory for storing saved session files.
-     * It creates the directory if it doesn't already exist.
-     *
-     * @return A Path object pointing to the sessions directory.
-     * @throws IOException if the directory cannot be created.
+     * [NEW] Converts a JsonNode representing an old session state into the new ReplaySessionState format.
      */
+    private ReplaySessionState convertOldStateToNew(JsonNode oldNode) throws IOException {
+        String symbol = oldNode.path("dataSourceSymbol").asText();
+        int headIndex = oldNode.path("replayHeadIndex").asInt();
+        BigDecimal balance = new BigDecimal(oldNode.path("accountBalance").asText("0"));
+        Instant lastTimestamp = objectMapper.treeToValue(oldNode.path("lastTimestamp"), Instant.class);
+
+        // Deserialize lists from the old format
+        List<Position> openPositions = objectMapper.convertValue(oldNode.path("openPositions"), new TypeReference<>() {});
+        List<Order> pendingOrders = objectMapper.convertValue(oldNode.path("pendingOrders"), new TypeReference<>() {});
+        List<Trade> tradeHistory = objectMapper.convertValue(oldNode.path("tradeHistory"), new TypeReference<>() {});
+        List<DrawingObject> drawings = objectMapper.convertValue(oldNode.path("drawings"), new TypeReference<>() {});
+        
+        // Create the new SymbolSessionState
+        SymbolSessionState symbolState = new SymbolSessionState(
+            headIndex,
+            openPositions != null ? openPositions : Collections.emptyList(),
+            pendingOrders != null ? pendingOrders : Collections.emptyList(),
+            tradeHistory != null ? tradeHistory : Collections.emptyList(),
+            drawings != null ? drawings : Collections.emptyList(),
+            lastTimestamp
+        );
+
+        // Wrap it in the new ReplaySessionState container
+        Map<String, SymbolSessionState> symbolStatesMap = new HashMap<>();
+        symbolStatesMap.put(symbol, symbolState);
+
+        return new ReplaySessionState(balance, symbol, symbolStatesMap);
+    }
+
     public Path getSessionsDirectory() throws IOException {
         Path appDataDir = AppDataManager.getAppDataDirectory();
         Path sessionsDir = appDataDir.resolve(SESSIONS_DIR_NAME);
@@ -208,27 +184,15 @@ public final class SessionManager {
         }
         return sessionsDir;
     }
-
-    /**
-     * New method to save the last session path to a properties file.
-     * @param path The path of the session file that was just saved.
-     */
+    
     public void setLastSessionPath(Path path) {
         updateProperty(LAST_SESSION_PATH_KEY, path.toAbsolutePath().toString());
     }
     
-    /**
-     * Sets the last month the user reviewed in their performance analysis.
-     * @param month The YearMonth to save.
-     */
     public void setLastReviewedMonth(YearMonth month) {
-        updateProperty(LAST_REVIEWED_MONTH_KEY, month.toString()); // Stores as "YYYY-MM"
+        updateProperty(LAST_REVIEWED_MONTH_KEY, month.toString());
     }
-
-    /**
-     * New method to get the last session path from the properties file.
-     * @return An Optional containing the path if it exists and is valid, otherwise empty.
-     */
+    
     public Optional<Path> getLastSessionPath() {
         Optional<String> pathStrOpt = readProperty(LAST_SESSION_PATH_KEY);
         if (pathStrOpt.isPresent()) {
@@ -242,10 +206,6 @@ public final class SessionManager {
         return Optional.empty();
     }
     
-    /**
-     * Gets the last month the user reviewed in their performance analysis.
-     * @return An Optional containing the YearMonth if it exists, otherwise empty.
-     */
     public Optional<YearMonth> getLastReviewedMonth() {
         return readProperty(LAST_REVIEWED_MONTH_KEY).map(YearMonth::parse);
     }
@@ -271,7 +231,7 @@ public final class SessionManager {
 
         try (FileOutputStream out = new FileOutputStream(configPath.toFile())) {
             props.store(out, "Eco Chart Pro Application State");
-            if (!key.equals(LAST_SESSION_PATH_KEY)) { // Avoid spamming this log
+            if (!key.equals(LAST_SESSION_PATH_KEY)) { 
                 logger.info("Updated property '{}' to: {}", key, value);
             }
         } catch (IOException e) {
@@ -297,10 +257,7 @@ public final class SessionManager {
         }
         return Optional.empty();
     }
-
-    /**
-     * New method to delete the auto-save file.
-     */
+    
     public void deleteAutoSaveFile() {
         AppDataManager.getAutoSaveFilePath().ifPresent(path -> {
             try {
@@ -314,9 +271,6 @@ public final class SessionManager {
         });
     }
 
-    /**
-     * Creates a custom Jackson module to handle non-standard types from AWT.
-     */
     private SimpleModule createAwtModule() {
         SimpleModule module = new SimpleModule("AwtModule");
         module.addSerializer(Color.class, new ColorSerializer());
@@ -329,7 +283,6 @@ public final class SessionManager {
     }
 
     // --- Custom Serializer/Deserializer Implementations ---
-
     public static class ColorSerializer extends JsonSerializer<Color> {
         @Override
         public void serialize(Color value, JsonGenerator gen, SerializerProvider sp) throws IOException {
@@ -386,7 +339,6 @@ public final class SessionManager {
         }
     }
 
-    // New custom serializer for java.awt.Font ---
     public static class FontSerializer extends JsonSerializer<Font> {
         @Override
         public void serialize(Font font, JsonGenerator gen, SerializerProvider sp) throws IOException {
@@ -398,7 +350,6 @@ public final class SessionManager {
         }
     }
 
-    // New custom deserializer for java.awt.Font ---
     public static class FontDeserializer extends JsonDeserializer<Font> {
         @Override
         public Font deserialize(JsonParser p, DeserializationContext ctxt) throws IOException {

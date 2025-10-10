@@ -27,6 +27,7 @@ import java.time.YearMonth;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -53,12 +54,22 @@ public class HtmlReportGenerator {
      * @throws IOException if an error occurs while writing the file.
      */
     public static void generate(ReplaySessionState state, File outputFile) throws IOException {
-        logger.info("Generating HTML report for symbol {} to {}", state.dataSourceSymbol(), outputFile.getAbsolutePath());
+        logger.info("Generating HTML report for symbol {} to {}", state.lastActiveSymbol(), outputFile.getAbsolutePath());
         JournalAnalysisService service = new JournalAnalysisService();
-        BigDecimal initialBalance = state.accountBalance().subtract(state.tradeHistory().stream()
-                .map(Trade::profitAndLoss)
-                .reduce(BigDecimal.ZERO, BigDecimal::add));
-        OverallStats stats = service.analyzeOverallPerformance(state.tradeHistory(), initialBalance);
+        
+        // [FIXED] Collect all trades from all symbols for a comprehensive report
+        List<Trade> allTrades = new ArrayList<>();
+        if (state.symbolStates() != null) {
+            state.symbolStates().values().forEach(s -> {
+                if (s.tradeHistory() != null) {
+                    allTrades.addAll(s.tradeHistory());
+                }
+            });
+        }
+        
+        BigDecimal totalPnl = allTrades.stream().map(Trade::profitAndLoss).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal initialBalance = state.accountBalance().subtract(totalPnl);
+        OverallStats stats = service.analyzeOverallPerformance(allTrades, initialBalance);
 
         // --- Pre-calculate all necessary data ---
         List<PnlDistributionBin> pnlDistribution = service.getPnlDistribution(stats.trades(), 15);
@@ -66,7 +77,7 @@ public class HtmlReportGenerator {
 
         GamificationService gs = GamificationService.getInstance();
         Optional<DataSourceManager.ChartDataSource> sourceOpt = DataSourceManager.getInstance().getAvailableSources().stream()
-                .filter(s -> s.symbol().equalsIgnoreCase(state.dataSourceSymbol())).findFirst();
+                .filter(s -> s.symbol().equalsIgnoreCase(state.lastActiveSymbol())).findFirst();
         List<CoachingInsight> insights = CoachingService.getInstance().analyze(stats.trades(), gs.getOptimalTradeCount(), gs.getPeakPerformanceHours(), sourceOpt);
 
         String css = generateCss();
@@ -101,7 +112,7 @@ public class HtmlReportGenerator {
                 %s
             </body>
             </html>
-            """, state.dataSourceSymbol(), css, header, statsHtml, chartSvg, perfAnalyticsHtml, mistakeAnalysisHtml, coachingHtml, tradesTable, js);
+            """, state.lastActiveSymbol(), css, header, statsHtml, chartSvg, perfAnalyticsHtml, mistakeAnalysisHtml, coachingHtml, tradesTable, js);
 
         try (BufferedWriter writer = new BufferedWriter(new FileWriter(outputFile))) {
             writer.write(htmlContent);
@@ -156,7 +167,6 @@ public class HtmlReportGenerator {
     }
     
     private static String generateJavascript() {
-        // ... (no changes)
         return """
             <script>
                 document.addEventListener('DOMContentLoaded', function() {
@@ -172,7 +182,6 @@ public class HtmlReportGenerator {
     }
 
     private static String generateHeader(ReplaySessionState state, OverallStats stats) {
-        // ... (no changes)
         String dateRange = "N/A";
         if (!stats.trades().isEmpty()) {
             Instant firstTrade = stats.trades().get(0).entryTime();
@@ -181,12 +190,11 @@ public class HtmlReportGenerator {
         }
         return String.format("""
             <h1>Trading Performance Report</h1>
-            <p class="subtitle">Symbol: <strong>%s</strong> | Period: <strong>%s</strong></p>
-            """, state.dataSourceSymbol(), dateRange);
+            <p class="subtitle">Session Context: <strong>%s</strong> | Period: <strong>%s</strong></p>
+            """, state.lastActiveSymbol(), dateRange);
     }
 
     private static String generateStatsHtml(OverallStats stats) {
-        // ... (no changes)
         return String.format("""
             <div class="stats-grid">
                 <div class="stat"><div class="label">Total Net P&L</div><div class="value %s">%s</div></div>
@@ -311,7 +319,7 @@ public class HtmlReportGenerator {
                 <table>
                     <thead>
                         <tr>
-                            <th>#</th><th>Side</th><th>Entry Time</th><th>Exit Time</th><th>Duration</th><th class="number">P&L</th>
+                            <th>#</th><th>Symbol</th><th>Side</th><th>Entry Time</th><th>Exit Time</th><th>Duration</th><th class="number">P&L</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -322,10 +330,11 @@ public class HtmlReportGenerator {
                 String durStr = String.format("%d:%02d:%02d", duration.toHours(), duration.toMinutesPart(), duration.toSecondsPart());
                 sb.append(String.format("""
                     <tr>
-                        <td>%d</td><td class="%s">%s</td><td>%s</td><td>%s</td><td>%s</td><td class="number %s">%s</td>
+                        <td>%d</td><td>%s</td><td class="%s">%s</td><td>%s</td><td>%s</td><td>%s</td><td class="number %s">%s</td>
                     </tr>
                     """,
                     globalTradeNum++,
+                    trade.symbol().name(),
                     trade.direction().toString().equalsIgnoreCase("LONG") ? "positive" : "negative", trade.direction(),
                     DATETIME_FORMATTER.format(trade.entryTime()),
                     DATETIME_FORMATTER.format(trade.exitTime()),
@@ -339,7 +348,6 @@ public class HtmlReportGenerator {
     }
 
     private static String generateEquityCurveSvg(List<EquityPoint> equityCurve, BigDecimal startBalance) {
-        // ... (no changes)
         if (equityCurve.size() < 2) return "<p>Not enough data for chart.</p>";
 
         int width = 1100, height = 400;

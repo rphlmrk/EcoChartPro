@@ -17,6 +17,7 @@ import java.awt.*;
 import java.math.BigDecimal;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -120,7 +121,17 @@ public class PerformanceAnalyticsPanel extends JPanel {
             challengePanel.setVisible(false);
         }
 
-        if (state == null || state.tradeHistory() == null || state.tradeHistory().isEmpty()) {
+        // [FIXED] Collect all trades from the multi-symbol state
+        List<Trade> allTrades = new ArrayList<>();
+        if (state != null && state.symbolStates() != null) {
+            state.symbolStates().values().forEach(s -> {
+                if (s.tradeHistory() != null) {
+                    allTrades.addAll(s.tradeHistory());
+                }
+            });
+        }
+        
+        if (allTrades.isEmpty()) {
             tradesPerDayChart.updateData(Collections.emptyMap());
             performanceByHourChart.updateData(Collections.emptyMap());
             mfeMaeScatterPlot.updateData(Collections.emptyList());
@@ -129,20 +140,20 @@ public class PerformanceAnalyticsPanel extends JPanel {
             return;
         }
 
-        List<Trade> trades = state.tradeHistory();
         int optimalCount = gamificationService.getOptimalTradeCount();
         List<Integer> peakHours = gamificationService.getPeakPerformanceHours();
 
         // --- Update P&L Distribution Chart ---
-        List<JournalAnalysisService.PnlDistributionBin> pnlDistribution = analysisService.getPnlDistribution(trades, 20);
+        List<JournalAnalysisService.PnlDistributionBin> pnlDistribution = analysisService.getPnlDistribution(allTrades, 20);
         pnlDistributionChart.updateData(pnlDistribution);
 
         // --- Update MFE vs MAE Chart ---
+        // [FIXED] Use lastActiveSymbol to find the correct data source for analysis
         Optional<DataSourceManager.ChartDataSource> sourceOpt = DataSourceManager.getInstance().getAvailableSources().stream()
-                .filter(s -> s.symbol().equalsIgnoreCase(state.dataSourceSymbol())).findFirst();
+                .filter(s -> s.symbol().equalsIgnoreCase(state.lastActiveSymbol())).findFirst();
 
         if (sourceOpt.isPresent()) {
-            List<JournalAnalysisService.TradeMfeMae> mfeMaeData = analysisService.calculateMfeMaeForAllTrades(trades, sourceOpt.get());
+            List<JournalAnalysisService.TradeMfeMae> mfeMaeData = analysisService.calculateMfeMaeForAllTrades(allTrades, sourceOpt.get());
             List<MfeMaeScatterPlot.TradeEfficiencyPoint> plotData = mfeMaeData.stream()
                     .map(d -> new MfeMaeScatterPlot.TradeEfficiencyPoint(d.mfe(), d.mae(), d.pnl()))
                     .collect(Collectors.toList());
@@ -152,14 +163,14 @@ public class PerformanceAnalyticsPanel extends JPanel {
         }
 
         // --- Update Trades Per Day Chart ---
-        Map<Integer, JournalAnalysisService.PerformanceByTradeCount> perfByCount = analysisService.analyzePerformanceByTradeCount(trades);
+        Map<Integer, JournalAnalysisService.PerformanceByTradeCount> perfByCount = analysisService.analyzePerformanceByTradeCount(allTrades);
         Map<Object, BigDecimal> chartData1 = new TreeMap<>();
         perfByCount.forEach((count, stats) -> chartData1.put(count, stats.expectancy()));
         tradesPerDayChart.updateData(chartData1);
         tradesPerDayChart.setHighlightedKeys(Set.of(optimalCount));
 
         // --- Update Performance By Hour Chart ---
-        Map<Integer, JournalAnalysisService.PerformanceByHour> perfByHour = analysisService.analyzePerformanceByTimeOfDay(trades);
+        Map<Integer, JournalAnalysisService.PerformanceByHour> perfByHour = analysisService.analyzePerformanceByTimeOfDay(allTrades);
         Map<Object, BigDecimal> chartData2 = new LinkedHashMap<>();
         DateTimeFormatter hourFormatter = DateTimeFormatter.ofPattern("ha");
         for (int i = 0; i < 24; i++) {

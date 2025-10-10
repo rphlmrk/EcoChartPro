@@ -13,6 +13,7 @@ import com.EcoChartPro.core.journal.JournalAnalysisService;
 import com.EcoChartPro.core.journal.JournalAnalysisService.OverallStats;
 import com.EcoChartPro.core.service.ReviewReminderService;
 import com.EcoChartPro.core.state.ReplaySessionState;
+import com.EcoChartPro.core.state.SymbolSessionState;
 import com.EcoChartPro.model.Trade;
 import com.EcoChartPro.ui.dashboard.theme.UITheme;
 import com.EcoChartPro.ui.dialogs.AchievementsDialog;
@@ -193,7 +194,7 @@ public class ComprehensiveReportPanel extends JPanel implements Scrollable, Prop
     }
     
     private void exportReportToHtml() {
-        if (this.currentSessionState == null || this.currentSessionState.tradeHistory().isEmpty()) {
+        if (this.currentSessionState == null || this.currentSessionState.symbolStates() == null || this.currentSessionState.symbolStates().isEmpty()) {
             JOptionPane.showMessageDialog(this, "No session data available to export.", "Export Error", JOptionPane.ERROR_MESSAGE);
             return;
         }
@@ -203,7 +204,7 @@ public class ComprehensiveReportPanel extends JPanel implements Scrollable, Prop
         fileChooser.setFileFilter(new FileNameExtensionFilter("HTML Files (*.html)", "html"));
 
         String defaultFilename = String.format("EcoChartPro_Report_%s_%s.html",
-                this.currentSessionState.dataSourceSymbol(),
+                this.currentSessionState.lastActiveSymbol(),
                 LocalDate.now().toString());
         fileChooser.setSelectedFile(new File(defaultFilename));
 
@@ -227,7 +228,7 @@ public class ComprehensiveReportPanel extends JPanel implements Scrollable, Prop
     }
     
     private void exportReportToPdf() {
-        if (this.currentSessionState == null || this.currentSessionState.tradeHistory().isEmpty()) {
+        if (this.currentSessionState == null || this.currentSessionState.symbolStates() == null || this.currentSessionState.symbolStates().isEmpty()) {
             JOptionPane.showMessageDialog(this, "No session data available to export.", "Export Error", JOptionPane.ERROR_MESSAGE);
             return;
         }
@@ -237,7 +238,7 @@ public class ComprehensiveReportPanel extends JPanel implements Scrollable, Prop
         fileChooser.setFileFilter(new FileNameExtensionFilter("PDF Documents (*.pdf)", "pdf"));
 
         String defaultFilename = String.format("EcoChartPro_Report_%s_%s.pdf",
-                this.currentSessionState.dataSourceSymbol(),
+                this.currentSessionState.lastActiveSymbol(),
                 LocalDate.now().toString());
         fileChooser.setSelectedFile(new File(defaultFilename));
 
@@ -304,16 +305,27 @@ public class ComprehensiveReportPanel extends JPanel implements Scrollable, Prop
     }
     
     public void updateData(ReplaySessionState state) {
-        if (state == null || state.tradeHistory() == null) {
+        if (state == null || state.symbolStates() == null || state.lastActiveSymbol() == null) {
             return;
         }
+
+        SymbolSessionState activeSymbolState = state.symbolStates().get(state.lastActiveSymbol());
+        if (activeSymbolState == null || activeSymbolState.tradeHistory() == null) {
+            return; // No trade data for the last active symbol
+        }
+
         this.currentSessionState = state;
         JournalAnalysisService service = new JournalAnalysisService();
-        BigDecimal totalPnl = state.tradeHistory().stream()
+        
+        List<Trade> allTradesInSession = state.symbolStates().values().stream()
+                .flatMap(s -> s.tradeHistory().stream())
+                .collect(ArrayList::new, ArrayList::add, ArrayList::addAll);
+
+        BigDecimal totalPnl = allTradesInSession.stream()
             .map(Trade::profitAndLoss).reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal initialBalance = state.accountBalance().subtract(totalPnl);
         
-        OverallStats stats = service.analyzeOverallPerformance(state.tradeHistory(), initialBalance);
+        OverallStats stats = service.analyzeOverallPerformance(allTradesInSession, initialBalance);
         updateData(stats, service, state);
     }
     
@@ -346,7 +358,7 @@ public class ComprehensiveReportPanel extends JPanel implements Scrollable, Prop
         finishedTradesPnlWidget.setOverallData(stats.equityCurve(), stats.maxDrawdown(), stats.maxRunup());
         
         Optional<DataSourceManager.ChartDataSource> sourceOpt = DataSourceManager.getInstance().getAvailableSources().stream()
-                .filter(s -> s.symbol().equalsIgnoreCase(state.dataSourceSymbol()))
+                .filter(s -> s.symbol().equalsIgnoreCase(state.lastActiveSymbol()))
                 .findFirst();
 
         if (sourceOpt.isPresent()) {
