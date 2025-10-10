@@ -28,6 +28,7 @@ public class ChartToolbarPanel extends JPanel {
     private final JButton layoutButton;
     private final JToggleButton crosshairSyncButton;
     
+    private final JPopupMenu symbolPopup;
     private final JPopupMenu timeframePopup;
     private final JPopupMenu layoutPopup;
 
@@ -55,27 +56,23 @@ public class ChartToolbarPanel extends JPanel {
         JPanel leftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 8));
         leftPanel.setOpaque(false);
 
-        // --- SYMBOL SELECTOR [MODIFIED] ---
         symbolSelectorButton = new JButton();
         styleToolbarButton(symbolSelectorButton);
         leftPanel.add(symbolSelectorButton);
 
         symbolSelectorButton.setIcon(UITheme.getIcon(UITheme.Icons.SEARCH, 18, 18));
-        symbolSelectorButton.addActionListener(e -> showSymbolSelectionMenu());
-        setCurrentSymbol(null); // Set initial text and tooltip
+        setCurrentSymbol(null); 
         
         leftPanel.add(Box.createHorizontalStrut(10));
         leftPanel.add(createToolbarSeparator());
         leftPanel.add(Box.createHorizontalStrut(5));
 
-        // --- TIMEFRAME BUTTON ---
         timeframeButton = new JButton("Timeframe");
         styleToolbarButton(timeframeButton);
         timeframeButton.setToolTipText("Select Chart Timeframe");
         timeframeButton.setIcon(UITheme.getIcon(UITheme.Icons.CLOCK, 16, 16));
         leftPanel.add(timeframeButton);
 
-        // --- LAYOUT BUTTON ---
         layoutButton = new JButton(UITheme.getIcon(UITheme.Icons.LAYOUT_GRID, 18, 18));
         styleToolbarButton(layoutButton);
         layoutButton.setToolTipText("Change Chart Layout");
@@ -86,7 +83,6 @@ public class ChartToolbarPanel extends JPanel {
         leftPanel.add(createToolbarSeparator());
         leftPanel.add(Box.createHorizontalStrut(5));
 
-        // --- INDICATORS BUTTON ---
         JButton indicatorsButton = new JButton("ƒx Indicators");
         styleToolbarButton(indicatorsButton);
         indicatorsButton.setToolTipText("Add, remove, or edit indicators");
@@ -108,7 +104,6 @@ public class ChartToolbarPanel extends JPanel {
         leftPanel.add(createToolbarSeparator());
         leftPanel.add(Box.createHorizontalStrut(5));
 
-        // --- UNDO/REDO BUTTONS ---
         undoButton = new JButton(undoDisabledIcon);
         styleToolbarButton(undoButton);
         undoButton.setToolTipText("Undo (Ctrl+Z)");
@@ -124,11 +119,10 @@ public class ChartToolbarPanel extends JPanel {
         leftPanel.add(createToolbarSeparator());
         leftPanel.add(Box.createHorizontalStrut(5));
 
-        // --- CROSSHAIR SYNC BUTTON ---
         crosshairSyncButton = new JToggleButton(UITheme.getIcon(UITheme.Icons.CROSSHAIR, 18, 18));
         styleToolbarButton(crosshairSyncButton);
         crosshairSyncButton.setToolTipText("Synchronize Crosshair Across All Panels");
-        crosshairSyncButton.setSelected(true); // Sync is on by default
+        crosshairSyncButton.setSelected(true); 
         crosshairSyncButton.addActionListener(e -> {
             CrosshairManager.getInstance().setSyncEnabled(crosshairSyncButton.isSelected());
         });
@@ -148,7 +142,20 @@ public class ChartToolbarPanel extends JPanel {
         
         this.timeframePopup = createPopupMenu(new TimeframeSelectionPanel());
         this.layoutPopup = createPopupMenu(new LayoutSelectionPanel());
+        this.symbolPopup = new JPopupMenu();
+        this.symbolPopup.setBorder(BorderFactory.createLineBorder(UIManager.getColor("Component.borderColor")));
+        SymbolSelectionPanel symbolPanel = new SymbolSelectionPanel();
+        symbolPanel.addActionListener(e -> {
+            if (e.getSource() instanceof ChartDataSource) {
+                ChartDataSource selected = (ChartDataSource) e.getSource();
+                setCurrentSymbol(selected);
+                symbolPopup.setVisible(false);
+                fireActionEvent("selectionChanged");
+            }
+        });
+        this.symbolPopup.add(symbolPanel);
 
+        setupHoverPopup(symbolSelectorButton, symbolPopup);
         setupHoverPopup(timeframeButton, timeframePopup);
         setupHoverPopup(layoutButton, layoutPopup);
     }
@@ -171,15 +178,38 @@ public class ChartToolbarPanel extends JPanel {
         return popupMenu;
     }
 
+    /**
+     * Recursively adds a MouseAdapter to a component and all its children.
+     * @param component The component to add the listener to.
+     * @param adapter The MouseAdapter to add.
+     */
+    private void addRecursiveMouseListener(Component component, MouseAdapter adapter) {
+        component.addMouseListener(adapter);
+        if (component instanceof Container) {
+            for (Component child : ((Container) component).getComponents()) {
+                addRecursiveMouseListener(child, adapter);
+            }
+        }
+    }
+
     private void setupHoverPopup(final AbstractButton button, final JPopupMenu popup) {
         final Timer hideTimer = new Timer(300, e -> {
-            Point p = MouseInfo.getPointerInfo().getLocation();
-            SwingUtilities.convertPointFromScreen(p, button);
-            boolean onButton = button.contains(p);
-            
-            SwingUtilities.convertPointFromScreen(p, popup);
-            boolean onPopup = popup.isVisible() && popup.contains(p);
+            if (!popup.isVisible()) {
+                return;
+            }
 
+            // Get mouse position on the screen
+            Point mousePosOnScreen = MouseInfo.getPointerInfo().getLocation();
+
+            // Check if mouse is over the button using screen coordinates
+            Rectangle buttonBounds = new Rectangle(button.getLocationOnScreen(), button.getSize());
+            boolean onButton = buttonBounds.contains(mousePosOnScreen);
+
+            // Check if mouse is over the popup using screen coordinates
+            Rectangle popupBounds = new Rectangle(popup.getLocationOnScreen(), popup.getSize());
+            boolean onPopup = popupBounds.contains(mousePosOnScreen);
+
+            // If the mouse is not on the button AND not on the popup, then hide it.
             if (!onButton && !onPopup) {
                 popup.setVisible(false);
             }
@@ -201,17 +231,9 @@ public class ChartToolbarPanel extends JPanel {
             }
         };
 
+        // Add the listener to the button and recursively to the popup and all its children.
         button.addMouseListener(hoverListener);
-        popup.addMouseListener(hoverListener);
-        if (popup.getComponentCount() > 0) {
-            Component content = popup.getComponent(0);
-            content.addMouseListener(hoverListener);
-            if(content instanceof Container){
-                 for(Component child : ((Container) content).getComponents()){
-                     child.addMouseListener(hoverListener);
-                 }
-            }
-        }
+        addRecursiveMouseListener(popup, hoverListener);
     }
 
     public void setUndoEnabled(boolean enabled) {
@@ -270,26 +292,6 @@ public class ChartToolbarPanel extends JPanel {
     
     public void populateTimeframes(List<String> availableTimeframes) {
         timeframeButton.setEnabled(availableTimeframes != null && !availableTimeframes.isEmpty());
-    }
-
-    private void showSymbolSelectionMenu() {
-        JPopupMenu popupMenu = new JPopupMenu();
-        popupMenu.setFocusable(false);
-        popupMenu.setBorder(BorderFactory.createLineBorder(UIManager.getColor("Component.borderColor")));
-        
-        SymbolSelectionPanel menuPanel = new SymbolSelectionPanel();
-        
-        menuPanel.addActionListener(e -> {
-            if (e.getSource() instanceof ChartDataSource) {
-                ChartDataSource selected = (ChartDataSource) e.getSource();
-                setCurrentSymbol(selected);
-                popupMenu.setVisible(false);
-                fireActionEvent("selectionChanged");
-            }
-        });
-
-        popupMenu.add(menuPanel);
-        popupMenu.show(symbolSelectorButton, 0, symbolSelectorButton.getHeight() + 5);
     }
 
     public void setCurrentSymbol(ChartDataSource source) {
