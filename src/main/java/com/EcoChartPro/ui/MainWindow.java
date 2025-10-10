@@ -467,7 +467,7 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
         String jdbcUrl = "jdbc:sqlite:" + source.dbPath().toAbsolutePath();
         this.activeDbManager = new DatabaseManager(jdbcUrl);
         
-        // [MODIFIED] When the source changes, update the DB manager for ALL existing chart panels.
+        // When the source changes, update the DB manager for ALL existing chart panels.
         for (ChartPanel panel : workspaceManager.getChartPanels()) {
             panel.getDataModel().setDatabaseManager(this.activeDbManager, source);
         }

@@ -162,12 +162,6 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
         });
     }
     
-    /**
-     * MODIFICATION: New public method to get a raw or snapped data point.
-     * Centralizes the magnet mode logic for use by all controllers.
-     * @param e The mouse event containing the screen coordinates.
-     * @return A DrawingObjectPoint, snapped to OHLC if CTRL is pressed.
-     */
     public DrawingObjectPoint getSnappingPoint(MouseEvent e) {
         if (!getChartAxis().isConfigured()) return null;
 
@@ -327,11 +321,11 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
             }
             repaint();
         } else if ("dataUpdated".equals(propName)) {
+            // --- START OF FIX ---
             this.localVisibleKLines = new ArrayList<>(dataModel.getVisibleKLines());
-            SwingUtilities.invokeLater(() -> {
-                updateOverlayButtonsVisibility();
-                repaint();
-            });
+            updateOverlayButtonsVisibility();
+            repaint();
+            // --- END OF FIX ---
         } else if ("daySeparatorsEnabledChanged".equals(propName) || "selectedDrawingChanged".equals(propName)) {
             repaint();
         } else if ("crosshairMoved".equals(propName) && evt.getNewValue() instanceof CrosshairManager.CrosshairUpdate) {
@@ -430,9 +424,9 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
             g2d.drawString(text, 20, 30);
         }
 
-        if (localVisibleKLines.isEmpty() && dataModel.getTotalCandleCount() == 0 && !isLoading) {
+        if (localVisibleKLines.isEmpty() && !isLoading) {
              g2d.setColor(UIManager.getColor("Label.disabledForeground"));
-             g2d.drawString("No data to display. Please launch a chart.", 20, 30);
+             g2d.drawString("No data available for the current view.", 20, 60);
              g2d.dispose();
              return;
         }
@@ -502,7 +496,6 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
                 int y = chartAxis.priceToY(lastClose);
                 boolean isBullish = lastKline.close().compareTo(lastKline.open()) >= 0;
                 Color backgroundColor = isBullish ? settings.getBullColor() : settings.getBearColor();
-                Color textColor = getHighContrastColor(backgroundColor);
                 
                 int lastGlobalIndex = dataModel.getTotalCandleCount() - 1;
                 int slot = lastGlobalIndex - dataModel.getStartIndex();
@@ -567,11 +560,6 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
         y = Math.max(5, y);
 
         SwingUtilities.paintComponent(g, infoPanel, this, x, y, panelWidth, panelHeight);
-    }
-    
-    private Color getHighContrastColor(Color background) {
-        double luminance = (0.299 * background.getRed() + 0.587 * background.getGreen() + 0.114 * background.getBlue()) / 255;
-        return (luminance > 0.5) ? Color.BLACK : Color.WHITE;
     }
     
     private void drawCrosshair(Graphics2D g2d) {

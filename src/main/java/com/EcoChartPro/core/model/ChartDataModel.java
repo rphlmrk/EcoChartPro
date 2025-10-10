@@ -294,7 +294,12 @@ public class ChartDataModel implements ReplayStateListener {
     }
 
     public void setDisplayTimeframe(Timeframe newTimeframe) {
-        if (newTimeframe == null || this.currentDisplayTimeframe == newTimeframe) return;
+        setDisplayTimeframe(newTimeframe, false);
+    }
+
+    public void setDisplayTimeframe(Timeframe newTimeframe, boolean forceReload) {
+        if (newTimeframe == null) return;
+        if (!forceReload && this.currentDisplayTimeframe == newTimeframe) return;
         
         this.currentDisplayTimeframe = newTimeframe;
 
@@ -379,12 +384,9 @@ public class ChartDataModel implements ReplayStateListener {
                         logger.debug("Pre-fetch complete for window starting at {}", result.newWindowStart());
                     } else {
                         applyRebuildResult(result, targetStartIndex);
-                        if (chartPanel != null) chartPanel.setLoading(false, null);
-                        
-                        // [MODIFIED] This is the key. After the data is loaded and applied,
-                        // trigger the indicator calculation and the final view update.
                         triggerIndicatorRecalculation();
                         updateView();
+                        if (chartPanel != null) chartPanel.setLoading(false, null);
                     }
                 } catch (InterruptedException | java.util.concurrent.CancellationException e) {
                     logger.warn("Data loading task was cancelled by a newer request.");

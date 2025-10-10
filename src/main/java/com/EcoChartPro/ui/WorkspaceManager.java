@@ -28,8 +28,10 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 
 public class WorkspaceManager {
 
@@ -167,13 +169,13 @@ public class WorkspaceManager {
         model.setView(chartPanel);
         new ChartController(model, chartPanel, owner);
         
-        // --- Trigger Initial Data Load ---
         String selectedTfString = owner.getTopToolbarPanel().getTimeframeButton().getText();
         Timeframe targetTimeframe = (tf != null) ? tf : Timeframe.fromString(selectedTfString);
-        if (targetTimeframe == null) targetTimeframe = Timeframe.H1; // Fallback
+        if (targetTimeframe == null) targetTimeframe = Timeframe.H1;
 
         if (replaySource != null) {
-            model.setDisplayTimeframe(targetTimeframe);
+            // Call the overloaded method with forceReload = true for the initial load
+            model.setDisplayTimeframe(targetTimeframe, true);
         } else {
             DataSourceManager.ChartDataSource standardSource = owner.getTopToolbarPanel().getSelectedDataSource();
             if (standardSource != null) {
@@ -197,6 +199,22 @@ public class WorkspaceManager {
         return container;
     }
     
+    private Timeframe getNextDefaultTimeframe(List<Timeframe> existingTimeframes) {
+        // Define a preferred sequence of timeframes for new panels
+        List<Timeframe> sequence = List.of(Timeframe.M5, Timeframe.M15, Timeframe.H1, Timeframe.D1, Timeframe.M1, Timeframe.H4);
+        
+        // Find the first timeframe in the sequence that is not already in use
+        for (Timeframe tf : sequence) {
+            if (!existingTimeframes.contains(tf)) {
+                return tf;
+            }
+        }
+        
+        // If all preferred timeframes are already used, fall back to the active chart's timeframe or H1
+        return (activeChartPanel != null && activeChartPanel.getDataModel().getCurrentDisplayTimeframe() != null)
+               ? activeChartPanel.getDataModel().getCurrentDisplayTimeframe() : Timeframe.H1;
+    }
+
     public void applyLayout(LayoutType layoutType) {
         chartAreaPanel.removeAll();
         indicatorPaneMap.clear();
@@ -208,12 +226,14 @@ public class WorkspaceManager {
             case FOUR: case FOUR_VERTICAL: requiredPanels = 4; break;
         }
         
-        Timeframe defaultTf = (activeChartPanel != null && activeChartPanel.getDataModel().getCurrentDisplayTimeframe() != null)
-                                ? activeChartPanel.getDataModel().getCurrentDisplayTimeframe()
-                                : Timeframe.H1;
-
+        // Create new panels with smart, cycling timeframes
         while (chartPanels.size() < requiredPanels) {
-             createNewChartView(defaultTf, true);
+             List<Timeframe> existingTimeframes = chartPanels.stream()
+                .map(p -> p.getDataModel().getCurrentDisplayTimeframe())
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+             Timeframe nextTf = getNextDefaultTimeframe(existingTimeframes);
+             createNewChartView(nextTf, true);
         }
 
         while (chartPanels.size() > requiredPanels) {
