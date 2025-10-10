@@ -341,8 +341,6 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
         if (selectedId == null) {
             propertiesToolbar.setVisible(false);
             
-            // [FIX] Only restore the idle title if no drawing tool is active.
-            // This prevents the tool activation title from being immediately overwritten.
             ChartPanel activePanel = workspaceManager.getActiveChartPanel();
             if (activePanel == null || activePanel.getDrawingController().getActiveTool() == null) {
                 titleBarManager.restoreIdleTitle();
@@ -398,6 +396,7 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
     public UIManager getUiManager() { return uiManager; }
     public SessionController getSessionController() { return sessionController; }
     public TitleBarManager getTitleBarManager() { return titleBarManager; }
+    public DatabaseManager getActiveDbManager() { return activeDbManager; }
     
     public void openNewSyncedWindow() {
         if (ReplaySessionManager.getInstance().getCurrentSource() != null) {
@@ -464,11 +463,15 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
     public void setDbManagerForSource(ChartDataSource source) {
         if (source == null || source.dbPath() == null) return;
         if (activeDbManager != null) activeDbManager.close();
+        
         String jdbcUrl = "jdbc:sqlite:" + source.dbPath().toAbsolutePath();
         this.activeDbManager = new DatabaseManager(jdbcUrl);
-        if (!workspaceManager.getChartPanels().isEmpty()) {
-            workspaceManager.getChartPanels().get(0).getDataModel().setDatabaseManager(this.activeDbManager, source);
+        
+        // [MODIFIED] When the source changes, update the DB manager for ALL existing chart panels.
+        for (ChartPanel panel : workspaceManager.getChartPanels()) {
+            panel.getDataModel().setDatabaseManager(this.activeDbManager, source);
         }
+        
         topToolbarPanel.setCurrentSymbol(source);
     }
 

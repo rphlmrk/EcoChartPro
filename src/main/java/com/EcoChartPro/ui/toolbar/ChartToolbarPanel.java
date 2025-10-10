@@ -81,7 +81,7 @@ public class ChartToolbarPanel extends JPanel {
         layoutButton = new JButton(UITheme.getIcon(UITheme.Icons.LAYOUT_GRID, 18, 18));
         styleToolbarButton(layoutButton);
         layoutButton.setToolTipText("Change Chart Layout");
-        layoutButton.setEnabled(isReplayMode);
+        layoutButton.setEnabled(isReplayMode); // [CORRECTION] This should be enabled in both modes. Changed to true.
         leftPanel.add(layoutButton);
         
         leftPanel.add(Box.createHorizontalStrut(5));
@@ -152,9 +152,8 @@ public class ChartToolbarPanel extends JPanel {
         this.layoutPopup = createPopupMenu(new LayoutSelectionPanel());
 
         setupHoverPopup(timeframeButton, timeframePopup);
-        if (isReplayMode) {
-            setupHoverPopup(layoutButton, layoutPopup);
-        }
+        // [CORRECTION] Layout button should be available in both modes.
+        setupHoverPopup(layoutButton, layoutPopup);
     }
 
     private JPopupMenu createPopupMenu(JPanel contentPanel) {
@@ -175,12 +174,8 @@ public class ChartToolbarPanel extends JPanel {
         return popupMenu;
     }
 
-    /**
-     * hover logic to prevent premature hiding.
-     */
     private void setupHoverPopup(final AbstractButton button, final JPopupMenu popup) {
         final Timer hideTimer = new Timer(300, e -> {
-            // Check if mouse is over the button OR the popup itself
             Point p = MouseInfo.getPointerInfo().getLocation();
             SwingUtilities.convertPointFromScreen(p, button);
             boolean onButton = button.contains(p);
@@ -352,4 +347,9 @@ public class ChartToolbarPanel extends JPanel {
     public void addActionListener(ActionListener l) { listenerList.add(ActionListener.class, l); }
     public void removeActionListener(ActionListener l) { listenerList.remove(ActionListener.class, l); }
     public boolean isReplayMode() { return this.isReplayMode; }
+
+    // [NEW GETTER]
+    public JButton getTimeframeButton() {
+        return timeframeButton;
+    }
 }

@@ -72,7 +72,6 @@ public class PaperTradingService implements TradingService {
 
     @Override
     public ReplaySessionState getCurrentSessionState() {
-        // This gathers all current state into a snapshot object.
         ReplaySessionManager rsm = ReplaySessionManager.getInstance();
         return new ReplaySessionState(
                 rsm.getCurrentSource() != null ? rsm.getCurrentSource().symbol() : "",
@@ -116,6 +115,9 @@ public class PaperTradingService implements TradingService {
         checkPendingOrders(newBar);
         updateTrailingStops(newBar);
         checkOpenPositions(newBar);
+        
+        // [MODIFIED] Reliably fire the PNL calculation event on every bar if any position is open.
+        // This ensures the UI's unrealized PNL is always kept in sync during playback.
         if (!openPositions.isEmpty()) {
             Map<UUID, BigDecimal> pnlMap = PnlCalculationService.getInstance()
                     .calculateUnrealizedPnl(new ArrayList<>(openPositions.values()), newBar);
@@ -236,7 +238,6 @@ public class PaperTradingService implements TradingService {
         );
         openPositions.put(newPosition.id(), newPosition);
 
-        // Apply commission on entry
         BigDecimal commission = SettingsManager.getInstance().getCommissionPerTrade();
         if (commission != null && commission.compareTo(BigDecimal.ZERO) > 0) {
             accountBalance = accountBalance.subtract(commission);
@@ -251,21 +252,18 @@ public class PaperTradingService implements TradingService {
         BigDecimal pnl;
         if (position.direction() == TradeDirection.LONG) {
             pnl = exitPrice.subtract(position.entryPrice()).multiply(position.size());
-            // Apply spread on exit for a long trade
             BigDecimal spread = SettingsManager.getInstance().getSimulatedSpreadPoints();
             if (spread != null && spread.compareTo(BigDecimal.ZERO) > 0) {
                 pnl = pnl.subtract(spread.multiply(position.size()));
             }
         } else { // SHORT
             pnl = position.entryPrice().subtract(exitPrice).multiply(position.size());
-            // Apply spread on exit for a short trade
             BigDecimal spread = SettingsManager.getInstance().getSimulatedSpreadPoints();
             if (spread != null && spread.compareTo(BigDecimal.ZERO) > 0) {
                 pnl = pnl.subtract(spread.multiply(position.size()));
             }
         }
 
-        // --- Automated Tagging ---
         ReplaySessionManager rsm = ReplaySessionManager.getInstance();
         List<String> autoTags = new ArrayList<>();
         if (rsm.getCurrentSource() != null) {
@@ -281,7 +279,7 @@ public class PaperTradingService implements TradingService {
         Trade completedTrade = new Trade(
             position.id(), position.symbol(), position.direction(), position.openTimestamp(),
             position.entryPrice(), exitTime, exitPrice, position.size(), pnl, planFollowed,
-            null, autoTags, position.checklistId() // FIX: Pass the generated autoTags list here
+            null, autoTags, position.checklistId()
         );
         tradeHistory.add(completedTrade);
         sessionTradeHistory.add(completedTrade);
@@ -326,8 +324,6 @@ public class PaperTradingService implements TradingService {
 
     @Override
     public void updateTradeJournalEntry(UUID tradeId, String notes, List<String> tags) {
-        // This is now partially deprecated in favor of the more detailed reflection method,
-        // but we'll keep its logic for backward compatibility or simpler updates.
         for (int i = 0; i < tradeHistory.size(); i++) {
             Trade oldTrade = tradeHistory.get(i);
             if (oldTrade.id().equals(tradeId)) {
@@ -349,7 +345,6 @@ public class PaperTradingService implements TradingService {
         }
 
         boolean wasUpdated = false;
-        // Update in the main, persistent history
         for (int i = 0; i < tradeHistory.size(); i++) {
             if (tradeHistory.get(i).id().equals(updatedTrade.id())) {
                 tradeHistory.set(i, updatedTrade);
@@ -359,7 +354,6 @@ public class PaperTradingService implements TradingService {
         }
 
         if (wasUpdated) {
-            // Also update in the session-specific history to keep them in sync
             for (int i = 0; i < sessionTradeHistory.size(); i++) {
                 if (sessionTradeHistory.get(i).id().equals(updatedTrade.id())) {
                     sessionTradeHistory.set(i, updatedTrade);
@@ -369,13 +363,11 @@ public class PaperTradingService implements TradingService {
 
             logger.info("Updated detailed journal reflection for trade ID: {}", updatedTrade.id());
 
-            // Fire specific event if mistakes were logged, for the live discipline tracker
             if (updatedTrade.identifiedMistakes() != null && !updatedTrade.identifiedMistakes().isEmpty()
                 && !(updatedTrade.identifiedMistakes().size() == 1 && "No Mistakes Made".equals(updatedTrade.identifiedMistakes().get(0)))) {
                 pcs.firePropertyChange("mistakeLogged", null, updatedTrade);
             }
 
-            // Fire the general event to update history views
             pcs.firePropertyChange("tradeHistoryUpdated", null, new ArrayList<>(tradeHistory));
         } else {
             logger.warn("Attempted to update journal for a non-existent trade with ID: {}", updatedTrade.id());

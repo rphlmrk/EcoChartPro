@@ -49,7 +49,6 @@ public class ReplayController implements ReplayStateListener, PropertyChangeList
         SettingsManager.getInstance().addPropertyChangeListener(this);
         PaperTradingService.getInstance().addPropertyChangeListener(this);
         
-        // Fetch initial discipline metrics
         GamificationService gService = GamificationService.getInstance();
         this.optimalTradeCount = gService.getOptimalTradeCount();
         this.peakPerformanceHours = gService.getPeakPerformanceHours();
@@ -74,6 +73,7 @@ public class ReplayController implements ReplayStateListener, PropertyChangeList
 
     @Override
     public void propertyChange(PropertyChangeEvent evt) {
+        // [MODIFIED] This now efficiently handles balance updates based on specific events.
         if ("displayZoneId".equals(evt.getPropertyName())) {
             updateDateTimeLabel();
         } else if ("unrealizedPnlCalculated".equals(evt.getPropertyName()) || "openPositionsUpdated".equals(evt.getPropertyName()) || "tradeHistoryUpdated".equals(evt.getPropertyName())) {
@@ -83,7 +83,7 @@ public class ReplayController implements ReplayStateListener, PropertyChangeList
 
     @Override
     public void onReplayTick(KLine newM1Bar) {
-        // IMPORTANT: Process the bar first so that any new trades for this tick are registered.
+        // [MODIFIED] This method is now much more efficient.
         PaperTradingService.getInstance().onBarUpdate(newM1Bar);
         this.lastSeenBar = newM1Bar;
         checkSessionTransitions(newM1Bar);
@@ -92,20 +92,17 @@ public class ReplayController implements ReplayStateListener, PropertyChangeList
         int currentHour = newM1Bar.timestamp().atZone(ZoneId.of("UTC")).getHour();
 
         if (lastReplayDate == null || !currentDate.equals(lastReplayDate)) {
-            // New day has started in the replay
             lastReplayDate = currentDate;
             sessionTradesToday.clear();
             hasSentOvertrainingNudgeToday = false;
             hasSentFatigueNudgeToday = false;
-            activeSessions.clear(); // Reset for the new day
+            activeSessions.clear();
         }
         
-        // Update the list of today's trades
         this.sessionTradesToday = PaperTradingService.getInstance().getTradeHistory().stream()
             .filter(trade -> trade.entryTime().atZone(ZoneId.of("UTC")).toLocalDate().equals(currentDate))
             .collect(Collectors.toList());
 
-        // --- Nudge Logic ---
         SettingsManager settings = SettingsManager.getInstance();
         if (settings.isOvertrainingNudgeEnabled() && optimalTradeCount > 0 && sessionTradesToday.size() > optimalTradeCount && !hasSentOvertrainingNudgeToday) {
             NotificationService.getInstance().showDisciplineNudge(
@@ -126,7 +123,7 @@ public class ReplayController implements ReplayStateListener, PropertyChangeList
         }
 
         updateDateTimeLabel();
-        updateAccountBalanceDisplay();
+        // [REMOVED] updateAccountBalanceDisplay() is no longer needed here. It's handled by propertyChange.
     }
 
     @Override
@@ -136,7 +133,6 @@ public class ReplayController implements ReplayStateListener, PropertyChangeList
         this.activeSessions.clear();
         pcs.firePropertyChange("initialBalance", null, this.initialBalance);
 
-        // Reset real-time monitoring state for the new session
         this.sessionTradesToday.clear();
         if (this.lastSeenBar != null) {
             this.lastReplayDate = this.lastSeenBar.timestamp().atZone(ZoneId.of("UTC")).toLocalDate();
@@ -151,40 +147,39 @@ public class ReplayController implements ReplayStateListener, PropertyChangeList
 
     @Override
     public void onReplayStateChanged() {
+        // [MODIFIED] Simplified. The ChartDataModel handles its own state now. This just updates UI buttons.
         pcs.firePropertyChange("replayStateChanged", null, null);
     }
     
     private void checkSessionTransitions(KLine bar) {
         SettingsManager settings = SettingsManager.getInstance();
         if (!settings.isSessionHighlightingEnabled()) {
-            return; // Don't process if the feature is off
+            return;
         }
 
         LocalTime currentTime = bar.timestamp().atZone(ZoneId.of("UTC")).toLocalTime();
 
         for (SettingsManager.TradingSession session : SettingsManager.TradingSession.values()) {
             if (!settings.getSessionEnabled().get(session)) {
-                continue; // Skip disabled sessions
+                continue;
             }
             
             LocalTime startTime = settings.getSessionStartTimes().get(session);
             LocalTime endTime = settings.getSessionEndTimes().get(session);
 
             boolean isInSession;
-            if (endTime.isBefore(startTime)) { // Overnight session
+            if (endTime.isBefore(startTime)) {
                 isInSession = !currentTime.isBefore(startTime) || !currentTime.isAfter(endTime);
-            } else { // Same-day session
+            } else {
                 isInSession = !currentTime.isBefore(startTime) && currentTime.isBefore(endTime);
             }
 
             boolean wasActive = activeSessions.contains(session);
 
             if (isInSession && !wasActive) {
-                // Session just started
                 activeSessions.add(session);
                 NotificationService.getInstance().showDisciplineNudge(session + " Session Started", "The " + session + " trading session is now open.", UITheme.Icons.CLOCK);
             } else if (!isInSession && wasActive) {
-                // Session just ended
                 activeSessions.remove(session);
                 NotificationService.getInstance().showDisciplineNudge(session + " Session Ended", "The " + session + " trading session is now closed.", UITheme.Icons.CLOCK);
             }

@@ -14,6 +14,8 @@ import com.EcoChartPro.ui.chart.PriceAxisPanel;
 import com.EcoChartPro.ui.chart.TimeAxisPanel;
 import com.EcoChartPro.ui.chart.axis.ChartAxis;
 import com.EcoChartPro.ui.toolbar.FloatingDrawingToolbar;
+import com.EcoChartPro.utils.DataSourceManager;
+import com.EcoChartPro.utils.DatabaseManager;
 
 import javax.swing.*;
 import java.awt.*;
@@ -24,14 +26,11 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.Consumer;
 
-/**
- * Manages the charting workspace, including the layout of chart panels
- * and the addition/removal of indicator sub-panes.
- */
 public class WorkspaceManager {
 
     public enum LayoutType { ONE, TWO, THREE_RIGHT, THREE_LEFT, FOUR, THREE_VERTICAL, FOUR_VERTICAL, TWO_VERTICAL, THREE_HORIZONTAL }
@@ -42,7 +41,6 @@ public class WorkspaceManager {
     private ChartPanel activeChartPanel;
     private final Map<UUID, Component> indicatorPaneMap = new HashMap<>();
 
-    // The definitive listener. It will be attached directly to the active chart panel.
     private final ComponentListener activeChartListener = new ComponentAdapter() {
         private void updateToolbarPosition() {
             SwingUtilities.invokeLater(() -> {
@@ -56,13 +54,11 @@ public class WorkspaceManager {
             });
         }
 
-        // This is triggered by dragging the split pane divider.
         @Override
         public void componentResized(ComponentEvent e) {
             updateToolbarPosition();
         }
 
-        // This is also triggered by dragging the split pane divider, as the component's (x,y) changes.
         @Override
         public void componentMoved(ComponentEvent e) {
             updateToolbarPosition();
@@ -77,6 +73,7 @@ public class WorkspaceManager {
 
     public void initializeStandardMode() {
         this.chartAreaPanel.add(createNewChartView(null, true));
+        
         if (!chartPanels.isEmpty()) {
             setActiveChartPanel(chartPanels.get(0));
         }
@@ -140,10 +137,17 @@ public class WorkspaceManager {
 
     public JPanel createNewChartView(Timeframe tf, boolean activateOnClick) {
         ChartDataModel model = new ChartDataModel();
-        com.EcoChartPro.utils.DataSourceManager.ChartDataSource replaySource = ReplaySessionManager.getInstance().getCurrentSource();
+        
+        DataSourceManager.ChartDataSource replaySource = ReplaySessionManager.getInstance().getCurrentSource();
         if (replaySource != null) {
             model.configureForReplay(tf, replaySource);
             ReplaySessionManager.getInstance().addListener(model);
+        } else {
+            DataSourceManager.ChartDataSource standardSource = owner.getTopToolbarPanel().getSelectedDataSource();
+            DatabaseManager dbManager = owner.getActiveDbManager();
+            if (standardSource != null && dbManager != null) {
+                model.setDatabaseManager(dbManager, standardSource);
+            }
         }
 
         ChartAxis chartAxis = new ChartAxis();
@@ -152,7 +156,6 @@ public class WorkspaceManager {
 
         Consumer<DrawingTool> onToolStateChange = tool -> {
             if (tool != null) {
-                // Create a user-friendly name from the tool's class name.
                 String toolName = tool.getClass().getSimpleName().replace("Tool", "");
                 owner.getTitleBarManager().setToolActiveTitle(toolName);
             } else {
@@ -163,6 +166,20 @@ public class WorkspaceManager {
         ChartPanel chartPanel = new ChartPanel(model, chartAxis, priceAxisPanel, timeAxisPanel, onToolStateChange, owner.getPropertiesToolbar());
         model.setView(chartPanel);
         new ChartController(model, chartPanel, owner);
+        
+        // --- Trigger Initial Data Load ---
+        String selectedTfString = owner.getTopToolbarPanel().getTimeframeButton().getText();
+        Timeframe targetTimeframe = (tf != null) ? tf : Timeframe.fromString(selectedTfString);
+        if (targetTimeframe == null) targetTimeframe = Timeframe.H1; // Fallback
+
+        if (replaySource != null) {
+            model.setDisplayTimeframe(targetTimeframe);
+        } else {
+            DataSourceManager.ChartDataSource standardSource = owner.getTopToolbarPanel().getSelectedDataSource();
+            if (standardSource != null) {
+                model.loadDataset(standardSource, targetTimeframe.getDisplayName());
+            }
+        }
 
         JPanel container = new JPanel(new BorderLayout());
         container.add(chartPanel, BorderLayout.CENTER);
@@ -190,7 +207,25 @@ public class WorkspaceManager {
             case THREE_LEFT: case THREE_RIGHT: case THREE_VERTICAL: case THREE_HORIZONTAL: requiredPanels = 3; break;
             case FOUR: case FOUR_VERTICAL: requiredPanels = 4; break;
         }
-        while (chartPanels.size() < requiredPanels) createNewChartView(Timeframe.H1, true);
+        
+        Timeframe defaultTf = (activeChartPanel != null && activeChartPanel.getDataModel().getCurrentDisplayTimeframe() != null)
+                                ? activeChartPanel.getDataModel().getCurrentDisplayTimeframe()
+                                : Timeframe.H1;
+
+        while (chartPanels.size() < requiredPanels) {
+             createNewChartView(defaultTf, true);
+        }
+
+        while (chartPanels.size() > requiredPanels) {
+            ChartPanel toRemove = chartPanels.remove(chartPanels.size() - 1);
+            if (toRemove == activeChartPanel) {
+                setActiveChartPanel(null);
+            }
+            toRemove.cleanup();
+        }
+        if (activeChartPanel == null && !chartPanels.isEmpty()) {
+            setActiveChartPanel(chartPanels.get(0));
+        }
 
         JComponent newLayout;
         switch (layoutType) {
@@ -242,8 +277,6 @@ public class WorkspaceManager {
         chartAreaPanel.add(newLayout);
         chartAreaPanel.revalidate();
         chartAreaPanel.repaint();
-
-        // The repositioning is now handled by the robust component listener and this is no longer needed.
     }
     
     public void addIndicatorPane(Indicator indicator) {
@@ -258,18 +291,42 @@ public class WorkspaceManager {
 
         container.setPreferredSize(new Dimension(100, 150));
         container.setMaximumSize(new Dimension(Integer.MAX_VALUE, 150));
-
-        chartAreaPanel.add(container);
+        
+        Component mainLayout = chartAreaPanel.getComponent(0);
+        chartAreaPanel.removeAll();
+        chartAreaPanel.setLayout(new BorderLayout());
+        
+        JPanel indicatorContainer = new JPanel();
+        indicatorContainer.setLayout(new BoxLayout(indicatorContainer, BoxLayout.Y_AXIS));
+        indicatorContainer.add(container);
+        
+        JSplitPane mainSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, mainLayout, indicatorContainer);
+        mainSplit.setResizeWeight(0.8);
+        
+        chartAreaPanel.add(mainSplit);
+        
         indicatorPaneMap.put(indicator.getId(), container);
         chartAreaPanel.revalidate();
     }
     
     public void removeIndicatorPane(UUID indicatorId) {
         Component pane = indicatorPaneMap.remove(indicatorId);
-        if (pane != null) {
-            chartAreaPanel.remove(pane);
-            chartAreaPanel.revalidate();
-            chartAreaPanel.repaint();
+        if (pane != null && pane.getParent() != null) {
+            Container parent = pane.getParent();
+            parent.remove(pane);
+            if (parent.getComponentCount() == 0 && parent.getParent() instanceof JSplitPane) {
+                JSplitPane splitPane = (JSplitPane) parent.getParent();
+                Component otherComponent = (splitPane.getTopComponent() == parent) ? splitPane.getBottomComponent() : splitPane.getTopComponent();
+                
+                Container grandParent = splitPane.getParent();
+                grandParent.remove(splitPane);
+                grandParent.add(otherComponent, BorderLayout.CENTER);
+                grandParent.revalidate();
+                grandParent.repaint();
+            } else {
+                parent.revalidate();
+                parent.repaint();
+            }
         }
     }
 }
