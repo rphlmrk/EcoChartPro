@@ -24,7 +24,6 @@ public class AchievementPanel extends JPanel {
         // Switched to GridBagLayout for better vertical alignment and text wrapping.
         setLayout(new GridBagLayout());
         setBorder(new EmptyBorder(10, 15, 10, 15));
-        setPreferredSize(new Dimension(280, 100));
 
         GridBagConstraints gbc = new GridBagConstraints();
 

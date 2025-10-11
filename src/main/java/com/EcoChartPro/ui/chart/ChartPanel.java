@@ -76,7 +76,6 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
     private final TimeAxisPanel timeAxisPanel;
     private final FloatingPropertiesToolbar propertiesToolbar;
     private final InfoPanel infoPanel;
-    private List<KLine> localVisibleKLines;
     private static final Font SYMBOL_FONT = new Font("SansSerif", Font.BOLD, 16);
     private static final Border INACTIVE_BORDER = BorderFactory.createEmptyBorder(2, 2, 2, 2);
     private OrderRenderer.InteractiveZone dragPreview = null;
@@ -117,7 +116,6 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
         this.daySeparatorRenderer = new DaySeparatorRenderer();
         this.peakHoursRenderer = new PeakHoursRenderer();
         this.drawingController = new DrawingController(this, onToolStateChange);
-        this.localVisibleKLines = new ArrayList<>();
         this.infoPanel = new InfoPanel();
         
         SettingsManager settings = SettingsManager.getInstance();
@@ -321,11 +319,8 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
             }
             repaint();
         } else if ("dataUpdated".equals(propName)) {
-            // --- START OF FIX ---
-            this.localVisibleKLines = new ArrayList<>(dataModel.getVisibleKLines());
             updateOverlayButtonsVisibility();
             repaint();
-            // --- END OF FIX ---
         } else if ("daySeparatorsEnabledChanged".equals(propName) || "selectedDrawingChanged".equals(propName)) {
             repaint();
         } else if ("crosshairMoved".equals(propName) && evt.getNewValue() instanceof CrosshairManager.CrosshairUpdate) {
@@ -354,7 +349,8 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
         if (point == null || !chartAxis.isConfigured()) {
             return;
         }
-        int x = chartAxis.timeToX(point.timestamp(), localVisibleKLines, dataModel.getCurrentDisplayTimeframe());
+        List<KLine> visibleKLines = dataModel.getVisibleKLines();
+        int x = chartAxis.timeToX(point.timestamp(), visibleKLines, dataModel.getCurrentDisplayTimeframe());
         int y = chartAxis.priceToY(point.price());
         
         if (x >= 0) {
@@ -403,6 +399,7 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
         g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
         SettingsManager settings = SettingsManager.getInstance();
+        List<KLine> visibleKLines = dataModel.getVisibleKLines();
 
         chartAxis.configure(
             dataModel.getMinPrice(),
@@ -424,17 +421,17 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
             g2d.drawString(text, 20, 30);
         }
 
-        if (localVisibleKLines.isEmpty() && !isLoading) {
+        if (visibleKLines.isEmpty() && !isLoading) {
              g2d.setColor(UIManager.getColor("Label.disabledForeground"));
              g2d.drawString("No data available for the current view.", 20, 60);
              g2d.dispose();
              return;
         }
 
-        chartRenderer.draw(g2d, chartAxis, localVisibleKLines, dataModel.getStartIndex(), currentTimeframe);
+        chartRenderer.draw(g2d, chartAxis, visibleKLines, dataModel.getStartIndex(), currentTimeframe);
 
         if (settings.isDaySeparatorsEnabled()) {
-            daySeparatorRenderer.draw(g2d, chartAxis, localVisibleKLines, currentTimeframe);
+            daySeparatorRenderer.draw(g2d, chartAxis, visibleKLines, currentTimeframe);
         }
 
         if (settings.isShowPeakHoursLines() && dataModel.isInReplayMode()) {
@@ -442,13 +439,13 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
             if (peakHours.isEmpty()) {
                 peakHours = GamificationService.getInstance().getPeakPerformanceHours();
             }
-            peakHoursRenderer.draw(g2d, chartAxis, localVisibleKLines, currentTimeframe, peakHours);
+            peakHoursRenderer.draw(g2d, chartAxis, visibleKLines, currentTimeframe, peakHours);
         }
 
 
-        if (!localVisibleKLines.isEmpty()) {
-            Instant startTime = localVisibleKLines.get(0).timestamp();
-            Instant endTime = localVisibleKLines.get(localVisibleKLines.size() - 1).timestamp();
+        if (!visibleKLines.isEmpty()) {
+            Instant startTime = visibleKLines.get(0).timestamp();
+            Instant endTime = visibleKLines.get(visibleKLines.size() - 1).timestamp();
             TimeRange timeRange = new TimeRange(startTime, endTime);
             PriceRange priceRange = new PriceRange(dataModel.getMinPrice(), dataModel.getMaxPrice());
 
@@ -457,16 +454,16 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
                 dataModel.getIndicatorManager().getIndicators().stream()
                     .filter(i -> i.getType() == IndicatorType.OVERLAY)
                     .forEach(indicator -> allIndicatorDrawables.addAll(indicator.getResults()));
-                indicatorDrawableRenderer.draw(g2d, allIndicatorDrawables, chartAxis, localVisibleKLines, currentTimeframe);
+                indicatorDrawableRenderer.draw(g2d, allIndicatorDrawables, chartAxis, visibleKLines, currentTimeframe);
             }
 
             if (showDrawings) {
                 List<DrawingObject> visibleDrawings = DrawingManager.getInstance().getVisibleDrawings(timeRange, priceRange);
-                drawingRenderer.draw(g2d, visibleDrawings, chartAxis, localVisibleKLines, currentTimeframe);
+                drawingRenderer.draw(g2d, visibleDrawings, chartAxis, visibleKLines, currentTimeframe);
 
                 DrawingTool activeTool = drawingController.getActiveTool();
                 if (activeTool != null && activeTool.getPreviewObject() != null) {
-                    drawingRenderer.draw(g2d, List.of(activeTool.getPreviewObject()), chartAxis, localVisibleKLines, currentTimeframe);
+                    drawingRenderer.draw(g2d, List.of(activeTool.getPreviewObject()), chartAxis, visibleKLines, currentTimeframe);
                 }
             }
 
@@ -474,7 +471,7 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
                 PaperTradingService service = PaperTradingService.getInstance();
                 List<Trade> allTrades = service.getTradeHistory();
                 List<Trade> visibleTrades = filterVisibleTrades(allTrades, timeRange);
-                tradeSignalRenderer.draw(g2d, chartAxis, visibleTrades, localVisibleKLines, currentTimeframe);
+                tradeSignalRenderer.draw(g2d, chartAxis, visibleTrades, visibleKLines, currentTimeframe);
                 List<Position> positions = service.getOpenPositions();
                 List<Order> orders = service.getPendingOrders();
                 orderRenderer.draw(g2d, chartAxis, positions, orders, dragPreview);
@@ -485,9 +482,9 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
             drawOrderPreview(g2d, orderPreview);
         }
         
-        drawCrosshair(g2d);
+        drawCrosshair(g2d, visibleKLines);
 
-        drawInfoPanel(g2d);
+        drawInfoPanel(g2d, visibleKLines);
 
         if (dataModel.isViewingLiveEdge()) {
             KLine lastKline = dataModel.getCurrentReplayKLine();
@@ -517,7 +514,7 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
         timeAxisPanel.repaint();
     }
     
-    private void drawInfoPanel(Graphics2D g) {
+    private void drawInfoPanel(Graphics2D g, List<KLine> visibleKLines) {
         DrawingTool activeTool = drawingController.getActiveTool();
         if (!(activeTool instanceof InfoTool infoTool)) {
             return;
@@ -530,9 +527,9 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
         }
 
         KLine targetKline = null;
-        int slotIndex = chartAxis.timeToSlotIndex(dataPoint.timestamp(), localVisibleKLines, dataModel.getCurrentDisplayTimeframe());
-        if (slotIndex >= 0 && slotIndex < localVisibleKLines.size()) {
-            targetKline = localVisibleKLines.get(slotIndex);
+        int slotIndex = chartAxis.timeToSlotIndex(dataPoint.timestamp(), visibleKLines, dataModel.getCurrentDisplayTimeframe());
+        if (slotIndex >= 0 && slotIndex < visibleKLines.size()) {
+            targetKline = visibleKLines.get(slotIndex);
         }
 
         infoPanel.updateData(targetKline, dataModel.getIndicatorManager().getIndicators(), SettingsManager.getInstance().getDisplayZoneId());
@@ -562,10 +559,10 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
         SwingUtilities.paintComponent(g, infoPanel, this, x, y, panelWidth, panelHeight);
     }
     
-    private void drawCrosshair(Graphics2D g2d) {
+    private void drawCrosshair(Graphics2D g2d, List<KLine> visibleKLines) {
         if (crosshairPoint == null || !chartAxis.isConfigured()) return;
         
-        int x = chartAxis.timeToX(crosshairPoint.timestamp(), localVisibleKLines, dataModel.getCurrentDisplayTimeframe());
+        int x = chartAxis.timeToX(crosshairPoint.timestamp(), visibleKLines, dataModel.getCurrentDisplayTimeframe());
         int y = chartAxis.priceToY(crosshairPoint.price());
 
         Stroke dashed = new BasicStroke(1, BasicStroke.CAP_BUTT, BasicStroke.JOIN_BEVEL, 0, new float[]{2}, 0);

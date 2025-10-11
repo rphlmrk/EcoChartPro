@@ -54,6 +54,7 @@ public class Main {
                 // Ensure gamification and achievement states are saved on normal shutdown.
                 com.EcoChartPro.core.gamification.GamificationService.getInstance().saveState();
                 AchievementService.getInstance().saveState();
+                com.EcoChartPro.core.controller.ReplaySessionManager.getInstance().shutdown(); // <-- Add this line
             }
         }));
 

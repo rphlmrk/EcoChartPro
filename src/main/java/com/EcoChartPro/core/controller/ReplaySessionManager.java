@@ -15,7 +15,7 @@ import com.EcoChartPro.utils.SessionManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.swing.Timer;
+import javax.swing.SwingUtilities;
 import java.io.File;
 import java.time.Instant;
 import java.time.LocalTime;
@@ -29,6 +29,10 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 
 public class ReplaySessionManager {
 
@@ -54,13 +58,12 @@ public class ReplaySessionManager {
     private boolean isPlaying = false;
     private int speedInMs = 1000;
     
-    private final Timer playbackTimer;
+    private final ScheduledExecutorService playbackExecutor = Executors.newSingleThreadScheduledExecutor();
+    private ScheduledFuture<?> playbackTask;
     private final List<ReplayStateListener> listeners = new CopyOnWriteArrayList<>();
     private int barsSinceLastAutoSave = 0;
 
     private ReplaySessionManager() {
-        this.playbackTimer = new Timer(speedInMs, e -> nextBar());
-        this.playbackTimer.setCoalesce(false);
     }
 
     public static ReplaySessionManager getInstance() {
@@ -78,7 +81,7 @@ public class ReplaySessionManager {
         logger.info("Starting multi-symbol replay session from saved state.");
         cleanupPreviousSession();
         this.isPlaying = false;
-        this.playbackTimer.stop();
+        if (playbackTask != null) playbackTask.cancel(false);
 
         if (state.symbolStates() != null) {
             for (Map.Entry<String, SymbolSessionState> entry : state.symbolStates().entrySet()) {
@@ -103,7 +106,7 @@ public class ReplaySessionManager {
         logger.info("Starting new multi-symbol replay session for {} at index {}", source.displayName(), startIndex);
         cleanupPreviousSession();
         this.isPlaying = false;
-        this.playbackTimer.stop();
+        if (playbackTask != null) playbackTask.cancel(false);
         
         SymbolReplayContext newContext = createInitialContext(source, startIndex);
         contextsBySymbol.put(source.symbol(), newContext);
@@ -195,18 +198,18 @@ public class ReplaySessionManager {
     }
 
     public void play() {
-        if (isReplayFinished()) return;
-        if (!isPlaying) {
-            isPlaying = true;
-            playbackTimer.start();
-            notifyStateChanged();
-        }
+        if (isReplayFinished() || isPlaying) return;
+        isPlaying = true;
+        playbackTask = playbackExecutor.scheduleAtFixedRate(this::nextBar, 0, speedInMs, TimeUnit.MILLISECONDS);
+        notifyStateChanged();
     }
 
     public void pause() {
         if (isPlaying) {
             isPlaying = false;
-            playbackTimer.stop();
+            if (playbackTask != null) {
+                playbackTask.cancel(false);
+            }
             notifyStateChanged();
         }
     }
@@ -346,12 +349,18 @@ public class ReplaySessionManager {
     }
     
     // --- Boilerplate and other methods ---
-    public void setSpeed(int delayMs) { this.speedInMs = Math.max(1, delayMs); playbackTimer.setInitialDelay(this.speedInMs); playbackTimer.setDelay(this.speedInMs); }
+    public void setSpeed(int delayMs) {
+        this.speedInMs = Math.max(1, delayMs);
+        if (isPlaying) {
+            pause();
+            play();
+        }
+    }
     public void addListener(ReplayStateListener listener) { if (!listeners.contains(listener)) listeners.add(listener); }
     public void removeListener(ReplayStateListener listener) { listeners.remove(listener); }
-    private void notifySessionStart() { for (ReplayStateListener listener : listeners) listener.onReplaySessionStart(); }
-    private void notifyTick() { KLine newBar = getCurrentBar(); if (newBar != null) for (ReplayStateListener listener : listeners) listener.onReplayTick(newBar); }
-    private void notifyStateChanged() { for (ReplayStateListener listener : listeners) listener.onReplayStateChanged(); }
+    private void notifySessionStart() { SwingUtilities.invokeLater(() -> { for (ReplayStateListener listener : listeners) listener.onReplaySessionStart(); }); }
+    private void notifyTick() { KLine newBar = getCurrentBar(); if (newBar != null) SwingUtilities.invokeLater(() -> { for (ReplayStateListener listener : listeners) listener.onReplayTick(newBar); }); }
+    private void notifyStateChanged() { SwingUtilities.invokeLater(() -> { for (ReplayStateListener listener : listeners) listener.onReplayStateChanged(); }); }
 
     public void jumpToNextDay() {
         if (activeSymbol == null) return;
@@ -372,5 +381,9 @@ public class ReplaySessionManager {
         } else {
             logger.warn("Could not jump {} to the next day. No further data available or index not found.", activeSymbol);
         }
+    }
+
+    public void shutdown() {
+        playbackExecutor.shutdownNow();
     }
 }

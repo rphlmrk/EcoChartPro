@@ -1,16 +1,13 @@
 package com.EcoChartPro.utils.report;
 
 import com.EcoChartPro.core.coaching.CoachingInsight;
-import com.EcoChartPro.core.coaching.CoachingService;
-import com.EcoChartPro.core.gamification.GamificationService;
-import com.EcoChartPro.core.journal.JournalAnalysisService;
 import com.EcoChartPro.core.journal.JournalAnalysisService.EquityPoint;
 import com.EcoChartPro.core.journal.JournalAnalysisService.OverallStats;
 import com.EcoChartPro.core.journal.JournalAnalysisService.PnlDistributionBin;
 import com.EcoChartPro.core.state.ReplaySessionState;
 import com.EcoChartPro.model.MistakeStats;
 import com.EcoChartPro.model.Trade;
-import com.EcoChartPro.utils.DataSourceManager;
+import com.EcoChartPro.utils.report.ReportDataAggregator.ReportData;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -19,7 +16,6 @@ import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.text.DecimalFormat;
 import java.time.Duration;
 import java.time.Instant;
@@ -27,11 +23,9 @@ import java.time.YearMonth;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.TreeMap;
 import java.util.stream.Collectors;
 
@@ -55,40 +49,19 @@ public class HtmlReportGenerator {
      */
     public static void generate(ReplaySessionState state, File outputFile) throws IOException {
         logger.info("Generating HTML report for symbol {} to {}", state.lastActiveSymbol(), outputFile.getAbsolutePath());
-        JournalAnalysisService service = new JournalAnalysisService();
         
-        // [FIXED] Collect all trades from all symbols for a comprehensive report
-        List<Trade> allTrades = new ArrayList<>();
-        if (state.symbolStates() != null) {
-            state.symbolStates().values().forEach(s -> {
-                if (s.tradeHistory() != null) {
-                    allTrades.addAll(s.tradeHistory());
-                }
-            });
-        }
-        
-        BigDecimal totalPnl = allTrades.stream().map(Trade::profitAndLoss).reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal initialBalance = state.accountBalance().subtract(totalPnl);
-        OverallStats stats = service.analyzeOverallPerformance(allTrades, initialBalance);
-
-        // --- Pre-calculate all necessary data ---
-        List<PnlDistributionBin> pnlDistribution = service.getPnlDistribution(stats.trades(), 15);
-        Map<String, MistakeStats> mistakeAnalysis = service.analyzeMistakes(stats.trades());
-
-        GamificationService gs = GamificationService.getInstance();
-        Optional<DataSourceManager.ChartDataSource> sourceOpt = DataSourceManager.getInstance().getAvailableSources().stream()
-                .filter(s -> s.symbol().equalsIgnoreCase(state.lastActiveSymbol())).findFirst();
-        List<CoachingInsight> insights = CoachingService.getInstance().analyze(stats.trades(), gs.getOptimalTradeCount(), gs.getPeakPerformanceHours(), sourceOpt);
+        // --- [REFACTORED] Use the centralized data preparation method ---
+        ReportData data = ReportDataAggregator.prepareReportData(state);
 
         String css = generateCss();
         String js = generateJavascript();
-        String header = generateHeader(state, stats);
-        String statsHtml = generateStatsHtml(stats);
-        String chartSvg = generateEquityCurveSvg(stats.equityCurve(), stats.startBalance());
-        String perfAnalyticsHtml = generatePerformanceAnalyticsHtml(pnlDistribution);
-        String mistakeAnalysisHtml = generateMistakeAnalysisHtml(mistakeAnalysis);
-        String coachingHtml = generateCoachingInsightsHtml(insights);
-        String tradesTable = generateTradesTableHtml(stats.trades());
+        String header = generateHeader(state, data.stats());
+        String statsHtml = generateStatsHtml(data.stats());
+        String chartSvg = generateEquityCurveSvg(data.stats().equityCurve(), data.stats().startBalance());
+        String perfAnalyticsHtml = generatePerformanceAnalyticsHtml(data.pnlDistribution());
+        String mistakeAnalysisHtml = generateMistakeAnalysisHtml(data.mistakeAnalysis());
+        String coachingHtml = generateCoachingInsightsHtml(data.insights());
+        String tradesTable = generateTradesTableHtml(data.stats().trades());
 
         String htmlContent = String.format("""
             <!DOCTYPE html>

@@ -1,8 +1,6 @@
 package com.EcoChartPro.utils.report;
 
 import com.EcoChartPro.core.coaching.CoachingInsight;
-import com.EcoChartPro.core.coaching.CoachingService;
-import com.EcoChartPro.core.gamification.GamificationService;
 import com.EcoChartPro.core.journal.JournalAnalysisService;
 import com.EcoChartPro.core.journal.JournalAnalysisService.EquityPoint;
 import com.EcoChartPro.core.journal.JournalAnalysisService.OverallStats;
@@ -10,7 +8,7 @@ import com.EcoChartPro.core.journal.JournalAnalysisService.PnlDistributionBin;
 import com.EcoChartPro.core.state.ReplaySessionState;
 import com.EcoChartPro.model.MistakeStats;
 import com.EcoChartPro.model.Trade;
-import com.EcoChartPro.utils.DataSourceManager;
+import com.EcoChartPro.utils.report.ReportDataAggregator.ReportData;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
@@ -28,21 +26,17 @@ import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.text.DecimalFormat;
 import java.time.Duration;
 import java.time.Instant;
-import java.time.LocalTime;
 import java.time.YearMonth;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.TreeMap;
 import java.util.stream.Collectors;
 import java.awt.RenderingHints;
@@ -70,42 +64,20 @@ public class PdfReportGenerator {
     }
 
     private void createReport(ReplaySessionState state, File outputFile) throws IOException {
-        JournalAnalysisService service = new JournalAnalysisService();
-
-        // [FIXED] Collect all trades from all symbols for a comprehensive report
-        List<Trade> allTrades = new ArrayList<>();
-        if (state.symbolStates() != null) {
-            state.symbolStates().values().forEach(s -> {
-                if (s.tradeHistory() != null) {
-                    allTrades.addAll(s.tradeHistory());
-                }
-            });
-        }
-        
-        BigDecimal totalPnl = allTrades.stream().map(Trade::profitAndLoss).reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal initialBalance = state.accountBalance().subtract(totalPnl);
-        OverallStats stats = service.analyzeOverallPerformance(allTrades, initialBalance);
-
-        // --- Pre-calculate all necessary data ---
-        List<PnlDistributionBin> pnlDistribution = service.getPnlDistribution(stats.trades(), 15);
-        Map<String, MistakeStats> mistakeAnalysis = service.analyzeMistakes(stats.trades());
-        
-        GamificationService gs = GamificationService.getInstance();
-        Optional<DataSourceManager.ChartDataSource> sourceOpt = DataSourceManager.getInstance().getAvailableSources().stream()
-                .filter(s -> s.symbol().equalsIgnoreCase(state.lastActiveSymbol())).findFirst();
-        List<CoachingInsight> insights = CoachingService.getInstance().analyze(stats.trades(), gs.getOptimalTradeCount(), gs.getPeakPerformanceHours(), sourceOpt);
+        // --- [REFACTORED] Use the centralized data preparation method ---
+        ReportData data = ReportDataAggregator.prepareReportData(state);
 
         try (PDDocument doc = new PDDocument()) {
             this.document = doc;
             startNewPage();
 
-            drawHeader(state, stats);
-            drawKeyMetrics(stats);
-            drawEquityCurveChart(stats);
-            drawPerformanceAnalytics(service, stats.trades(), pnlDistribution);
-            drawMistakeAnalysis(mistakeAnalysis);
-            drawCoachingInsights(insights);
-            drawTradeHistory(stats.trades());
+            drawHeader(state, data.stats());
+            drawKeyMetrics(data.stats());
+            drawEquityCurveChart(data.stats());
+            drawPerformanceAnalytics(data.pnlDistribution());
+            drawMistakeAnalysis(data.mistakeAnalysis());
+            drawCoachingInsights(data.insights());
+            drawTradeHistory(data.stats().trades());
 
             this.contentStream.close();
             document.save(outputFile);
@@ -169,7 +141,7 @@ public class PdfReportGenerator {
         yPosition -= (chartHeight + 20);
     }
     
-    private void drawPerformanceAnalytics(JournalAnalysisService service, List<Trade> trades, List<PnlDistributionBin> pnlDistribution) throws IOException {
+    private void drawPerformanceAnalytics(List<PnlDistributionBin> pnlDistribution) throws IOException {
         if (checkPageBreak(300)) startNewPage();
         drawSectionHeader("Performance Analytics");
 
