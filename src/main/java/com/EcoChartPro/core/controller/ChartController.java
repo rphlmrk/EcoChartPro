@@ -12,6 +12,7 @@ import com.EcoChartPro.model.trading.Order;
 import com.EcoChartPro.model.trading.Position;
 import com.EcoChartPro.ui.MainWindow;
 import com.EcoChartPro.ui.chart.ChartPanel;
+import com.EcoChartPro.ui.chart.axis.ChartAxis;
 import com.EcoChartPro.ui.chart.render.trading.OrderRenderer;
 import com.EcoChartPro.ui.chart.render.trading.OrderRenderer.InteractionType;
 import com.EcoChartPro.ui.dialogs.TextSettingsDialog;
@@ -29,16 +30,21 @@ import java.util.UUID;
 public class ChartController {
 
     private final ChartDataModel model;
+    private final ChartInteractionManager interactionManager;
     private final ChartPanel view;
     private final MainWindow mainWindow;
     private final DrawingController drawingController;
     private OrderRenderer.InteractiveZone activeInteractionItem = null;
 
-    // Panning-related fields
-    private Point lastMousePoint = null;
+    // --- Unified Panning Fields ---
+    private Point lastMousePoint = null; // For calculating delta in mouseDragged
+    private Point dragStartPoint = null; // For vertical panning calculations
+    private BigDecimal dragStartMinPrice = null;
+    private BigDecimal dragStartMaxPrice = null;
 
-    public ChartController(ChartDataModel model, ChartPanel view, MainWindow mainWindow) {
+    public ChartController(ChartDataModel model, ChartInteractionManager interactionManager, ChartPanel view, MainWindow mainWindow) {
         this.model = model;
+        this.interactionManager = interactionManager;
         this.view = view;
         this.mainWindow = mainWindow;
         this.drawingController = view.getDrawingController();
@@ -67,8 +73,7 @@ public class ChartController {
                     return;
                 }
 
-                // --- FIX: PRIORITIZE TRADING INTERACTION ---
-                // First, check for interaction with trading objects.
+                // --- TRADING INTERACTION ---
                 if (view.getDataModel().isInReplayMode()) {
                     activeInteractionItem = view.getOrderRenderer().findZoneAt(e.getPoint());
                     if (activeInteractionItem != null) {
@@ -85,93 +90,131 @@ public class ChartController {
                         return; // IMPORTANT: A trading item was handled, so stop processing.
                     }
                 }
-                // --- END FIX ---
 
                 DrawingManager dm = DrawingManager.getInstance();
 
-                // Check if we are performing a drawing action that should prevent panning.
-                // The InfoTool is explicitly excluded here to allow panning.
+                // --- DRAWING ACTION ---
                 boolean isDrawingAction = (drawingController.getActiveTool() != null && !(drawingController.getActiveTool() instanceof InfoTool)) ||
                                            drawingController.findHandleAt(e.getPoint()) != null ||
                                            dm.findDrawingAt(e.getPoint(), view.getChartAxis(), model.getVisibleKLines(), model.getCurrentDisplayTimeframe()) != null;
 
                 if (isDrawingAction) {
-                    // Let the DrawingController's mousePressed handle it. We return so we don't start a pan.
+                    // Let the DrawingController's mousePressed handle it.
                     return;
                 }
                 
-                // If we reach here, no drawing action and no trading action is being performed.
-                // It's a click on an empty area. De-select any drawings.
+                // If we reach here, it's a pan operation. Deselect any drawing.
                 if (dm.getSelectedDrawingId() != null) {
                     dm.setSelectedDrawingId(null);
                     mainWindow.getTitleBarManager().restoreIdleTitle();
                 }
 
-                // If nothing else, start a pan.
+                // --- UNIFIED PANNING SETUP ---
+                view.setCursor(Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR));
                 lastMousePoint = e.getPoint();
+
+                // Setup for horizontal pan
                 panAccumulator = 0.0;
                 lockedBarWidthOnDrag = view.getChartAxis().getBarWidth();
+
+                // Setup for vertical pan (only if in manual mode)
+                if (!interactionManager.isAutoScalingY()) {
+                    dragStartPoint = e.getPoint();
+                    dragStartMinPrice = interactionManager.getManualMinPrice();
+                    dragStartMaxPrice = interactionManager.getManualMaxPrice();
+                } else {
+                    dragStartPoint = null;
+                    dragStartMinPrice = null;
+                    dragStartMaxPrice = null;
+                }
+
                 if (model.isInReplayMode()) ReplaySessionManager.getInstance().pause();
             }
 
             @Override
             public void mouseDragged(MouseEvent e) {
-                 CrosshairManager.getInstance().clearPosition();
+                CrosshairManager.getInstance().clearPosition();
                  
-                 if (activeInteractionItem != null && isDraggable(activeInteractionItem.type())) {
+                // --- 1. TRADING ITEM DRAG ---
+                if (activeInteractionItem != null && isDraggable(activeInteractionItem.type())) {
                     BigDecimal newPrice = view.getChartAxis().yToPrice(e.getY());
                     if (newPrice != null) {
                         OrderRenderer.InteractiveZone preview = new OrderRenderer.InteractiveZone(activeInteractionItem.bounds(), activeInteractionItem.objectId(), activeInteractionItem.type(), newPrice);
                         view.setDragPreview(preview);
                     }
-                    return;
+                    return; // Trade drag handled.
                 }
-
-                // Check if a drawing drag action is happening. InfoTool is excluded to allow panning.
+                
+                // --- 2. DRAWING DRAG ---
                 boolean isDrawingDrag = (drawingController.getActiveTool() != null && !(drawingController.getActiveTool() instanceof InfoTool)) ||
                                          DrawingManager.getInstance().getSelectedDrawingId() != null;
 
                 if (isDrawingDrag) {
-                    return;
+                    return; // Drawing drag is handled by DrawingController.
                 }
 
-                // If we are not dragging a trade or drawing object, pan the chart.
+                // --- 3. UNIFIED CHART PANNING (DEFAULT) ---
                 if (lastMousePoint == null) {
                     lastMousePoint = e.getPoint();
                     return;
                 }
 
-                int dx = e.getX() - lastMousePoint.x;
-                lastMousePoint = e.getPoint();
-                if (lockedBarWidthOnDrag <= 0) return;
-                panAccumulator += -dx;
-                int barDelta = (int) (panAccumulator / lockedBarWidthOnDrag);
-                if (barDelta != 0) {
-                    model.pan(barDelta);
-                    panAccumulator -= barDelta * lockedBarWidthOnDrag;
+                // A. Vertical Panning (if applicable)
+                if (!interactionManager.isAutoScalingY() && dragStartPoint != null && dragStartMinPrice != null && view.getChartAxis().isConfigured()) {
+                    ChartAxis yAxis = view.getChartAxis();
+                    BigDecimal priceAtStart = yAxis.yToPrice(dragStartPoint.y);
+                    BigDecimal priceAtCurrent = yAxis.yToPrice(e.getY());
+                    BigDecimal priceDelta = priceAtStart.subtract(priceAtCurrent);
+
+                    BigDecimal newMin = dragStartMinPrice.add(priceDelta);
+                    BigDecimal newMax = dragStartMaxPrice.add(priceDelta);
+
+                    interactionManager.setManualPriceRange(newMin, newMax);
                 }
+
+                // B. Horizontal Panning
+                int dx = e.getX() - lastMousePoint.x;
+                if (lockedBarWidthOnDrag > 0) {
+                    panAccumulator += -dx;
+                    int barDelta = (int) (panAccumulator / lockedBarWidthOnDrag);
+                    if (barDelta != 0) {
+                        interactionManager.pan(barDelta);
+                        panAccumulator -= barDelta * lockedBarWidthOnDrag;
+                    }
+                }
+                
+                // C. Update state for next drag event
+                lastMousePoint = e.getPoint();
             }
 
             @Override
             public void mouseReleased(MouseEvent e) {
-                // Drawing-related release logic is now entirely in DrawingController.
+                // --- UNIFIED PANNING RESET ---
+                lastMousePoint = null;
+                dragStartPoint = null;
+                dragStartMinPrice = null;
+                dragStartMaxPrice = null;
+                view.setCursor(Cursor.getDefaultCursor());
+
+                // --- TRADING ITEM RELEASE ---
                 if (activeInteractionItem != null && isDraggable(activeInteractionItem.type())) {
                     BigDecimal finalPrice = view.getChartAxis().yToPrice(e.getY());
                     if (finalPrice != null) finalizeOrderModification(activeInteractionItem.objectId(), activeInteractionItem.type(), finalPrice);
                     activeInteractionItem = null;
                     view.setDragPreview(null);
-                    view.setCursor(Cursor.getDefaultCursor());
+                    // The cursor will be reset above, no need to set it twice
                     view.repaint();
                 }
-                
-                // Reset pan state
-                lastMousePoint = null;
             }
 
             @Override
             public void mouseWheelMoved(MouseWheelEvent e) {
-                if (drawingController.getActiveTool() != null || view.isPriceSelectionMode()) return;
-                if (e.getWheelRotation() < 0) model.zoom(1.25); else model.zoom(0.8);
+                if (drawingController.getActiveTool() != null || view.isPriceSelectionMode() || view.getWidth() <= 0) return;
+                
+                double zoomFactor = e.getWheelRotation() < 0 ? 1.25 : 0.8;
+                double cursorXRatio = (double) e.getX() / view.getWidth();
+                
+                interactionManager.zoom(zoomFactor, cursorXRatio);
             }
             
             @Override
@@ -241,9 +284,6 @@ public class ChartController {
         return type == InteractionType.PENDING_ORDER_PRICE || type == InteractionType.STOP_LOSS || type == InteractionType.TAKE_PROFIT;
     }
 
-    /**
-     * MODIFICATION: New method to handle cancelling a pending order from the chart.
-     */
     private void handleCancelOrderRequest(UUID orderId) {
         Order order = PaperTradingService.getInstance().getPendingOrders().stream()
                 .filter(o -> o.id().equals(orderId)).findFirst().orElse(null);

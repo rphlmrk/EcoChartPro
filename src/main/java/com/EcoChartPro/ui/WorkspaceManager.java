@@ -1,6 +1,7 @@
 package com.EcoChartPro.ui;
 
 import com.EcoChartPro.core.controller.ChartController;
+import com.EcoChartPro.core.controller.ChartInteractionManager;
 import com.EcoChartPro.core.controller.ReplaySessionManager;
 import com.EcoChartPro.core.indicator.Indicator;
 import com.EcoChartPro.core.model.ChartDataModel;
@@ -138,12 +139,15 @@ public class WorkspaceManager {
 
     public JPanel createNewChartView(Timeframe tf, boolean activateOnClick) {
         ChartDataModel model = new ChartDataModel();
+        ChartInteractionManager interactionManager = new ChartInteractionManager(model);
+        model.setInteractionManager(interactionManager);
         
         DataSourceManager.ChartDataSource replaySource = ReplaySessionManager.getInstance().getCurrentSource();
         if (replaySource != null) {
             model.configureForReplay(tf, replaySource);
             model.setDatabaseManager(owner.getActiveDbManager(), replaySource);
             ReplaySessionManager.getInstance().addListener(model);
+            ReplaySessionManager.getInstance().addListener(interactionManager);
         } else {
             DataSourceManager.ChartDataSource standardSource = owner.getTopToolbarPanel().getSelectedDataSource();
             DatabaseManager dbManager = owner.getActiveDbManager();
@@ -153,8 +157,8 @@ public class WorkspaceManager {
         }
 
         ChartAxis chartAxis = new ChartAxis();
-        PriceAxisPanel priceAxisPanel = new PriceAxisPanel(model, chartAxis);
-        TimeAxisPanel timeAxisPanel = new TimeAxisPanel(model, chartAxis);
+        PriceAxisPanel priceAxisPanel = new PriceAxisPanel(model, chartAxis, interactionManager);
+        TimeAxisPanel timeAxisPanel = new TimeAxisPanel(model, chartAxis, interactionManager);
 
         Consumer<DrawingTool> onToolStateChange = tool -> {
             if (tool != null) {
@@ -165,9 +169,9 @@ public class WorkspaceManager {
             }
         };
 
-        ChartPanel chartPanel = new ChartPanel(model, chartAxis, priceAxisPanel, timeAxisPanel, onToolStateChange, owner.getPropertiesToolbar());
+        ChartPanel chartPanel = new ChartPanel(model, interactionManager, chartAxis, priceAxisPanel, timeAxisPanel, onToolStateChange, owner.getPropertiesToolbar());
         model.setView(chartPanel);
-        new ChartController(model, chartPanel, owner);
+        new ChartController(model, interactionManager, chartPanel, owner);
         
         String selectedTfString = owner.getTopToolbarPanel().getTimeframeButton().getText();
         Timeframe targetTimeframe = (tf != null) ? tf : Timeframe.fromString(selectedTfString);
@@ -298,7 +302,7 @@ public class WorkspaceManager {
         if (activeChartPanel == null) return;
 
         IndicatorPanel indicatorPanel = new IndicatorPanel(activeChartPanel.getDataModel(), activeChartPanel.getChartAxis(), indicator);
-        PriceAxisPanel indicatorAxisPanel = new PriceAxisPanel(null, indicatorPanel.getLocalYAxis());
+        PriceAxisPanel indicatorAxisPanel = new PriceAxisPanel(null, indicatorPanel.getLocalYAxis(), null);
 
         JPanel container = new JPanel(new BorderLayout());
         container.add(indicatorPanel, BorderLayout.CENTER);

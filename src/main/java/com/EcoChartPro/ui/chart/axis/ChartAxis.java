@@ -21,6 +21,7 @@ public class ChartAxis {
     private int chartWidth = 0;
     private int chartHeight = 0;
     private boolean isConfigured = false;
+    private boolean isInverted = false;
     private static final int Y_AXIS_PADDING = 20;
     private static final int X_AXIS_HORIZONTAL_PADDING = 10;
 
@@ -29,7 +30,7 @@ public class ChartAxis {
     /** A special value used in a DataPoint's price to anchor a drawing to the bottom of the chart panel's drawing area. */
     public static final BigDecimal ANCHOR_BOTTOM = new BigDecimal("-100000002.456");
 
-    public void configure(BigDecimal minPrice, BigDecimal maxPrice, int barsPerScreen, Dimension dimensions) {
+    public void configure(BigDecimal minPrice, BigDecimal maxPrice, int barsPerScreen, Dimension dimensions, boolean isInverted) {
         if (minPrice == null || maxPrice == null) {
             this.isConfigured = false;
             return;
@@ -48,6 +49,7 @@ public class ChartAxis {
         this.barsPerScreen = barsPerScreen;
         this.chartWidth = dimensions.width;
         this.chartHeight = dimensions.height;
+        this.isInverted = isInverted;
         this.isConfigured = true;
     }
 
@@ -65,6 +67,7 @@ public class ChartAxis {
         this.minPrice = yAxisSource.minPrice;
         this.maxPrice = yAxisSource.maxPrice;
         this.chartHeight = yAxisSource.chartHeight;
+        this.isInverted = yAxisSource.isInverted;
 
         this.isConfigured = true;
     }
@@ -74,10 +77,10 @@ public class ChartAxis {
         if (!isConfigured) return 0;
 
         if (price.equals(ANCHOR_TOP)) {
-            return Y_AXIS_PADDING; // Return the top-most pixel coordinate
+            return isInverted ? chartHeight - Y_AXIS_PADDING : Y_AXIS_PADDING;
         }
         if (price.equals(ANCHOR_BOTTOM)) {
-            return chartHeight - Y_AXIS_PADDING; // Return the bottom-most pixel coordinate
+            return isInverted ? Y_AXIS_PADDING : chartHeight - Y_AXIS_PADDING;
         }
 
         int drawableHeight = chartHeight - (2 * Y_AXIS_PADDING);
@@ -88,16 +91,28 @@ public class ChartAxis {
         BigDecimal priceOffset = price.subtract(minPrice);
         BigDecimal priceRatio = priceOffset.divide(priceRange, 10, RoundingMode.HALF_UP);
         int pixelOffset = priceRatio.multiply(BigDecimal.valueOf(drawableHeight)).intValue();
-        return Y_AXIS_PADDING + drawableHeight - pixelOffset;
+
+        if (isInverted) {
+            return Y_AXIS_PADDING + pixelOffset;
+        } else {
+            return Y_AXIS_PADDING + drawableHeight - pixelOffset;
+        }
     }
 
     public BigDecimal yToPrice(int y) {
         if (!isConfigured) return BigDecimal.ZERO;
         int drawableHeight = chartHeight - (2 * Y_AXIS_PADDING);
-        int pixelFromBottom = Y_AXIS_PADDING + drawableHeight - y;
-        BigDecimal priceRange = maxPrice.subtract(minPrice);
         if (drawableHeight == 0) return minPrice;
-        BigDecimal priceRatio = BigDecimal.valueOf(pixelFromBottom).divide(BigDecimal.valueOf(drawableHeight), 10, RoundingMode.HALF_UP);
+
+        int pixelOffset;
+        if (isInverted) {
+            pixelOffset = y - Y_AXIS_PADDING;
+        } else {
+            pixelOffset = Y_AXIS_PADDING + drawableHeight - y;
+        }
+        
+        BigDecimal priceRange = maxPrice.subtract(minPrice);
+        BigDecimal priceRatio = BigDecimal.valueOf(pixelOffset).divide(BigDecimal.valueOf(drawableHeight), 10, RoundingMode.HALF_UP);
         return minPrice.add(priceRatio.multiply(priceRange));
     }
 

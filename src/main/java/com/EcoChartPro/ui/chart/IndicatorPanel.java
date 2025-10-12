@@ -140,7 +140,7 @@ public class IndicatorPanel extends JPanel implements PropertyChangeListener {
             min = min.subtract(BigDecimal.ONE);
         }
 
-        localYAxis.configure(min, max, 1, this.getSize());
+        localYAxis.configure(min, max, 1, this.getSize(), false);
 
         ChartAxis renderAxis = new ChartAxis();
         renderAxis.configureForRendering(mainXAxis, localYAxis);
