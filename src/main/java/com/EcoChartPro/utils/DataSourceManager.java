@@ -1,5 +1,8 @@
 package com.EcoChartPro.utils;
 
+import com.EcoChartPro.data.DataProvider;
+import com.EcoChartPro.data.provider.LocalFileProvider;
+import com.EcoChartPro.data.provider.BinanceProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -9,14 +12,14 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
-import java.util.Optional;
 import java.util.stream.Stream;
 
 /**
- * Manages the discovery and state of local data sources.
- * This class is responsible for scanning the file system to find available
- * chart data for the application. It follows a Singleton pattern.
+ * Manages the discovery and state of data sources by delegating to registered DataProviders.
+ * This class is responsible for scanning for available chart data for the application.
+ * It follows a Singleton pattern.
  */
 public class DataSourceManager {
 
@@ -25,6 +28,7 @@ public class DataSourceManager {
     
     private static volatile DataSourceManager instance;
 
+    private final List<DataProvider> dataProviders = new ArrayList<>();
     private final List<ChartDataSource> availableSources = new ArrayList<>();
 
     /**
@@ -44,7 +48,12 @@ public class DataSourceManager {
         }
     }
 
-    private DataSourceManager() {}
+    private DataSourceManager() {
+        // Register all available data providers here
+        dataProviders.add(new LocalFileProvider());
+        dataProviders.add(new BinanceProvider());
+        // Future providers like `new BinanceProvider()` would be added here.
+    }
 
     public static DataSourceManager getInstance() {
         if (instance == null) {
@@ -58,63 +67,23 @@ public class DataSourceManager {
     }
 
     /**
-     * Scans the application's data directory to find and register all available
-     * symbol databases. This method should be called at startup.
+     * Scans all registered DataProviders to find and register all available symbol data sources.
+     * This method should be called at startup.
      */
     public void scanDataDirectory() {
+        logger.info("Starting data source scan through all registered providers...");
         this.availableSources.clear();
-        logger.info("Starting data source scan...");
 
-        try {
-            Path dataDirectoryPath = getProjectDataDirectory();
-            try (Stream<Path> subdirectories = Files.list(dataDirectoryPath)) {
-                subdirectories
-                    .filter(Files::isDirectory)
-                    .forEach(this::processSymbolDirectory);
-            }
-            logger.info("Data source scan complete. Found {} available symbol(s).", availableSources.size());
-        } catch (IOException e) {
-            logger.error("Failed to scan the data directory. No local charts will be available.", e);
+        for (DataProvider provider : dataProviders) {
+            logger.debug("Scanning for symbols from provider: {}", provider.getProviderName());
+            availableSources.addAll(provider.getAvailableSymbols());
         }
-    }
-
-    private void processSymbolDirectory(Path symbolDir) {
-        String symbolName = symbolDir.getFileName().toString().toLowerCase();
         
-        // Scan for *any* .db file instead of a hardcoded name
-        Optional<Path> dbPathOpt;
-        try (Stream<Path> files = Files.list(symbolDir)) {
-            dbPathOpt = files.filter(f -> f.toString().toLowerCase().endsWith(".db")).findFirst();
-        } catch (IOException e) {
-            logger.error("Could not read files in symbol directory: {}", symbolDir, e);
-            return;
-        }
+        // Sort the combined list for a consistent UI
+        availableSources.sort(Comparator.comparing(ChartDataSource::displayName));
 
-        if (dbPathOpt.isPresent()) {
-            Path dbPath = dbPathOpt.get();
-            String displayName = formatDisplayName(symbolName);
-            List<String> timeframes = getTimeframesFromDb(dbPath);
-
-            ChartDataSource source = new ChartDataSource(symbolName, displayName, dbPath.toAbsolutePath(), timeframes);
-            availableSources.add(source);
-            logger.info("Discovered data source: {}", source);
-        } else {
-            logger.warn("Directory '{}' does not contain a database (.db) file. Skipping.", symbolName);
-        }
-    }
-
-    private List<String> getTimeframesFromDb(Path dbPath) {
-        // Use the new DatabaseManager constructor in a try-with-resources block
-        try (DatabaseManager tempDbManager = new DatabaseManager("jdbc:sqlite:" + dbPath.toAbsolutePath())) {
-            return tempDbManager.getDistinctTimeframes();
-        } catch (Exception e) {
-            logger.error("Could not read timeframes from database: {}. Reason: {}", dbPath, e.getMessage());
-            return Collections.emptyList();
-        }
-    }
-
-    private String formatDisplayName(String rawSymbol) {
-        return rawSymbol.toUpperCase().replace("_", "/");
+        logger.info("Data source scan complete. Found {} total available symbol(s) across {} provider(s).",
+                availableSources.size(), dataProviders.size());
     }
 
     /**

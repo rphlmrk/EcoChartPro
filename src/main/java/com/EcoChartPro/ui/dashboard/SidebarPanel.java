@@ -1,8 +1,14 @@
 package com.EcoChartPro.ui.dashboard;
 
+import com.EcoChartPro.core.controller.LiveSessionTrackerService;
+import com.EcoChartPro.core.trading.PaperTradingService;
+import com.EcoChartPro.core.trading.SessionType;
+
 import javax.swing.*;
 import java.awt.*;
 import java.awt.geom.RoundRectangle2D;
+import java.beans.PropertyChangeListener;
+import java.beans.PropertyChangeSupport;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
@@ -14,10 +20,16 @@ public class SidebarPanel extends JPanel {
     private final Map<String, String> viewTabs = new LinkedHashMap<>();
     private final ButtonGroup navigationGroup = new ButtonGroup();
     private JToggleButton selectedButton;
+    private PropertyChangeSupport pcs; // Initialized in constructor
 
     public SidebarPanel(MainContentPanel mainContentPanel, DashboardFrame.BackgroundLayeredPane backgroundPane) {
+        // Super() is called implicitly here. UI delegate might call addPropertyChangeListener.
         this.mainContentPanel = mainContentPanel;
         this.backgroundPane = backgroundPane;
+
+        // Initialize pcs after super() has completed.
+        this.pcs = new PropertyChangeSupport(this);
+
         setOpaque(false);
         setLayout(new FlowLayout(FlowLayout.CENTER, 0, 0));
 
@@ -29,6 +41,21 @@ public class SidebarPanel extends JPanel {
         for (Map.Entry<String, String> entry : viewTabs.entrySet()) {
             add(createNavigationTab(entry.getValue(), entry.getKey(), isFirst));
             isFirst = false;
+        }
+    }
+    
+    @Override
+    public void addPropertyChangeListener(PropertyChangeListener listener) {
+        // Guard against calls from the UI delegate during super() constructor execution.
+        if (pcs != null) {
+            pcs.addPropertyChangeListener(listener);
+        }
+    }
+
+    @Override
+    public void removePropertyChangeListener(PropertyChangeListener listener) {
+        if (pcs != null) {
+            pcs.removePropertyChangeListener(listener);
         }
     }
 
@@ -54,6 +81,10 @@ public class SidebarPanel extends JPanel {
             mainContentPanel.switchToView(viewName);
             backgroundPane.updateBackgroundImage(viewName);
 
+            SessionType type = "LIVE".equals(viewName) ? SessionType.LIVE : SessionType.REPLAY;
+            PaperTradingService.getInstance().setActiveSessionType(type);
+            LiveSessionTrackerService.getInstance().setActiveSessionType(type);
+
             for (Component comp : getComponents()) {
                 if (comp instanceof AbstractButton) {
                     AbstractButton btn = (AbstractButton) comp;
@@ -61,6 +92,8 @@ public class SidebarPanel extends JPanel {
                 }
             }
             repaint();
+            
+            pcs.firePropertyChange("viewSwitched", null, viewName);
         });
 
         navigationGroup.add(button);

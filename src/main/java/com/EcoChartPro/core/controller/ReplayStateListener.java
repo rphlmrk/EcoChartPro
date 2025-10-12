@@ -1,19 +1,18 @@
 package com.EcoChartPro.core.controller;
 
 import com.EcoChartPro.model.KLine;
-import java.util.List;
 
 /**
  * An interface for components that need to be notified of changes
- * in the replay session's state.
+ * in the replay session's state or live data ticks.
  */
 public interface ReplayStateListener {
 
     /**
-     * Called by the ReplaySessionManager for every single bar advancement (tick).
-     * @param newM1Bar The new 1-minute K-line that has just been processed.
+     * Called for every single bar advancement (tick) in Replay or Live mode.
+     * @param newBar The new K-line that has just been processed.
      */
-    void onReplayTick(KLine newM1Bar);
+    void onReplayTick(KLine newBar);
 
     /**
      * Called when the replay session officially starts or is initialized.

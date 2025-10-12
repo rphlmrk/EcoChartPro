@@ -29,11 +29,25 @@ public class MainContentPanel extends JPanel {
         
         this.replayViewPanel = new ReplayViewPanel();
 
-        autoLoadLastSession();
+        refreshWithLastSession();
 
         add(new DashboardViewPanel(), "DASHBOARD");
         add(this.replayViewPanel, "REPLAY");
-        add(createPlaceholderPanel("Live Market - Not Implemented"), "LIVE");
+        
+        // Use ReplayViewPanel for the Live view as well, as it contains the launch buttons.
+        // We can customize its title or behavior if needed.
+        ReplayViewPanel liveViewPanel = new ReplayViewPanel();
+        // Modify the title for the "Live" tab
+        Component header = liveViewPanel.getComponent(0); // Assuming header is the first component
+        if (header instanceof JPanel) {
+            for (Component subComp : ((JPanel)header).getComponents()) {
+                if (subComp instanceof JLabel) {
+                    ((JLabel) subComp).setText("Live Paper Trading");
+                    break;
+                }
+            }
+        }
+        add(liveViewPanel, "LIVE");
     }
     
     public ReplayViewPanel getReplayViewPanel() {
@@ -44,7 +58,7 @@ public class MainContentPanel extends JPanel {
         cardLayout.show(this, viewName);
     }
 
-    private void autoLoadLastSession() {
+    public void refreshWithLastSession() {
         // [MODIFIED] Now uses the refactored getLatestSessionState()
         Optional<ReplaySessionState> lastSessionStateOpt = SessionManager.getInstance().getLatestSessionState();
         if (lastSessionStateOpt.isPresent()) {

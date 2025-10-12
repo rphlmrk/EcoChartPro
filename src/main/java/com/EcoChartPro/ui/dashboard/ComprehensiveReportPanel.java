@@ -434,6 +434,15 @@ public class ComprehensiveReportPanel extends JPanel implements Scrollable, Prop
         liveViewRotationTimer.stop();
         cosmeticRotationTimer.start();
         logger.info("Dashboard report panel switched to STATIC mode.");
+
+        // Explicitly switch widgets back to showing the overall view
+        isShowingLiveView = false;
+        realizedPnlWidget.toggleView(false);
+        winRateWidget.toggleView(false);
+        avgRrWidget.toggleView(false);
+        tradeEfficiencyWidget.toggleView(false);
+        finishedTradesPnlWidget.toggleView(false);
+        dailyDisciplineWidget.toggleView(false);
     }
     
     @Override

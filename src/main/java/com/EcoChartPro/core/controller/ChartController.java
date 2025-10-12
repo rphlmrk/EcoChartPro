@@ -3,6 +3,7 @@ package com.EcoChartPro.core.controller;
 import com.EcoChartPro.core.manager.CrosshairManager;
 import com.EcoChartPro.core.manager.DrawingManager;
 import com.EcoChartPro.core.model.ChartDataModel;
+import com.EcoChartPro.core.model.ChartDataModel.ChartMode;
 import com.EcoChartPro.core.tool.InfoTool;
 import com.EcoChartPro.core.trading.PaperTradingService;
 import com.EcoChartPro.model.drawing.DrawingObject;
@@ -128,7 +129,8 @@ public class ChartController {
                     dragStartMaxPrice = null;
                 }
 
-                if (model.isInReplayMode()) ReplaySessionManager.getInstance().pause();
+                // Only pause if we are actually in a replay session that can be paused.
+                if (model.getCurrentMode() == ChartMode.REPLAY) ReplaySessionManager.getInstance().pause();
             }
 
             @Override

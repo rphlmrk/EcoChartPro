@@ -1,5 +1,8 @@
 package com.EcoChartPro.ui.dashboard;
 
+import com.EcoChartPro.core.controller.LiveSessionTrackerService;
+import com.EcoChartPro.core.trading.PaperTradingService;
+import com.EcoChartPro.core.trading.SessionType;
 import com.EcoChartPro.ui.dashboard.theme.UITheme;
 import com.EcoChartPro.ui.dashboard.utils.ImageProvider;
 import com.EcoChartPro.core.settings.SettingsManager;
@@ -60,6 +63,7 @@ public class DashboardFrame extends JFrame implements PropertyChangeListener {
         backgroundPane.add(topRightPanel, gbc, JLayeredPane.PALETTE_LAYER);
 
         mainContentPanel.addPropertyChangeListener(this);
+        floatingNavPanel.addPropertyChangeListener(this); // Listen to sidebar view switches
         mainContentPanel.switchToView("DASHBOARD");
         backgroundPane.updateBackgroundImage("DASHBOARD");
 
@@ -138,6 +142,21 @@ public class DashboardFrame extends JFrame implements PropertyChangeListener {
     public void propertyChange(PropertyChangeEvent evt) {
         if ("gamificationUpdated".equals(evt.getPropertyName())) {
             SwingUtilities.invokeLater(this::updateXpBar);
+        } else if ("viewSwitched".equals(evt.getPropertyName()) && evt.getSource() == floatingNavPanel) {
+            String viewName = (String) evt.getNewValue();
+            ComprehensiveReportPanel reportPanel = getReportPanel();
+
+            if ("LIVE".equals(viewName)) {
+                // When switching to the LIVE view, activate live tracking
+                LiveSessionTrackerService.getInstance().setActiveSessionType(SessionType.LIVE);
+                PaperTradingService.getInstance().setActiveSessionType(SessionType.LIVE);
+                reportPanel.activateLiveMode(LiveSessionTrackerService.getInstance());
+            } else { // For DASHBOARD or REPLAY views, show the replay context
+                LiveSessionTrackerService.getInstance().setActiveSessionType(SessionType.REPLAY);
+                PaperTradingService.getInstance().setActiveSessionType(SessionType.REPLAY);
+                reportPanel.deactivateLiveMode();
+                mainContentPanel.refreshWithLastSession();
+            }
         }
     }
     
@@ -164,7 +183,7 @@ public class DashboardFrame extends JFrame implements PropertyChangeListener {
             String resourceIdentifier = null;
 
             if (source == SettingsManager.ImageSource.LOCAL) {
-                int index = new java.util.ArrayList<>(floatingNavPanel.getBackgroundKeys()).indexOf(viewKey);
+                int index = java.util.Arrays.asList(floatingNavPanel.getBackgroundKeys()).indexOf(viewKey);
                 Optional<Path> localPath = ImageProvider.getLocalImage(index);
                 if (localPath.isPresent()) {
                     resourceIdentifier = localPath.get().toAbsolutePath().toString();

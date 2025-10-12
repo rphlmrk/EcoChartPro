@@ -5,7 +5,7 @@ import com.EcoChartPro.core.journal.JournalAnalysisService;
 import com.EcoChartPro.core.state.ReplaySessionState;
 import com.EcoChartPro.model.Trade;
 import com.EcoChartPro.ui.dashboard.components.FloatingToolbarPanel;
-import com.EcoChartPro.ui.dialogs.NewReplayDialog;
+import com.EcoChartPro.ui.dialogs.SessionDialog;
 import com.EcoChartPro.utils.AppDataManager;
 import com.EcoChartPro.utils.SessionManager;
 import org.slf4j.Logger;
@@ -206,16 +206,24 @@ public class ReplayViewPanel extends JPanel {
 
     private void handleStartNewSession() {
         Frame parentFrame = (Frame) SwingUtilities.getWindowAncestor(this);
-        NewReplayDialog dialog = new NewReplayDialog(parentFrame);
+        SessionDialog dialog = new SessionDialog(parentFrame);
         dialog.setVisible(true);
 
         if (dialog.isLaunched()) {
-            SessionController.getInstance().startNewSession(
-                dialog.getSelectedDataSource(),
-                dialog.getReplayStartIndex(),
-                dialog.getStartingBalance(),
-                dialog.getLeverage()
-            );
+            if (dialog.getSessionMode() == SessionDialog.SessionMode.REPLAY) {
+                SessionController.getInstance().startNewSession(
+                    dialog.getSelectedDataSource(),
+                    dialog.getReplayStartIndex(),
+                    dialog.getStartingBalance(),
+                    dialog.getLeverage()
+                );
+            } else { // LIVE_PAPER_TRADING
+                SessionController.getInstance().startLiveSession(
+                    dialog.getSelectedDataSource(),
+                    dialog.getStartingBalance(),
+                    dialog.getLeverage()
+                );
+            }
         }
     }
 

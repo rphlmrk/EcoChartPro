@@ -103,7 +103,7 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
         if (isReplayMode) {
             setupReplayMode();
         } else {
-            setupStandardMode();
+            setupLiveMode();
         }
         
         mainContainerPanel.add(workspaceManager.getChartAreaPanel(), BorderLayout.CENTER);
@@ -174,10 +174,10 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
         DrawingManager.getInstance().addPropertyChangeListener("selectedDrawingChanged", this);
         DrawingManager.getInstance().addPropertyChangeListener("activeSymbolChanged", this);
         UndoManager.getInstance().addPropertyChangeListener(this);
-        if (isReplayMode) {
-            LiveSessionTrackerService.getInstance().addPropertyChangeListener(this);
-            PaperTradingService.getInstance().addPropertyChangeListener(this);
-        }
+        
+        // Listen to these services regardless of mode, as they are now context-aware
+        LiveSessionTrackerService.getInstance().addPropertyChangeListener(this);
+        PaperTradingService.getInstance().addPropertyChangeListener(this);
     }
 
     private void cleanupResources() {
@@ -192,10 +192,9 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
         SettingsManager.getInstance().removePropertyChangeListener(this);
         DrawingManager.getInstance().removePropertyChangeListener(this);
         UndoManager.getInstance().removePropertyChangeListener(this);
-        if (isReplayMode) {
-            LiveSessionTrackerService.getInstance().removePropertyChangeListener(this);
-            PaperTradingService.getInstance().removePropertyChangeListener(this);
-        }
+        LiveSessionTrackerService.getInstance().removePropertyChangeListener(this);
+        PaperTradingService.getInstance().removePropertyChangeListener(this);
+
         uiManager.disposeDialogs();
         titleBarManager.dispose();
         keyboardShortcutManager.dispose();
@@ -432,7 +431,11 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
         setVisible(true);
     }
 
-    private void setupStandardMode() {
+    private void setupLiveMode() {
+        this.tradingSidebar = new TradingSidebarPanel();
+        this.tradingSidebar.addPropertyChangeListener(this::handleSidebarEvents);
+        mainContainerPanel.add(this.tradingSidebar, BorderLayout.WEST);
+        
         workspaceManager.initializeStandardMode();
         addTopToolbarListeners();
     }
@@ -467,7 +470,14 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
     }
 
     public void setDbManagerForSource(ChartDataSource source) {
-        if (source == null || source.dbPath() == null) return;
+        if (source == null || source.dbPath() == null) {
+            if (activeDbManager != null) {
+                activeDbManager.close();
+                activeDbManager = null;
+            }
+            // For live data sources without a DB, this is normal.
+            return;
+        }
         if (activeDbManager != null) activeDbManager.close();
         
         String jdbcUrl = "jdbc:sqlite:" + source.dbPath().toAbsolutePath();
@@ -480,10 +490,11 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
         topToolbarPanel.setCurrentSymbol(source);
     }
 
-    public void loadInitialChart(DataSourceManager.ChartDataSource source, String timeframe) {
-        setDbManagerForSource(source);
+    public void startLiveSession(DataSourceManager.ChartDataSource source) {
+        PaperTradingService.getInstance().switchActiveSymbol(source.symbol());
+        workspaceManager.applyLayout(WorkspaceManager.LayoutType.ONE);
         loadChartForSource(source);
-        topToolbarPanel.selectTimeframe(timeframe);
+        setVisible(true);
     }
 
     public void startReplaySession(DataSourceManager.ChartDataSource source, int startIndex) {
@@ -615,9 +626,16 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
 
     private void loadChartForSource(DataSourceManager.ChartDataSource source) {
         if (source == null) return;
-        setDbManagerForSource(source);
+        // In live mode, DB manager is not required for live data, but might be for historical
+        if (source.dbPath() != null) {
+            setDbManagerForSource(source);
+        } else {
+            setDbManagerForSource(null); // Explicitly null out the DB manager for pure live sources
+        }
+        PaperTradingService.getInstance().switchActiveSymbol(source.symbol());
         DrawingManager.getInstance().setActiveSymbol(source.symbol());
         topToolbarPanel.populateTimeframes(source.timeframes());
+
         if (!source.timeframes().isEmpty()) {
             String initialTimeframeStr = source.timeframes().get(0);
             Timeframe initialTimeframe = Timeframe.fromString(initialTimeframeStr);

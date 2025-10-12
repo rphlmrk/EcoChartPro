@@ -48,7 +48,8 @@ public class MenuBarManager {
             fileMenu.add(newSyncedWindowItem);
 
             JMenuItem saveSessionItem = new JMenuItem("Save Replay Session...");
-            saveSessionItem.addActionListener(e -> owner.getSessionController().saveSessionWithUI(owner));
+            // FIX: Pass the isReplayMode flag to the saveSessionWithUI method.
+            saveSessionItem.addActionListener(e -> owner.getSessionController().saveSessionWithUI(owner, isReplayMode));
             fileMenu.add(saveSessionItem);
             fileMenu.addSeparator();
 

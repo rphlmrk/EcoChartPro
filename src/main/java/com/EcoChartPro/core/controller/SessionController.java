@@ -3,6 +3,7 @@ package com.EcoChartPro.core.controller;
 import com.EcoChartPro.core.state.ReplaySessionState;
 import com.EcoChartPro.core.state.SymbolSessionState;
 import com.EcoChartPro.core.trading.PaperTradingService;
+import com.EcoChartPro.core.trading.SessionType;
 import com.EcoChartPro.model.Symbol;
 import com.EcoChartPro.model.Trade;
 import com.EcoChartPro.model.TradeDirection;
@@ -62,13 +63,34 @@ public class SessionController {
         SwingUtilities.invokeLater(() -> {
             // Hide the dashboard instead of closing it
             findAndSetDashboardVisible(false);
+            // Set services to REPLAY mode for this new session
+            PaperTradingService.getInstance().setActiveSessionType(SessionType.REPLAY);
+            LiveSessionTrackerService.getInstance().setActiveSessionType(SessionType.REPLAY);
             PaperTradingService.getInstance().resetSession(startingBalance, leverage);
             MainWindow mainWindow = new MainWindow(true);
             mainWindow.startReplaySession(source, startIndex);
         });
     }
+    
+    public void startLiveSession(DataSourceManager.ChartDataSource source, BigDecimal startingBalance, BigDecimal leverage) {
+        SwingUtilities.invokeLater(() -> {
+            findAndSetDashboardVisible(false);
+            // Set services to LIVE mode for this new session
+            PaperTradingService.getInstance().setActiveSessionType(SessionType.LIVE);
+            LiveSessionTrackerService.getInstance().setActiveSessionType(SessionType.LIVE);
+            PaperTradingService.getInstance().resetSession(startingBalance, leverage);
+            
+            // Create a MainWindow configured for LIVE mode (isReplayMode = false)
+            MainWindow mainWindow = new MainWindow(false);
+            mainWindow.startLiveSession(source);
+        });
+    }
 
     public void loadSession(ReplaySessionState state, Frame parentFrame) {
+        // Set services to REPLAY mode before loading state
+        PaperTradingService.getInstance().setActiveSessionType(SessionType.REPLAY);
+        LiveSessionTrackerService.getInstance().setActiveSessionType(SessionType.REPLAY);
+
         // Immediately update the cache with the state we are about to load.
         // This ensures the progress is correct if the user closes the session and returns to the dashboard.
         if (state.symbolStates() != null) {
@@ -90,22 +112,17 @@ public class SessionController {
     }
 
     public void handleWindowClose(MainWindow window, boolean isReplayMode) {
-        if (!isReplayMode) {
-            window.dispose();
-            return;
-        }
-
-        // [REFACTORED] Check if any trade has been made on any symbol
         boolean hasAnyTrades = PaperTradingService.getInstance().hasAnyTradesOrPositions();
-
+        
         if (!hasAnyTrades) {
-            endReplaySessionAndShowDashboard(window);
+            endSessionAndShowDashboard(window);
             return;
         }
 
+        String sessionTypeName = isReplayMode ? "replay" : "live paper trading";
         int choice = JOptionPane.showConfirmDialog(
                 window,
-                "Do you want to save the current replay session before closing?",
+                "Do you want to save the current " + sessionTypeName + " session before closing?",
                 "Save Session",
                 JOptionPane.YES_NO_CANCEL_OPTION,
                 JOptionPane.QUESTION_MESSAGE
@@ -116,24 +133,23 @@ public class SessionController {
         }
 
         if (choice == JOptionPane.YES_OPTION) {
-            saveSessionWithUI(window);
+            saveSessionWithUI(window, isReplayMode);
         }
 
-        endReplaySessionAndShowDashboard(window);
+        endSessionAndShowDashboard(window);
     }
 
     /**
-     * [MODIFIED] Made public and renamed.
      * Cleans up session artifacts, disposes the window, and makes the dashboard visible again.
      * @param window The MainWindow that is being closed or ended.
      */
-    public void endReplaySessionAndShowDashboard(Window window) {
+    public void endSessionAndShowDashboard(Window window) {
         SessionManager.getInstance().deleteAutoSaveFile();
         window.dispose();
         findAndSetDashboardVisible(true);
     }
 
-    public boolean saveSessionWithUI(MainWindow window) {
+    public boolean saveSessionWithUI(MainWindow window, boolean isReplayMode) {
         ReplaySessionState state = PaperTradingService.getInstance().getCurrentSessionState();
         if (state == null) {
             JOptionPane.showMessageDialog(window, "There is no active session state to save.", "Save Error", JOptionPane.ERROR_MESSAGE);
@@ -146,12 +162,15 @@ public class SessionController {
         } catch (IOException ex) {
             fileChooser.setCurrentDirectory(new File(System.getProperty("user.home")));
         }
-        fileChooser.setDialogTitle("Save Replay Session");
-        // Use the last active symbol for the default filename
-        String defaultFileName = (state.lastActiveSymbol() != null ? state.lastActiveSymbol() : "multisymbol") 
-                                 + "_session_" + System.currentTimeMillis() + ".json";
+        
+        String dialogTitle = isReplayMode ? "Save Replay Session" : "Save Live Session as Replay";
+        String fileFilterDesc = isReplayMode ? "Replay Session (*.json)" : "Saved Live Session (*.json)";
+        fileChooser.setDialogTitle(dialogTitle);
+        
+        String defaultFileName = (state.lastActiveSymbol() != null ? state.lastActiveSymbol() : "session") 
+                                 + "_" + System.currentTimeMillis() + ".json";
         fileChooser.setSelectedFile(new File(defaultFileName));
-        fileChooser.setFileFilter(new FileNameExtensionFilter("Replay Session (*.json)", "json"));
+        fileChooser.setFileFilter(new FileNameExtensionFilter(fileFilterDesc, "json"));
 
         if (fileChooser.showSaveDialog(window) == JFileChooser.APPROVE_OPTION) {
             File fileToSave = fileChooser.getSelectedFile();
