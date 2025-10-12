@@ -94,6 +94,9 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
         if (isConfiguredForReplay) {
             ReplaySessionManager.getInstance().removeListener(this);
         }
+        if (this.interactionManager != null) {
+            this.interactionManager.removePropertyChangeListener(this);
+        }
     }
     
     public void setView(ChartPanel chartPanel) {
@@ -133,6 +136,7 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
         assembleVisibleKLines();
         calculateBoundaries();
         fireDataUpdated();
+        checkForPreFetchTrigger();
     }
     
     private boolean handleDataWindowLoading() {
@@ -262,6 +266,9 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
     
     @Override
     public void onReplaySessionStart() {
+        if (!isConfiguredForReplay) return;
+        // When a replay session (or active symbol) starts, we need to build the initial history.
+        setDisplayTimeframe(this.currentDisplayTimeframe, true);
     }
     
     @Override
@@ -359,7 +366,15 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
                     } else {
                         applyRebuildResult(result, targetStartIndex);
                         triggerIndicatorRecalculation();
+                        
+                        // Set the start index. This might or might not fire an event.
+                        interactionManager.setStartIndex(targetStartIndex);
+                        
+                        // [FIX] Manually call updateView() to guarantee the chart is drawn
+                        // after the initial load, especially in cases where setStartIndex 
+                        // doesn't fire a property change event (e.g., index is already 0).
                         updateView();
+                        
                         if (chartPanel != null) chartPanel.setLoading(false, null);
                     }
                 } catch (InterruptedException | java.util.concurrent.CancellationException e) {
