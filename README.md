@@ -39,7 +39,7 @@ This project is under active development. The roadmap is divided into several ke
 -   **[Done] Polymorphic Drawing Tool Settings:** Refactor the drawing tool settings logic to use a polymorphic approach, allowing each drawing tool to manage its own settings dialog for better extensibility.
 -   **[Done] Info Cursor Tool:** Introduce a new cursor mode that displays a detailed information panel about the candle and indicator values under the cursor.
 -   **[Planned] Right-Click Context Menus:** Provide faster access to common actions (e.g., delete drawing, modify order) via context-sensitive right-click menus on the chart.
--   **[Planned] Enhanced Chart Interaction:** Implement zoom-to-cursor and click-and-drag axis scaling for a more fluid and intuitive chart navigation experience.
+-   **[Done] Enhanced Chart Interaction:** Implement zoom-to-cursor and click-and-drag axis scaling for a more fluid and intuitive chart navigation experience.
 
 ### Phase 2: Advanced Analysis & Trading Features
 -   **[Done] P&L Calculation Service:** Refactor all unrealized P&L calculations into a dedicated, centralized service to ensure consistency and eliminate logic duplication.
@@ -48,7 +48,6 @@ This project is under active development. The roadmap is divided into several ke
 ### Phase 3: Live Data & Trading
 -   **[Planned] Multi-Source Data Integration:** Expand data handling to support multiple live and historical data providers (e.g., Binance, OKX, Yahoo Finance), allowing users to select their preferred source.
 -   **[Planned] Live Data Integration:** Connect the charting engine to live WebSocket data feeds for real-time market data.
--   **[Planned] Live Trading Integration:** Implement a `TradingService` for live brokerage APIs to enable real-money trading directly from the platform.
 
 ### Phase 4: Usability & Polish
 -   **[Planned] Onboarding & Help System:** Add a "Help" menu and an "About" dialog with application information and links to documentation.

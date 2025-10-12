@@ -64,6 +64,7 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
     private final UIManager uiManager;
     private final SessionController sessionController;
     private final TitleBarManager titleBarManager;
+    private final KeyboardShortcutManager keyboardShortcutManager; // [NEW]
     private DatabaseManager activeDbManager;
 
     // --- State Holders ---
@@ -117,7 +118,11 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
         
         setupPropertiesToolbarActions();
         updateUndoRedoState();
-        new KeyboardShortcutManager(rootPanel, this).setup();
+        
+        // [MODIFIED] Instantiate and setup the manager
+        this.keyboardShortcutManager = new KeyboardShortcutManager(rootPanel, this);
+        this.keyboardShortcutManager.setup();
+        
         titleBarManager.start();
     }
 
@@ -194,6 +199,7 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
         }
         uiManager.disposeDialogs();
         titleBarManager.dispose();
+        keyboardShortcutManager.dispose(); // [NEW] Dispose the manager
     }
 
     @Override

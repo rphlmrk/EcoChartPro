@@ -99,11 +99,6 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
     private boolean showIndicators = true;
     private boolean showPositionsAndOrders = true;
 
-    // Fields for timeframe input ---
-    private final TimeframeInputDialog timeframeInputDialog;
-    private final StringBuilder timeframeInputBuffer = new StringBuilder();
-    private final Timer timeframeInputTimer;
-
     public ChartPanel(ChartDataModel dataModel, ChartInteractionManager interactionManager, ChartAxis chartAxis, PriceAxisPanel priceAxisPanel, TimeAxisPanel timeAxisPanel, Consumer<DrawingTool> onToolStateChange, FloatingPropertiesToolbar propertiesToolbar) {
         this.dataModel = dataModel;
         this.interactionManager = interactionManager;
@@ -148,13 +143,6 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
             ReplaySessionManager.getInstance().addListener(this);
             PaperTradingService.getInstance().addPropertyChangeListener(this);
         }
-
-        this.timeframeInputDialog = new TimeframeInputDialog((Frame) SwingUtilities.getWindowAncestor(this));
-        this.timeframeInputTimer = new Timer(3000, e -> clearTimeframeInput());
-        this.timeframeInputTimer.setRepeats(false);
-        addKeyListener(new TimeframeInputListener());
-        addKeyListener(new EscapeKeyListener());
-
 
         addComponentListener(new ComponentAdapter() {
             @Override
@@ -686,79 +674,6 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
         if (this.showPositionsAndOrders != showPositionsAndOrders) {
             this.showPositionsAndOrders = showPositionsAndOrders;
             repaint();
-        }
-    }
-    
-    // New methods and inner classes for timeframe input ---
-
-    private void clearTimeframeInput() {
-        timeframeInputBuffer.setLength(0);
-        timeframeInputDialog.setVisible(false);
-        timeframeInputTimer.stop();
-    }
-
-    private class TimeframeInputListener extends KeyAdapter {
-        @Override
-        public void keyPressed(KeyEvent e) {
-            if (e.getKeyCode() == KeyEvent.VK_ENTER) {
-                String input = timeframeInputBuffer.toString().toLowerCase();
-                Timeframe newTf = Timeframe.fromString(input);
-                if (newTf != null) {
-                    dataModel.setDisplayTimeframe(newTf);
-                    MainWindow mw = (MainWindow) SwingUtilities.getWindowAncestor(ChartPanel.this);
-                    if (mw != null) {
-                        mw.getTopToolbarPanel().selectTimeframe(newTf.getDisplayName());
-                    }
-                }
-                clearTimeframeInput();
-                e.consume();
-            } else if (e.getKeyCode() == KeyEvent.VK_ESCAPE) {
-                clearTimeframeInput();
-                e.consume();
-            } else if (e.getKeyCode() == KeyEvent.VK_BACK_SPACE) {
-                if (!timeframeInputBuffer.isEmpty()) {
-                    timeframeInputBuffer.setLength(timeframeInputBuffer.length() - 1);
-                    timeframeInputDialog.updateInputText(timeframeInputBuffer.toString());
-                    timeframeInputTimer.restart();
-                }
-                e.consume();
-            }
-        }
-
-        @Override
-        public void keyTyped(KeyEvent e) {
-            char c = e.getKeyChar();
-            if (Character.isLetterOrDigit(c)) {
-                if (timeframeInputBuffer.isEmpty() && !Character.isDigit(c)) {
-                    return;
-                }
-                timeframeInputBuffer.append(c);
-                if (!timeframeInputDialog.isVisible()) {
-                    timeframeInputDialog.showDialog(ChartPanel.this, timeframeInputBuffer.toString());
-                } else {
-                    timeframeInputDialog.updateInputText(timeframeInputBuffer.toString());
-                }
-                timeframeInputTimer.restart();
-                e.consume();
-            }
-        }
-    }
-
-    /**
-     * A dedicated key listener to handle canceling operations like price selection.
-     */
-    private class EscapeKeyListener extends KeyAdapter {
-        @Override
-        public void keyPressed(KeyEvent e) {
-            if (e.getKeyCode() == KeyEvent.VK_ESCAPE) {
-                if (isPriceSelectionMode) {
-                    if (priceSelectionCallback != null) {
-                        priceSelectionCallback.accept(null);
-                    }
-                    exitPriceSelectionMode();
-                    e.consume();
-                }
-            }
         }
     }
 }
