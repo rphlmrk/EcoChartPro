@@ -133,7 +133,7 @@ public class WorkspaceManager {
         
         for (ChartPanel p : chartPanels) p.setActive(p == activeChartPanel);
         if (activeChartPanel != null && activeChartPanel.getDataModel().getCurrentDisplayTimeframe() != null) {
-            owner.getTopToolbarPanel().selectTimeframe(activeChartPanel.getDataModel().getCurrentDisplayTimeframe().getDisplayName());
+            owner.getTopToolbarPanel().selectTimeframe(activeChartPanel.getDataModel().getCurrentDisplayTimeframe().displayName());
         }
     }
 
@@ -182,7 +182,8 @@ public class WorkspaceManager {
         } else {
             DataSourceManager.ChartDataSource standardSource = owner.getTopToolbarPanel().getSelectedDataSource();
             if (standardSource != null) {
-                model.loadDataset(standardSource, targetTimeframe.getDisplayName());
+                // Pass the Timeframe object to loadDataset, not its string representation
+                model.loadDataset(standardSource, targetTimeframe);
             }
         }
 

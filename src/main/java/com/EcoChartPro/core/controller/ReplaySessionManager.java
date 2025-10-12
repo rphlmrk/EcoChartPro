@@ -7,6 +7,7 @@ import com.EcoChartPro.core.settings.SettingsManager;
 import com.EcoChartPro.core.trading.PaperTradingService;
 import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.Symbol;
+import com.EcoChartPro.model.Timeframe;
 import com.EcoChartPro.utils.AppDataManager;
 import com.EcoChartPro.utils.DatabaseManager;
 import com.EcoChartPro.utils.DataSourceManager;
@@ -39,7 +40,7 @@ public class ReplaySessionManager {
     private static final Logger logger = LoggerFactory.getLogger(ReplaySessionManager.class);
     private static volatile ReplaySessionManager instance;
 
-    // --- [REFACTORED] State is now managed per symbol ---
+    // --- State is now managed per symbol ---
     private record SymbolReplayContext(
         ChartDataSource source,
         int totalBarCount,
@@ -51,7 +52,6 @@ public class ReplaySessionManager {
 
     private final Map<String, SymbolReplayContext> contextsBySymbol = new ConcurrentHashMap<>();
     private String activeSymbol;
-    // --- End Refactor ---
 
     private static final int DATA_WINDOW_SIZE = 10000;
 

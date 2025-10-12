@@ -1,7 +1,7 @@
 package com.EcoChartPro.ui.Analysis;
 
 import com.EcoChartPro.core.settings.SettingsManager;
-import com.EcoChartPro.data.DataResampler; // Import the resampler utility
+import com.EcoChartPro.data.DataResampler; 
 import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.Timeframe;
 import com.EcoChartPro.model.Trade;
@@ -98,17 +98,16 @@ public class TradeReplayChartPanel extends JPanel {
         for (String tfString : availableTfs) {
             Timeframe tf = Timeframe.fromString(tfString);
             if (tf != null) {
-                JToggleButton button = new JToggleButton(tf.getDisplayName());
+                JToggleButton button = new JToggleButton(tf.displayName());
                 styleTimeframeButton(button);
-                button.setActionCommand(tf.name());
+                button.setActionCommand(tf.displayName());
                 timeframeGroup.add(button);
                 timeframePanel.add(button);
 
                 button.addActionListener(e -> {
-                    Timeframe newTimeframe = Timeframe.valueOf(e.getActionCommand());
-                    if (this.selectedTimeframe != newTimeframe) {
+                    Timeframe newTimeframe = Timeframe.fromString(e.getActionCommand());
+                    if (newTimeframe != null && this.selectedTimeframe != newTimeframe) {
                         this.selectedTimeframe = newTimeframe;
-                        // FIX: Instead of firing an event, the panel now handles resampling internally.
                         resampleAndRedraw();
                     }
                 });
@@ -119,7 +118,6 @@ public class TradeReplayChartPanel extends JPanel {
         timeframePanel.repaint();
     }
     
-    // FIX: This new method performs the resampling and updates the entire chart state.
     private void resampleAndRedraw() {
         if (rawOneMinuteKlines.isEmpty()) {
             this.klines = Collections.emptyList();
@@ -139,13 +137,13 @@ public class TradeReplayChartPanel extends JPanel {
     private void updateButtonSelection() {
         if (selectedTimeframe == null && timeframePanel.getComponentCount() > 0) {
             JToggleButton firstButton = (JToggleButton) timeframePanel.getComponent(0);
-            this.selectedTimeframe = Timeframe.valueOf(firstButton.getActionCommand());
+            this.selectedTimeframe = Timeframe.fromString(firstButton.getActionCommand());
         }
         
         for (Component comp : timeframePanel.getComponents()) {
             if (comp instanceof JToggleButton) {
                 JToggleButton button = (JToggleButton) comp;
-                boolean shouldBeSelected = selectedTimeframe != null && button.getActionCommand().equals(selectedTimeframe.name());
+                boolean shouldBeSelected = selectedTimeframe != null && button.getActionCommand().equals(selectedTimeframe.displayName());
                 if (button.isSelected() != shouldBeSelected) {
                     button.setSelected(shouldBeSelected);
                 }
@@ -194,7 +192,6 @@ public class TradeReplayChartPanel extends JPanel {
     public void setData(Trade newTrade, List<KLine> klines) {
         replayTimer.stop();
         this.trade = newTrade;
-        // FIX: Store the raw 1-minute data.
         this.rawOneMinuteKlines = (klines != null) ? klines : Collections.emptyList();
         this.selectedTimeframe = Timeframe.M1; // Always reset to 1m for a new trade
         updateButtonSelection();
@@ -208,7 +205,6 @@ public class TradeReplayChartPanel extends JPanel {
             progressSlider.setEnabled(true);
             playPauseButton.setEnabled(true);
             speedComboBox.setEnabled(true);
-            // FIX: Perform the initial resampling for the 1m view.
             resampleAndRedraw();
         }
     }
@@ -224,8 +220,6 @@ public class TradeReplayChartPanel extends JPanel {
         minPrice = minPrice.subtract(yPadding);
         maxPrice = maxPrice.add(yPadding);
         
-        // FIX: Reworked time axis calculation to guarantee the entire trade is visible
-        // and adds a significant buffer on both ends for context.
         long firstKLineTimestamp = klines.get(0).timestamp().toEpochMilli();
         long lastKLineTimestamp = klines.get(klines.size() - 1).timestamp().toEpochMilli();
         long tradeExitTimestamp = trade.exitTime().toEpochMilli();
@@ -235,9 +229,9 @@ public class TradeReplayChartPanel extends JPanel {
         
         long duration = effectiveEndTime - effectiveStartTime;
         
-        // Add 30% padding PLUS 30 candles worth of fixed padding for context.
+        // Use record accessor duration() instead of getDuration()
+        long fixedPadding = 30 * selectedTimeframe.duration().toMillis();
         long dynamicPadding = (long)(duration * 0.30);
-        long fixedPadding = 30 * selectedTimeframe.getDuration().toMillis();
         long xPadding = dynamicPadding + fixedPadding;
 
         this.minTimestamp = effectiveStartTime - xPadding;
@@ -273,7 +267,8 @@ public class TradeReplayChartPanel extends JPanel {
             KLine k = klines.get(i);
             double x_double = chartX + ((double)(k.timestamp().toEpochMilli() - minTimestamp) / timeRange * chartWidth);
             int x = (int) x_double;
-            double barWidth = (double) selectedTimeframe.getDuration().toMillis() / timeRange * chartWidth;
+            // Use record accessor duration() instead of getDuration()
+            double barWidth = (double) selectedTimeframe.duration().toMillis() / timeRange * chartWidth;
             drawCandle(g2d, k, x, chartY, (int) Math.max(1, barWidth * 0.8), chartHeight);
         }
         
@@ -296,7 +291,8 @@ public class TradeReplayChartPanel extends JPanel {
     private int findCandleIndexForTimestamp(Instant timestamp) {
         if (klines.isEmpty()) return -1;
         long targetMillis = timestamp.toEpochMilli();
-        long candleDuration = selectedTimeframe.getDuration().toMillis();
+        // Use record accessor duration() instead of getDuration()
+        long candleDuration = selectedTimeframe.duration().toMillis();
         if (candleDuration <= 0) return -1;
 
         for (int i = 0; i < klines.size(); i++) {
@@ -313,7 +309,8 @@ public class TradeReplayChartPanel extends JPanel {
         
         KLine candle = klines.get(candleIndex);
         long candleStart = candle.timestamp().toEpochMilli();
-        long candleDuration = selectedTimeframe.getDuration().toMillis();
+        // Use record accessor duration() instead of getDuration()
+        long candleDuration = selectedTimeframe.duration().toMillis();
         if (candleDuration <= 0) return;
         long timeRange = maxTimestamp - minTimestamp;
         if (timeRange <= 0) return;

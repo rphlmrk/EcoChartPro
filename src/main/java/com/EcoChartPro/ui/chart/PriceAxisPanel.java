@@ -265,7 +265,8 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
                 return; // Countdown not relevant for M1
             }
 
-            long durationMillis = timeframe.getDuration().toMillis();
+            // Use the record's accessor method 'duration()'
+            long durationMillis = timeframe.duration().toMillis();
             if (durationMillis == 0) return;
 
             long currentMillis = lastKline.timestamp().toEpochMilli();

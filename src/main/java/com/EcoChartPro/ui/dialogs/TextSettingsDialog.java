@@ -11,7 +11,7 @@ import com.EcoChartPro.ui.components.VisibilityPanel;
 import javax.swing.*;
 import javax.swing.border.TitledBorder;
 import java.awt.*;
-import java.util.EnumMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.function.Consumer;
 
@@ -298,8 +298,8 @@ public class TextSettingsDialog extends JDialog {
     }
 
     private Map<Timeframe, Boolean> createDefaultVisibility() {
-        Map<Timeframe, Boolean> map = new EnumMap<>(Timeframe.class);
-        for (Timeframe tf : Timeframe.values()) {
+        Map<Timeframe, Boolean> map = new LinkedHashMap<>();
+        for (Timeframe tf : Timeframe.getStandardTimeframes()) {
             map.put(tf, true);
         }
         return map;

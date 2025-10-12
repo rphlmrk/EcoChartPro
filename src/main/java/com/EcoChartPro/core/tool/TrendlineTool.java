@@ -11,7 +11,7 @@ import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.event.MouseEvent;
 import java.math.BigDecimal;
-import java.util.EnumMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 
@@ -94,8 +94,8 @@ public class TrendlineTool implements DrawingTool {
      * Creates a default visibility map where the drawing is visible on all timeframes.
      */
     private Map<Timeframe, Boolean> createDefaultVisibility() {
-        Map<Timeframe, Boolean> defaultVisibility = new EnumMap<>(Timeframe.class);
-        for (Timeframe tf : Timeframe.values()) {
+        Map<Timeframe, Boolean> defaultVisibility = new LinkedHashMap<>();
+        for (Timeframe tf : Timeframe.getStandardTimeframes()) {
             defaultVisibility.put(tf, true);
         }
         return defaultVisibility;

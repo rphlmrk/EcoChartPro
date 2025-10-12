@@ -2,6 +2,7 @@ package com.EcoChartPro.utils;
 
 import com.EcoChartPro.core.state.ReplaySessionState;
 import com.EcoChartPro.core.state.SymbolSessionState;
+import com.EcoChartPro.model.Timeframe;
 import com.EcoChartPro.model.Trade;
 import com.EcoChartPro.model.drawing.DrawingObject;
 import com.EcoChartPro.model.trading.Order;
@@ -11,6 +12,7 @@ import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.*;
+import com.fasterxml.jackson.databind.deser.std.StdKeyDeserializer;
 import com.fasterxml.jackson.databind.module.SimpleModule;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.slf4j.Logger;
@@ -58,9 +60,29 @@ public final class SessionManager {
         this.objectMapper.disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
         // Register module for Java 8 Time types (e.g., Instant)
         this.objectMapper.registerModule(new JavaTimeModule());
-        // Register our custom module for serializing/deserializing AWT types
-        this.objectMapper.registerModule(createAwtModule());
+
+        // Create a new module that includes our custom key deserializer for Timeframe
+        SimpleModule ecoChartProModule = createAwtModule();
+        ecoChartProModule.addKeyDeserializer(Timeframe.class, new TimeframeKeyDeserializer());
+        
+        // Register our custom module for serializing/deserializing AWT types AND the Timeframe key
+        this.objectMapper.registerModule(ecoChartProModule);
     }
+    
+    // [NEW] Custom Key Deserializer for the Timeframe record
+    private static class TimeframeKeyDeserializer extends KeyDeserializer {
+        @Override
+        public Object deserializeKey(String key, DeserializationContext ctxt) throws IOException {
+            // Use our existing static method to parse the string key
+            Timeframe tf = Timeframe.fromString(key);
+            if (tf == null) {
+                // Let Jackson know that the key is invalid
+                throw ctxt.weirdKeyException(Timeframe.class, key, "Not a valid Timeframe representation");
+            }
+            return tf;
+        }
+    }
+
 
     public static SessionManager getInstance() {
         if (instance == null) {

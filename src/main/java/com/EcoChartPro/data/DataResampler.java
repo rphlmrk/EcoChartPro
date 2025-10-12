@@ -79,7 +79,8 @@ public class DataResampler {
      * @return The exact start time of the interval.
      */
     private static Instant getIntervalStart(Instant timestamp, Timeframe timeframe) {
-        long durationMillis = timeframe.getDuration().toMillis();
+        // Use the record's accessor method 'duration()' instead of 'getDuration()'
+        long durationMillis = timeframe.duration().toMillis();
         if (durationMillis == 0) return timestamp; // Avoid division by zero
         long epochMillis = timestamp.toEpochMilli();
         return Instant.ofEpochMilli(epochMillis - (epochMillis % durationMillis));

@@ -64,7 +64,7 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
     private final UIManager uiManager;
     private final SessionController sessionController;
     private final TitleBarManager titleBarManager;
-    private final KeyboardShortcutManager keyboardShortcutManager; // [NEW]
+    private final KeyboardShortcutManager keyboardShortcutManager;
     private DatabaseManager activeDbManager;
 
     // --- State Holders ---
@@ -119,7 +119,6 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
         setupPropertiesToolbarActions();
         updateUndoRedoState();
         
-        // [MODIFIED] Instantiate and setup the manager
         this.keyboardShortcutManager = new KeyboardShortcutManager(rootPanel, this);
         this.keyboardShortcutManager.setup();
         
@@ -199,7 +198,7 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
         }
         uiManager.disposeDialogs();
         titleBarManager.dispose();
-        keyboardShortcutManager.dispose(); // [NEW] Dispose the manager
+        keyboardShortcutManager.dispose();
     }
 
     @Override
@@ -474,7 +473,6 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
         String jdbcUrl = "jdbc:sqlite:" + source.dbPath().toAbsolutePath();
         this.activeDbManager = new DatabaseManager(jdbcUrl);
         
-        // When the source changes, update the DB manager for ALL existing chart panels.
         for (ChartPanel panel : workspaceManager.getChartPanels()) {
             panel.getDataModel().setDatabaseManager(this.activeDbManager, source);
         }
@@ -490,7 +488,7 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
 
     public void startReplaySession(DataSourceManager.ChartDataSource source, int startIndex) {
         ReplaySessionManager.getInstance().startSession(source, startIndex);
-        setDbManagerForSource(source); // DB manager is now set after session starts
+        setDbManagerForSource(source); 
         workspaceManager.applyLayout(WorkspaceManager.LayoutType.ONE);
         workspaceManager.getChartPanels().get(0).getDataModel().setDisplayTimeframe(Timeframe.M5);
         workspaceManager.setActiveChartPanel(workspaceManager.getChartPanels().get(0));
@@ -510,7 +508,6 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
         
         setDbManagerForSource(sourceOpt.get());
         
-        // Restore drawings for all symbols in the state
         if (state.symbolStates() != null) {
             state.symbolStates().forEach((symbol, symbolState) -> 
                 DrawingManager.getInstance().restoreDrawingsForSymbol(symbol, symbolState.drawings())
@@ -547,19 +544,29 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
                 } else {
                     loadChartForSource(topToolbarPanel.getSelectedDataSource());
                 }
-            } else if (command.startsWith("timeframeChanged:")) {
-                String tfString = command.substring(17);
-                if (activePanel != null) {
-                    final Timeframe newTimeframe = Timeframe.fromString(tfString);
-                    if (newTimeframe != null) {
+            } else if ("timeframeChanged".equals(command) || command.startsWith("timeframeChanged:")) {
+                // [MODIFIED] This block now handles both standard string-based events
+                // and custom events where the Timeframe object is the source.
+                Timeframe newTimeframe = null;
+                if (e.getSource() instanceof Timeframe) {
+                    // Case 1: Custom timeframe object passed as the event source
+                    newTimeframe = (Timeframe) e.getSource();
+                } else {
+                    // Case 2: Standard timeframe string from a button click
+                    String tfString = command.substring("timeframeChanged:".length());
+                    newTimeframe = Timeframe.fromString(tfString);
+                }
+
+                if (newTimeframe != null) {
+                    topToolbarPanel.selectTimeframe(newTimeframe.displayName());
+                    if (activePanel != null) {
                         activePanel.getDataModel().setDisplayTimeframe(newTimeframe);
+                    } else if (!isReplayMode && !workspaceManager.getChartPanels().isEmpty()) {
+                        // In standard mode, if no panel is active, load data for the first one.
+                        workspaceManager.getChartPanels().get(0).getDataModel().loadDataset(
+                            topToolbarPanel.getSelectedDataSource(), newTimeframe
+                        );
                     }
-                } else if (!isReplayMode && !workspaceManager.getChartPanels().isEmpty()) {
-                    // In standard mode, if no panel is active, load data for the first one.
-                    workspaceManager.getChartPanels().get(0).getDataModel().loadDataset(
-                        topToolbarPanel.getSelectedDataSource(),
-                        Timeframe.fromString(tfString).getDisplayName()
-                    );
                 }
             } else if (command.startsWith("layoutChanged:")) {
                 String layoutName = command.substring("layoutChanged:".length());
@@ -580,38 +587,30 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
         });
     }
 
-    /**
-     * [REWRITTEN] Handles seamlessly switching symbols in replay mode.
-     */
     private void handleReplaySymbolChange() {
         DataSourceManager.ChartDataSource newSource = topToolbarPanel.getSelectedDataSource();
         DataSourceManager.ChartDataSource currentSource = ReplaySessionManager.getInstance().getCurrentSource();
 
         if (newSource == null || (currentSource != null && newSource.symbol().equals(currentSource.symbol()))) {
-            return; // No change, do nothing.
+            return;
         }
 
-        // 1. Switch active symbol in all core managers
         ReplaySessionManager.getInstance().switchActiveSymbol(newSource.symbol());
-
-        // 2. Update this window's DB connection
         setDbManagerForSource(newSource);
         
-        // 3. Force all chart panels to reload data for the new symbol
-        // Use the active panel's timeframe as the default for all panels on switch.
-        String newTimeframe = workspaceManager.getActiveChartPanel() != null
-                ? workspaceManager.getActiveChartPanel().getDataModel().getCurrentDisplayTimeframe().getDisplayName()
-                : "5m"; // Fallback to 5m if no panel is active
+        Timeframe newTimeframe = workspaceManager.getActiveChartPanel() != null
+                ? workspaceManager.getActiveChartPanel().getDataModel().getCurrentDisplayTimeframe()
+                : Timeframe.M5; // Fallback to 5m
 
         topToolbarPanel.populateTimeframes(newSource.timeframes());
-        topToolbarPanel.selectTimeframe(newTimeframe);
+        topToolbarPanel.selectTimeframe(newTimeframe.displayName());
         
         for (ChartPanel panel : workspaceManager.getChartPanels()) {
-            panel.getDataModel().configureForReplay(Timeframe.fromString(newTimeframe), newSource);
-            panel.getDataModel().setDisplayTimeframe(Timeframe.fromString(newTimeframe), true); // Force reload
+            panel.getDataModel().configureForReplay(newTimeframe, newSource);
+            panel.getDataModel().setDisplayTimeframe(newTimeframe, true); // Force reload
         }
         
-        titleBarManager.setStaticTitle(newSource.displayName() + " (" + newTimeframe + ")");
+        titleBarManager.setStaticTitle(newSource.displayName() + " (" + newTimeframe.displayName() + ")");
     }
 
     private void loadChartForSource(DataSourceManager.ChartDataSource source) {
@@ -620,12 +619,15 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
         DrawingManager.getInstance().setActiveSymbol(source.symbol());
         topToolbarPanel.populateTimeframes(source.timeframes());
         if (!source.timeframes().isEmpty()) {
-            String initialTimeframe = source.timeframes().get(0);
-            topToolbarPanel.selectTimeframe(initialTimeframe);
+            String initialTimeframeStr = source.timeframes().get(0);
+            Timeframe initialTimeframe = Timeframe.fromString(initialTimeframeStr);
+            if (initialTimeframe == null) initialTimeframe = Timeframe.H1;
+
+            topToolbarPanel.selectTimeframe(initialTimeframe.displayName());
             for (ChartPanel panel : workspaceManager.getChartPanels()) {
                  panel.getDataModel().loadDataset(source, initialTimeframe);
             }
-            titleBarManager.setStaticTitle(source.displayName() + " (" + initialTimeframe + ")");
+            titleBarManager.setStaticTitle(source.displayName() + " (" + initialTimeframe.displayName() + ")");
         } else {
              if (!workspaceManager.getChartPanels().isEmpty()) {
                 workspaceManager.getChartPanels().get(0).getDataModel().clearData();

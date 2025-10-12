@@ -9,7 +9,7 @@ import com.EcoChartPro.model.drawing.VerticalLineObject;
 
 import java.awt.*;
 import java.awt.event.MouseEvent;
-import java.util.EnumMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 
@@ -51,8 +51,8 @@ public class VerticalLineTool implements DrawingTool {
     public void reset() { anchor = null; }
 
     private Map<Timeframe, Boolean> createDefaultVisibility() {
-        Map<Timeframe, Boolean> map = new EnumMap<>(Timeframe.class);
-        for (Timeframe tf : Timeframe.values()) map.put(tf, true);
+        Map<Timeframe, Boolean> map = new LinkedHashMap<>();
+        for (Timeframe tf : Timeframe.getStandardTimeframes()) map.put(tf, true);
         return map;
     }
 }

@@ -2,6 +2,7 @@ package com.EcoChartPro.ui.toolbar;
 
 import com.EcoChartPro.core.manager.CrosshairManager;
 import com.EcoChartPro.core.manager.UndoManager;
+import com.EcoChartPro.model.Timeframe;
 import com.EcoChartPro.ui.MainWindow;
 import com.EcoChartPro.ui.chart.ChartPanel;
 import com.EcoChartPro.ui.dashboard.theme.UITheme;
@@ -163,13 +164,24 @@ public class ChartToolbarPanel extends JPanel {
     private JPopupMenu createPopupMenu(JPanel contentPanel) {
         JPopupMenu popupMenu = new JPopupMenu();
         popupMenu.setBorder(BorderFactory.createLineBorder(UIManager.getColor("Component.borderColor")));
-        if (contentPanel instanceof TimeframeSelectionPanel) {
-            ((TimeframeSelectionPanel) contentPanel).addActionListener(e -> {
-                fireActionEvent(e.getActionCommand());
-                popupMenu.setVisible(false);
+
+        if (contentPanel instanceof TimeframeSelectionPanel panel) {
+            // [MODIFIED] The listener now handles both standard and custom timeframe events.
+            panel.addActionListener(e -> {
+                if (e.getSource() instanceof Timeframe) {
+                    // This is a custom timeframe event. The source is the Timeframe object.
+                    // We re-fire it so MainWindow can receive it.
+                    ActionEvent newEvent = new ActionEvent(e.getSource(), e.getID(), e.getActionCommand());
+                    fireActionEvent(newEvent);
+                    // The popup is closed by the TimeframeSelectionPanel in this case.
+                } else {
+                    // This is a standard button click, pass the string command.
+                    fireActionEvent(e.getActionCommand());
+                    popupMenu.setVisible(false);
+                }
             });
-        } else if (contentPanel instanceof LayoutSelectionPanel) {
-            ((LayoutSelectionPanel) contentPanel).addActionListener(e -> {
+        } else if (contentPanel instanceof LayoutSelectionPanel panel) {
+            panel.addActionListener(e -> {
                 fireActionEvent(e.getActionCommand());
                 popupMenu.setVisible(false);
             });
@@ -198,18 +210,12 @@ public class ChartToolbarPanel extends JPanel {
                 return;
             }
 
-            // Get mouse position on the screen
             Point mousePosOnScreen = MouseInfo.getPointerInfo().getLocation();
-
-            // Check if mouse is over the button using screen coordinates
             Rectangle buttonBounds = new Rectangle(button.getLocationOnScreen(), button.getSize());
             boolean onButton = buttonBounds.contains(mousePosOnScreen);
-
-            // Check if mouse is over the popup using screen coordinates
             Rectangle popupBounds = new Rectangle(popup.getLocationOnScreen(), popup.getSize());
             boolean onPopup = popupBounds.contains(mousePosOnScreen);
 
-            // If the mouse is not on the button AND not on the popup, then hide it.
             if (!onButton && !onPopup) {
                 popup.setVisible(false);
             }
@@ -231,7 +237,6 @@ public class ChartToolbarPanel extends JPanel {
             }
         };
 
-        // Add the listener to the button and recursively to the popup and all its children.
         button.addMouseListener(hoverListener);
         addRecursiveMouseListener(popup, hoverListener);
     }
@@ -283,11 +288,23 @@ public class ChartToolbarPanel extends JPanel {
         }
     }
 
-    private void fireActionEvent(String command) {
-        ActionEvent e = new ActionEvent(this, ActionEvent.ACTION_PERFORMED, command);
+    /**
+     * [MODIFIED] Fires a given ActionEvent to all registered listeners.
+     * @param e The ActionEvent to fire.
+     */
+    private void fireActionEvent(ActionEvent e) {
         for (ActionListener l : listenerList.getListeners(ActionListener.class)) {
             l.actionPerformed(e);
         }
+    }
+    
+    /**
+     * [MODIFIED] Creates a new ActionEvent from a string command and fires it.
+     * @param command The string command for the event.
+     */
+    private void fireActionEvent(String command) {
+        ActionEvent e = new ActionEvent(this, ActionEvent.ACTION_PERFORMED, command);
+        fireActionEvent(e);
     }
     
     public void populateTimeframes(List<String> availableTimeframes) {

@@ -148,7 +148,7 @@ public class KeyboardShortcutManager {
                             ChartPanel activePanel = owner.getActiveChartPanel();
                             if (newTf != null && activePanel != null) {
                                 activePanel.getDataModel().setDisplayTimeframe(newTf);
-                                owner.getTopToolbarPanel().selectTimeframe(newTf.getDisplayName());
+                                owner.getTopToolbarPanel().selectTimeframe(newTf.displayName());
                             }
                             clearTimeframeInput();
                             return true; // Consume the event

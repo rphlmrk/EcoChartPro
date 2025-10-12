@@ -90,7 +90,8 @@ public record MeasureToolObject(
         BigDecimal pctChange = p1.price().compareTo(BigDecimal.ZERO) == 0 ? BigDecimal.ZERO :
             absPriceDelta.divide(p1.price(), 4, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100));
         Duration duration = Duration.between(p1.timestamp(), p2.timestamp()).abs();
-        long barCount = tf.getDuration().isZero() ? 0 : duration.toMillis() / tf.getDuration().toMillis();
+        // Use the record's accessor method duration()
+        long barCount = tf.duration().isZero() ? 0 : duration.toMillis() / tf.duration().toMillis();
         String sign = priceDelta.signum() >= 0 ? "+" : "-";
 
         // --- 3. Prepare Text Labels ---

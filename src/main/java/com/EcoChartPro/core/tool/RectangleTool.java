@@ -10,7 +10,7 @@ import com.EcoChartPro.model.drawing.RectangleObject;
 import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.event.MouseEvent;
-import java.util.EnumMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 
@@ -51,8 +51,8 @@ public class RectangleTool implements DrawingTool {
     }
 
     private Map<Timeframe, Boolean> createDefaultVisibility() {
-        Map<Timeframe, Boolean> defaultVisibility = new EnumMap<>(Timeframe.class);
-        for (Timeframe tf : Timeframe.values()) {
+        Map<Timeframe, Boolean> defaultVisibility = new LinkedHashMap<>();
+        for (Timeframe tf : Timeframe.getStandardTimeframes()) {
             defaultVisibility.put(tf, true);
         }
         return defaultVisibility;

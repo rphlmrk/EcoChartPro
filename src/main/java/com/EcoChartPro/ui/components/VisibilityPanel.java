@@ -4,7 +4,7 @@ import com.EcoChartPro.model.Timeframe;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
-import java.util.EnumMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.function.Consumer;
 import javax.swing.JCheckBox;
@@ -13,7 +13,8 @@ import javax.swing.border.TitledBorder;
 
 public class VisibilityPanel extends JPanel {
 
-    private final Map<Timeframe, JCheckBox> checkBoxMap = new EnumMap<>(Timeframe.class);
+    //EnumMap is only for enums. Use a general-purpose map like LinkedHashMap.
+    private final Map<Timeframe, JCheckBox> checkBoxMap = new LinkedHashMap<>();
     private final Consumer<Map<Timeframe, Boolean>> onUpdate;
 
     public VisibilityPanel(Map<Timeframe, Boolean> initialVisibility, Consumer<Map<Timeframe, Boolean>> onUpdate) {
@@ -27,8 +28,8 @@ public class VisibilityPanel extends JPanel {
         gbc.gridx = 0;
         gbc.gridy = 0;
 
-        for (Timeframe tf : Timeframe.values()) {
-            JCheckBox cb = new JCheckBox(tf.getDisplayName());
+        for (Timeframe tf : Timeframe.getStandardTimeframes()) {
+            JCheckBox cb = new JCheckBox(tf.displayName());
             cb.setSelected(initialVisibility.getOrDefault(tf, true));
             cb.addActionListener(e -> notifyUpdate());
             checkBoxMap.put(tf, cb);
@@ -53,7 +54,8 @@ public class VisibilityPanel extends JPanel {
      * @return A map of timeframes to their visibility state.
      */
     public Map<Timeframe, Boolean> getVisibilityMap() {
-        Map<Timeframe, Boolean> visibilityMap = new EnumMap<>(Timeframe.class);
+        // [FIX] EnumMap is only for enums. Use a general-purpose map.
+        Map<Timeframe, Boolean> visibilityMap = new LinkedHashMap<>();
         for (Map.Entry<Timeframe, JCheckBox> entry : checkBoxMap.entrySet()) {
             visibilityMap.put(entry.getKey(), entry.getValue().isSelected());
         }

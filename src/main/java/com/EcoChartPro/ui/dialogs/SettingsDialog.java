@@ -494,14 +494,13 @@ public class SettingsDialog extends JDialog {
         panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
         panel.setBorder(BorderFactory.createTitledBorder("General Chart Settings"));
         
-        // --- NEW: Session Highlighting Toggle ---
+        // --- Session Highlighting Toggle ---
         JPanel sessionHighlightPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
         JCheckBox sessionHighlightCheckbox = new JCheckBox("Highlight Trading Sessions on Chart");
         sessionHighlightCheckbox.setSelected(settingsManager.isSessionHighlightingEnabled());
         sessionHighlightCheckbox.addActionListener(e -> settingsManager.setSessionHighlightingEnabled(sessionHighlightCheckbox.isSelected()));
         sessionHighlightPanel.add(sessionHighlightCheckbox);
         sessionHighlightPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, sessionHighlightPanel.getPreferredSize().height));
-        // --- END NEW ---
 
         JCheckBox daySeparatorCheckbox = new JCheckBox("Show Day/Week Separators");
         daySeparatorCheckbox.setSelected(settingsManager.isDaySeparatorsEnabled());
@@ -767,21 +766,21 @@ public class SettingsDialog extends JDialog {
 
         List<String> selectedTimeframes = new ArrayList<>(settingsManager.getTradeReplayAvailableTimeframes());
 
-        for (Timeframe tf : Timeframe.values()) {
-            JCheckBox checkBox = new JCheckBox(tf.getDisplayName());
-            checkBox.setSelected(selectedTimeframes.contains(tf.getDisplayName()));
+        for (Timeframe tf : Timeframe.getStandardTimeframes()) {
+            JCheckBox checkBox = new JCheckBox(tf.displayName());
+            checkBox.setSelected(selectedTimeframes.contains(tf.displayName()));
 
             checkBox.addActionListener(e -> {
                 if (checkBox.isSelected()) {
-                    if (!selectedTimeframes.contains(tf.getDisplayName())) {
-                        selectedTimeframes.add(tf.getDisplayName());
+                    if (!selectedTimeframes.contains(tf.displayName())) {
+                        selectedTimeframes.add(tf.displayName());
                     }
                 } else {
-                    selectedTimeframes.remove(tf.getDisplayName());
+                    selectedTimeframes.remove(tf.displayName());
                 }
                 if (selectedTimeframes.isEmpty()) {
                     checkBox.setSelected(true);
-                    selectedTimeframes.add(tf.getDisplayName());
+                    selectedTimeframes.add(tf.displayName());
                     JOptionPane.showMessageDialog(this, "At least one timeframe must be selected.", "Selection Required", JOptionPane.WARNING_MESSAGE);
                 }
                 settingsManager.setTradeReplayAvailableTimeframes(selectedTimeframes);

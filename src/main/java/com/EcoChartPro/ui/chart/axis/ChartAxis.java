@@ -149,7 +149,8 @@ public class ChartAxis {
             KLine lastKline = visibleKLines.get(visibleKLines.size() - 1);
             int futureBarDelta = slotIndex - (visibleKLines.size() - 1);
 
-            Duration timePerBar = timeframe.getDuration();
+            // Use the record's accessor method 'duration()'
+            Duration timePerBar = timeframe.duration();
             Duration durationToAdd = timePerBar.multipliedBy(futureBarDelta);
 
             return lastKline.timestamp().plus(durationToAdd);
@@ -171,7 +172,8 @@ public class ChartAxis {
         }
 
         Instant firstVisibleTime = visibleKLines.get(0).timestamp();
-        Duration timePerBar = timeframe.getDuration();
+        // [FIX] Use the record's accessor method 'duration()'
+        Duration timePerBar = timeframe.duration();
 
         if (timePerBar.isZero()) {
             return -1; // Avoid division by zero
@@ -208,7 +210,8 @@ public class ChartAxis {
         }
 
         Instant firstVisibleTime = visibleKLines.get(0).timestamp();
-        Duration timePerBar = timeframe.getDuration();
+        // Use the record's accessor method 'duration()'
+        Duration timePerBar = timeframe.duration();
         if (timePerBar.isZero()) {
             return -1;
         }

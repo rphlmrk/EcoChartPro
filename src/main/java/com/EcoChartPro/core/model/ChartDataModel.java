@@ -217,18 +217,20 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
         }
     }
 
-    public void loadDataset(DataSourceManager.ChartDataSource source, String timeframe) {
+    /**
+     * [MODIFIED] This method's signature now takes a Timeframe object instead of a string.
+     */
+    public void loadDataset(DataSourceManager.ChartDataSource source, Timeframe timeframe) {
         this.currentSource = source;
         this.isConfiguredForReplay = false;
-        String tfString = timeframe.replace(" ", "");
-        this.currentDisplayTimeframe = Timeframe.fromString(tfString);
+        this.currentDisplayTimeframe = timeframe;
 
-        if (dbManager == null) {
+        if (dbManager == null || timeframe == null) {
              clearData();
              return;
         }
         
-        this.totalCandleCount = dbManager.getTotalKLineCount(new Symbol(source.symbol()), tfString);
+        this.totalCandleCount = dbManager.getTotalKLineCount(new Symbol(source.symbol()), timeframe.displayName());
         
         if(totalCandleCount == 0){
              clearData();
@@ -297,8 +299,8 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
                 return;
             }
 
-            if (currentDisplayTimeframe != Timeframe.M1 && currentDisplayTimeframe.getDuration().toMinutes() > 0) {
-                totalCandleCount = (m1HeadIndex + 1) / (int)currentDisplayTimeframe.getDuration().toMinutes();
+            if (currentDisplayTimeframe != Timeframe.M1 && !currentDisplayTimeframe.duration().isZero()) {
+                totalCandleCount = (m1HeadIndex + 1) / (int)currentDisplayTimeframe.duration().toMinutes();
             } else {
                 totalCandleCount = m1HeadIndex + 1;
             }
@@ -309,7 +311,7 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
             rebuildHistoryAsync(targetStartIndex, false);
         } else {
             if (dbManager == null) return;
-            this.totalCandleCount = dbManager.getTotalKLineCount(new Symbol(currentSource.symbol()), newTimeframe.getDisplayName());
+            this.totalCandleCount = dbManager.getTotalKLineCount(new Symbol(currentSource.symbol()), newTimeframe.displayName());
             int initialStartIndex = Math.max(0, totalCandleCount - interactionManager.getBarsPerScreen());
             rebuildHistoryAsync(initialStartIndex, false);
         }
@@ -338,7 +340,8 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
     private void rebuildHistoryAsync(final int targetStartIndex, boolean isPreFetch) {
         if (!isPreFetch) {
             if (activeRebuildWorker != null && !activeRebuildWorker.isDone()) activeRebuildWorker.cancel(true);
-            if (chartPanel != null) chartPanel.setLoading(true, "Building " + currentDisplayTimeframe.getDisplayName() + " history...");
+            // Use the record's accessor method 'displayName()'
+            if (chartPanel != null) chartPanel.setLoading(true, "Building " + currentDisplayTimeframe.displayName() + " history...");
         }
 
         SwingWorker<RebuildResult, Void> worker = new SwingWorker<>() {
@@ -370,7 +373,7 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
                         // Set the start index. This might or might not fire an event.
                         interactionManager.setStartIndex(targetStartIndex);
                         
-                        // [FIX] Manually call updateView() to guarantee the chart is drawn
+                        // Manually call updateView() to guarantee the chart is drawn
                         // after the initial load, especially in cases where setStartIndex 
                         // doesn't fire a property change event (e.g., index is already 0).
                         updateView();
@@ -408,8 +411,8 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
         dataWindowStartIndex = result.newWindowStart();
         
         if (isConfiguredForReplay) {
-            if (currentDisplayTimeframe != Timeframe.M1 && currentDisplayTimeframe.getDuration().toMinutes() > 0) {
-                totalCandleCount = (ReplaySessionManager.getInstance().getReplayHeadIndex() + 1) / (int)currentDisplayTimeframe.getDuration().toMinutes();
+            if (currentDisplayTimeframe != Timeframe.M1 && !currentDisplayTimeframe.duration().isZero()) {
+                totalCandleCount = (ReplaySessionManager.getInstance().getReplayHeadIndex() + 1) / (int)currentDisplayTimeframe.duration().toMinutes();
             } else {
                 totalCandleCount = ReplaySessionManager.getInstance().getReplayHeadIndex() + 1;
             }
@@ -423,7 +426,7 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
             List<KLine> m1HistorySlice = manager.getOneMinuteBars(newWindowStartInFinalData, fetchCount);
             return new RebuildResult(null, null, newWindowStartInFinalData, m1HistorySlice);
         } else {
-            long m1BarsPerTargetCandle = currentDisplayTimeframe.getDuration().toMinutes();
+            long m1BarsPerTargetCandle = currentDisplayTimeframe.duration().toMinutes();
             if (m1BarsPerTargetCandle <= 0) m1BarsPerTargetCandle = 1;
 
             int m1LookbackForWindow = (int) ((DATA_WINDOW_SIZE + INDICATOR_LOOKBACK_BUFFER) * m1BarsPerTargetCandle);
@@ -448,7 +451,7 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
     
     private RebuildResult fetchStandardData(int newWindowStart) {
         int newWindowSize = Math.min(DATA_WINDOW_SIZE, totalCandleCount - newWindowStart);
-        String tfString = currentDisplayTimeframe.getDisplayName().replace(" ", "");
+        String tfString = currentDisplayTimeframe.displayName();
         List<KLine> candles = dbManager.getKLinesByIndex(new Symbol(currentSource.symbol()), tfString, newWindowStart, newWindowSize);
         return new RebuildResult(candles, null, newWindowStart, candles);
     }
@@ -529,11 +532,11 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
                 logger.warn("Could not find M1 index for trade entry time: {}", trade.entryTime());
                 return;
             }
-            long m1BarsPerCandle = (currentDisplayTimeframe == Timeframe.M1) ? 1 : currentDisplayTimeframe.getDuration().toMinutes();
+            long m1BarsPerCandle = (currentDisplayTimeframe == Timeframe.M1) ? 1 : currentDisplayTimeframe.duration().toMinutes();
             targetStartIndex = (int) (entryM1Index / m1BarsPerCandle);
         } else {
             if (dbManager == null) return;
-            targetStartIndex = dbManager.findClosestTimestampIndex(new Symbol(currentSource.symbol()), currentDisplayTimeframe.getDisplayName(), trade.entryTime());
+            targetStartIndex = dbManager.findClosestTimestampIndex(new Symbol(currentSource.symbol()), currentDisplayTimeframe.displayName(), trade.entryTime());
         }
 
         if (targetStartIndex < 0) return;
@@ -556,7 +559,7 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
     }
 
     private static Instant getIntervalStart(Instant timestamp, Timeframe timeframe) {
-        long durationMillis = timeframe.getDuration().toMillis();
+        long durationMillis = timeframe.duration().toMillis();
         if (durationMillis == 0) return timestamp;
         long epochMillis = timestamp.toEpochMilli();
         return Instant.ofEpochMilli(epochMillis - (epochMillis % durationMillis));
@@ -584,7 +587,7 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
             return DataResampler.resample(this.baseDataWindow, targetTimeframe);
         } else {
             if (dbManager != null && currentSource != null) {
-                String tfString = targetTimeframe.getDisplayName().replace(" ", "");
+                String tfString = targetTimeframe.displayName();
                 return dbManager.getAllKLines(new Symbol(currentSource.symbol()), tfString);
             }
             return Collections.emptyList();

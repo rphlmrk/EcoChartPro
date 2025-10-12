@@ -424,7 +424,8 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
         if (currentSource != null) {
             g2d.setFont(SYMBOL_FONT);
             g2d.setColor(settings.getAxisTextColor());
-            String text = currentSource.displayName() + " - " + (currentTimeframe != null ? currentTimeframe.getDisplayName() : "");
+            // Use record accessor displayName()
+            String text = currentSource.displayName() + " - " + (currentTimeframe != null ? currentTimeframe.displayName() : "");
             g2d.drawString(text, 20, 30);
         }
 
