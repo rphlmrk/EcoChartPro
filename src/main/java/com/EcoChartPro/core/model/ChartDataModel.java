@@ -223,7 +223,7 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
                 return sourceData.subList(calculationStartIndex, calculationEndIndex);
             }
         } else { // LIVE Mode
-            if (finalizedCandles.isEmpty()) {
+            if (finalizedCandles == null || finalizedCandles.isEmpty()) { // Defensive check
                  return Collections.emptyList();
             }
             int viewStartInWindow = currentStartIndex - this.dataWindowStartIndex;
@@ -309,8 +309,15 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
                         newTick.close(), currentlyFormingCandle.volume().add(newTick.volume()));
             }
 
-            // Fire the same event as replay mode to keep listeners consistent and trigger auto-scrolling
+            // The interaction manager needs to know a tick happened to handle auto-scrolling
             interactionManager.onReplayTick(newTick);
+
+            // After updating the model's state (the forming candle), we must update
+            // the list of visible candles and notify the view to repaint.
+            // This is the critical step for live updates.
+            assembleVisibleKLines();
+            calculateBoundaries();
+            fireDataUpdated();
         });
     }
 
@@ -476,12 +483,13 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
     }
 
     private void applyRebuildResult(RebuildResult result, int targetStartIndex) {
+        // FIX: Add null checks to prevent NullPointerException
         if (currentDisplayTimeframe == Timeframe.M1 && currentMode == ChartMode.REPLAY) {
-            baseDataWindow = result.rawM1Slice();
-            finalizedCandles = Collections.emptyList();
+            baseDataWindow = result.rawM1Slice() != null ? result.rawM1Slice() : new ArrayList<>();
+            finalizedCandles = new ArrayList<>();
         } else {
-            finalizedCandles = result.resampledCandles();
-            baseDataWindow = result.rawM1Slice();
+            finalizedCandles = result.resampledCandles() != null ? result.resampledCandles() : new ArrayList<>();
+            baseDataWindow = result.rawM1Slice() != null ? result.rawM1Slice() : new ArrayList<>();
         }
         currentlyFormingCandle = result.formingCandle();
         dataWindowStartIndex = result.newWindowStart();
@@ -655,10 +663,11 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
     
     private List<KLine> getAllChartableCandles() {
         if (currentMode == ChartMode.REPLAY && currentDisplayTimeframe == Timeframe.M1) {
-            return baseDataWindow;
+            return baseDataWindow != null ? baseDataWindow : Collections.emptyList();
         }
         
-        List<KLine> all = new ArrayList<>(finalizedCandles);
+        // FIX: Defensive check for null to prevent NPE
+        List<KLine> all = (finalizedCandles != null) ? new ArrayList<>(finalizedCandles) : new ArrayList<>();
         if (currentlyFormingCandle != null) {
             all.add(currentlyFormingCandle);
         }

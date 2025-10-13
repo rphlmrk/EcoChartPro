@@ -48,6 +48,7 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
     private final ChartAxis yAxis;
     private DrawingObjectPoint crosshairPoint;
     private final ChartInteractionManager interactionManager;
+    private javax.swing.Timer repaintTimer;
 
     /**
      * A record to hold all necessary information for rendering a price label.
@@ -72,11 +73,28 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
         sm.addPropertyChangeListener("livePriceLabelFontSizeChanged", this);
         sm.addPropertyChangeListener("crosshairLabelColorChanged", this);
         CrosshairManager.getInstance().addPropertyChangeListener("crosshairMoved", this);
+        
+        startRepaintTimer();
+    }
+    
+    private void startRepaintTimer() {
+        if (repaintTimer == null) {
+            repaintTimer = new javax.swing.Timer(1000, e -> {
+                if (dataModel != null && dataModel.getCurrentReplayKLine() != null) {
+                    repaint();
+                }
+            });
+            repaintTimer.setRepeats(true);
+            repaintTimer.start();
+        }
     }
 
     public void cleanup() {
         SettingsManager.getInstance().removePropertyChangeListener(this);
         CrosshairManager.getInstance().removePropertyChangeListener("crosshairMoved", this);
+        if (repaintTimer != null) {
+            repaintTimer.stop();
+        }
     }
 
     @Override
@@ -220,26 +238,24 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
         }
 
         private void drawLiveInfo(Graphics2D g2d) {
-            if (dataModel == null || !dataModel.isInReplayMode() || dataModel.getCurrentReplayKLine() == null) {
-                return;
-            }
-
+            if (dataModel == null) return;
+        
             KLine lastKline = dataModel.getCurrentReplayKLine();
             if (lastKline == null) {
                 return;
             }
-
+        
             // --- Part 1: Draw Price Label ---
             BigDecimal lastClose = lastKline.close();
             int yPriceLabel = yAxis.priceToY(lastClose);
-
+        
             SettingsManager settings = SettingsManager.getInstance();
             boolean isBullish = lastKline.close().compareTo(lastKline.open()) >= 0;
             
             Color backgroundColor = isBullish ? settings.getBullColor() : settings.getBearColor();
             Color textColor = isBullish ? settings.getLivePriceLabelBullTextColor() : settings.getLivePriceLabelBearTextColor();
             Font liveFont = LABEL_FONT.deriveFont((float) settings.getLivePriceLabelFontSize());
-
+        
             String priceStr = lastClose.setScale(2, RoundingMode.HALF_UP).toPlainString();
             g2d.setFont(liveFont);
             FontMetrics fmPrice = g2d.getFontMetrics();
@@ -248,52 +264,55 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
             int priceRectHeight = priceLabelHeight;
             int yPriceRect = yPriceLabel - priceRectHeight / 2;
             int rectX = 0;
-
+        
             g2d.setColor(backgroundColor);
             g2d.fillRect(rectX, yPriceRect, priceRectWidth, priceRectHeight);
             g2d.setColor(textColor);
             g2d.drawString(priceStr, rectX + PADDING_X, yPriceRect + fmPrice.getAscent() + 1);
-
+        
             // --- Part 2: Draw Countdown Timer Below Price Label ---
-            ReplaySessionManager manager = ReplaySessionManager.getInstance();
-            if (!manager.isPlaying()) {
-                return; // Only show countdown when playing
+            if (dataModel.getCurrentMode() == ChartDataModel.ChartMode.REPLAY) {
+                ReplaySessionManager manager = ReplaySessionManager.getInstance();
+                if (!manager.isPlaying()) {
+                    return; // Only show countdown when replay is actively playing
+                }
             }
-
+            // For LIVE mode, we always proceed if a candle exists.
+        
             Timeframe timeframe = dataModel.getCurrentDisplayTimeframe();
             if (timeframe == null || timeframe == Timeframe.M1) {
                 return; // Countdown not relevant for M1
             }
-
+        
             // Use the record's accessor method 'duration()'
             long durationMillis = timeframe.duration().toMillis();
             if (durationMillis == 0) return;
-
+        
             long currentMillis = lastKline.timestamp().toEpochMilli();
             long intervalStartMillis = currentMillis - (currentMillis % durationMillis);
             long nextIntervalStartMillis = intervalStartMillis + durationMillis;
             long millisRemaining = nextIntervalStartMillis - currentMillis;
-
+        
             if (millisRemaining > 0 && millisRemaining <= durationMillis) {
                 long totalSecondsRemaining = TimeUnit.MILLISECONDS.toSeconds(millisRemaining);
                 long hours = TimeUnit.SECONDS.toHours(totalSecondsRemaining);
                 long minutes = TimeUnit.SECONDS.toMinutes(totalSecondsRemaining) % 60;
                 long seconds = totalSecondsRemaining % 60;
-
+        
                 String countdownText;
                 if (hours > 0) {
                     countdownText = String.format("-%d:%02d:%02d", hours, minutes, seconds);
                 } else {
                     countdownText = String.format("-%02d:%02d", minutes, seconds);
                 }
-
+        
                 g2d.setFont(liveFont);
                 FontMetrics fmCountdown = g2d.getFontMetrics();
                 
                 int yCountdownRect = yPriceRect + priceRectHeight; // Position it directly below the price rect
                 int countdownRectWidth = getWidth(); // Use full panel width
                 int countdownRectHeight = fmCountdown.getHeight() + 2;
-
+        
                 g2d.setColor(backgroundColor);
                 g2d.fillRect(rectX, yCountdownRect, countdownRectWidth, countdownRectHeight);
                 

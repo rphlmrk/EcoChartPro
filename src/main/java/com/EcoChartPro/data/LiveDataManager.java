@@ -76,8 +76,11 @@ public class LiveDataManager {
     private synchronized void reconnect() {
         if (webSocketClient != null && webSocketClient.isOpen()) {
             webSocketClient.close();
+            // The onClose handler will now reliably trigger scheduleReconnect.
+        } else {
+            // If there's no client or it's already closed, we need to initiate the connection.
+            scheduleReconnect();
         }
-        // The onClose handler will trigger the scheduleReconnect logic, which calls connect().
     }
 
     private synchronized void connect() {
@@ -104,7 +107,10 @@ public class LiveDataManager {
                 @Override public void onClose(int code, String reason, boolean remote) {
                     logger.warn("WebSocket closed. Code: {}, Reason: {}, Remote: {}", code, reason, remote);
                     state = ConnectionState.DISCONNECTED;
-                    if (remote && state != ConnectionState.CLOSING) scheduleReconnect();
+                    // FIX: Reconnect unless we are explicitly shutting down. The 'remote' check was too restrictive.
+                    if (state != ConnectionState.CLOSING) {
+                        scheduleReconnect();
+                    }
                 }
                 @Override public void onError(Exception ex) { logger.error("WebSocket error occurred.", ex); }
             };

@@ -47,7 +47,7 @@ This project is under active development. The roadmap is divided into several ke
 
 ### Phase 3: Live Data & Trading
 -   **[Planned] Multi-Source Data Integration:** Expand data handling to support multiple live and historical data providers (e.g., Binance, OKX, Yahoo Finance), allowing users to select their preferred source.
--   **[Planned] Live Data Integration:** Connect the charting engine to live WebSocket data feeds for real-time market data.
+-   **[Done] Live Data Integration:** Connect the charting engine to live WebSocket data feeds for real-time market data.
 
 ### Phase 4: Usability & Polish
 -   **[Planned] Onboarding & Help System:** Add a "Help" menu and an "About" dialog with application information and links to documentation.

@@ -80,12 +80,18 @@ public class ChartInteractionManager implements ReplayStateListener {
     }
 
     public void jumpToLiveEdge() {
+        boolean needsUpdate = !this.viewingLiveEdge; // We need an update if we WEREN'T at the live edge before.
         this.viewingLiveEdge = true;
+
         int dataBarsOnScreen = (int) (barsPerScreen * (1.0 - rightMarginRatio));
         int liveEdgeStartIndex = Math.max(0, model.getTotalCandleCount() - dataBarsOnScreen);
 
         if (this.startIndex != liveEdgeStartIndex) {
             this.startIndex = liveEdgeStartIndex;
+            needsUpdate = true; // The index also changed, so we definitely need an update.
+        }
+
+        if (needsUpdate) {
             fireViewStateChanged();
         }
     }

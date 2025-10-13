@@ -470,24 +470,29 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
     }
 
     public void setDbManagerForSource(ChartDataSource source) {
+        DatabaseManager oldDbManager = this.activeDbManager; // Keep a reference to the old one.
+    
         if (source == null || source.dbPath() == null) {
-            if (activeDbManager != null) {
-                activeDbManager.close();
-                activeDbManager = null;
-            }
-            // For live data sources without a DB, this is normal.
-            return;
+            // This is a pure live source or an invalid source. We won't have a new DB manager.
+            this.activeDbManager = null;
+        } else {
+            // This source has a local DB file. Create a new manager for it.
+            String jdbcUrl = "jdbc:sqlite:" + source.dbPath().toAbsolutePath();
+            this.activeDbManager = new DatabaseManager(jdbcUrl);
         }
-        if (activeDbManager != null) activeDbManager.close();
-        
-        String jdbcUrl = "jdbc:sqlite:" + source.dbPath().toAbsolutePath();
-        this.activeDbManager = new DatabaseManager(jdbcUrl);
-        
+    
+        // Update all chart panels with the new manager (which could be null).
         for (ChartPanel panel : workspaceManager.getChartPanels()) {
             panel.getDataModel().setDatabaseManager(this.activeDbManager, source);
         }
         
+        // Update the toolbar's displayed symbol.
         topToolbarPanel.setCurrentSymbol(source);
+    
+        // Now that everything has been updated to the new manager (or null), it's safe to close the old one.
+        if (oldDbManager != null) {
+            oldDbManager.close();
+        }
     }
 
     public void startLiveSession(DataSourceManager.ChartDataSource source) {
