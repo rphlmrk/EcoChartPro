@@ -31,6 +31,7 @@ import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -245,7 +246,6 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
                 return;
             }
         
-            // --- Part 1: Draw Price Label ---
             BigDecimal lastClose = lastKline.close();
             int yPriceLabel = yAxis.priceToY(lastClose);
         
@@ -260,7 +260,7 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
             g2d.setFont(liveFont);
             FontMetrics fmPrice = g2d.getFontMetrics();
             int priceLabelHeight = fmPrice.getHeight() + 2;
-            int priceRectWidth = getWidth(); // Use full panel width
+            int priceRectWidth = getWidth();
             int priceRectHeight = priceLabelHeight;
             int yPriceRect = yPriceLabel - priceRectHeight / 2;
             int rectX = 0;
@@ -270,26 +270,27 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
             g2d.setColor(textColor);
             g2d.drawString(priceStr, rectX + PADDING_X, yPriceRect + fmPrice.getAscent() + 1);
         
-            // --- Part 2: Draw Countdown Timer Below Price Label ---
             if (dataModel.getCurrentMode() == ChartDataModel.ChartMode.REPLAY) {
                 ReplaySessionManager manager = ReplaySessionManager.getInstance();
                 if (!manager.isPlaying()) {
-                    return; // Only show countdown when replay is actively playing
+                    return;
                 }
             }
-            // For LIVE mode, we always proceed if a candle exists.
         
             Timeframe timeframe = dataModel.getCurrentDisplayTimeframe();
-            if (timeframe == null || timeframe == Timeframe.M1) {
-                return; // Countdown not relevant for M1
+
+            // --- START OF FIX for 1-Minute Countdown ---
+            // Remove the check that prevents the 1-minute countdown from showing.
+            if (timeframe == null) {
+                return;
             }
+            // --- END OF FIX ---
         
-            // Use the record's accessor method 'duration()'
             long durationMillis = timeframe.duration().toMillis();
             if (durationMillis == 0) return;
         
             long currentMillis = lastKline.timestamp().toEpochMilli();
-            long intervalStartMillis = currentMillis - (currentMillis % durationMillis);
+            long intervalStartMillis = getIntervalStart(lastKline.timestamp(), timeframe).toEpochMilli();
             long nextIntervalStartMillis = intervalStartMillis + durationMillis;
             long millisRemaining = nextIntervalStartMillis - currentMillis;
         
@@ -309,8 +310,8 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
                 g2d.setFont(liveFont);
                 FontMetrics fmCountdown = g2d.getFontMetrics();
                 
-                int yCountdownRect = yPriceRect + priceRectHeight; // Position it directly below the price rect
-                int countdownRectWidth = getWidth(); // Use full panel width
+                int yCountdownRect = yPriceRect + priceRectHeight;
+                int countdownRectWidth = getWidth();
                 int countdownRectHeight = fmCountdown.getHeight() + 2;
         
                 g2d.setColor(backgroundColor);
@@ -333,9 +334,9 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
             if (priceRange.compareTo(BigDecimal.ZERO) <= 0) return;
 
             BigDecimal step = priceRange.divide(BigDecimal.valueOf(numTicks), 8, RoundingMode.HALF_UP);
-            int scale = 2; // Default scale for prices
+            int scale = 2;
             if (priceRange.doubleValue() < 1.0) {
-                scale = 8; // Higher precision for forex/crypto
+                scale = 8;
             }
 
             for (int i = 0; i <= numTicks; i++) {
@@ -353,6 +354,33 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
             collectDrawingLabels(labelsToDraw);
             layoutAndDrawLabels(g2d, labelsToDraw);
         }
+        
+        // --- START OF FIX: Restored Missing Method ---
+        private void layoutAndDrawLabels(Graphics2D g2d, List<PriceLabel> labels) {
+            if (labels.isEmpty()) return;
+
+            g2d.setFont(LABEL_FONT);
+            FontMetrics fm = g2d.getFontMetrics();
+            int labelHeight = fm.getHeight() + 4;
+
+            List<PriceLabel> sortedLabels = labels.stream()
+                .map(label -> new PriceLabel(label.text, label.price, label.color, yAxis.priceToY(label.price)))
+                .sorted(Comparator.comparingInt(PriceLabel::y))
+                .collect(Collectors.toList());
+
+            for (int i = 1; i < sortedLabels.size(); i++) {
+                PriceLabel prev = sortedLabels.get(i - 1);
+                PriceLabel current = sortedLabels.get(i);
+                if (current.y < prev.y + labelHeight) {
+                    sortedLabels.set(i, new PriceLabel(current.text, current.price, current.color, prev.y + labelHeight));
+                }
+            }
+
+            for (PriceLabel label : sortedLabels) {
+                drawPriceLabel(g2d, label);
+            }
+        }
+        // --- END OF FIX ---
 
         private void collectPositionAndOrderLabels(List<PriceLabel> labelsToDraw) {
             if (dataModel == null || !dataModel.isInReplayMode()) return;
@@ -436,31 +464,6 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
             return drawing.color().darker();
         }
 
-        private void layoutAndDrawLabels(Graphics2D g2d, List<PriceLabel> labels) {
-            if (labels.isEmpty()) return;
-
-            g2d.setFont(LABEL_FONT);
-            FontMetrics fm = g2d.getFontMetrics();
-            int labelHeight = fm.getHeight() + 4;
-
-            List<PriceLabel> sortedLabels = labels.stream()
-                .map(label -> new PriceLabel(label.text, label.price, label.color, yAxis.priceToY(label.price)))
-                .sorted(Comparator.comparingInt(PriceLabel::y))
-                .collect(Collectors.toList());
-
-            for (int i = 1; i < sortedLabels.size(); i++) {
-                PriceLabel prev = sortedLabels.get(i - 1);
-                PriceLabel current = sortedLabels.get(i);
-                if (current.y < prev.y + labelHeight) {
-                    sortedLabels.set(i, new PriceLabel(current.text, current.price, current.color, prev.y + labelHeight));
-                }
-            }
-
-            for (PriceLabel label : sortedLabels) {
-                drawPriceLabel(g2d, label);
-            }
-        }
-
         private void drawPriceLabel(Graphics2D g2d, PriceLabel label) {
             SettingsManager.PriceAxisLabelPosition position = SettingsManager.getInstance().getPriceAxisLabelPosition();
             FontMetrics fm = g2d.getFontMetrics();
@@ -491,6 +494,12 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
             g2d.fillPolygon(triangleXP, triangleYP, 3);
             g2d.setColor(Color.WHITE);
             g2d.drawString(label.text, textX, y + fm.getAscent() + 2);
+        }
+         private Instant getIntervalStart(Instant timestamp, Timeframe timeframe) {
+            long durationMillis = timeframe.duration().toMillis();
+            if (durationMillis == 0) return timestamp;
+            long epochMillis = timestamp.toEpochMilli();
+            return Instant.ofEpochMilli(epochMillis - (epochMillis % durationMillis));
         }
     }
 }

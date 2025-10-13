@@ -73,15 +73,19 @@ public class LiveDataManager {
         }
     }
 
+    // --- START OF FIX: Simplified Reconnect Logic ---
     private synchronized void reconnect() {
+        // To change subscriptions, we simply close the current connection.
+        // The onClose handler will then be the single source of truth for scheduling a new connection attempt.
+        // This eliminates race conditions between this method and the onClose handler.
         if (webSocketClient != null && webSocketClient.isOpen()) {
             webSocketClient.close();
-            // The onClose handler will now reliably trigger scheduleReconnect.
         } else {
-            // If there's no client or it's already closed, we need to initiate the connection.
+            // If there's no client or it's already closed/closing, we can safely initiate a reconnect sequence.
             scheduleReconnect();
         }
     }
+    // --- END OF FIX ---
 
     private synchronized void connect() {
         if (state == ConnectionState.CONNECTED || state == ConnectionState.CONNECTING) return;
@@ -104,14 +108,20 @@ public class LiveDataManager {
                     reconnectDelayMs.set(INITIAL_RECONNECT_DELAY_MS);
                 }
                 @Override public void onMessage(String msg) { handleStreamMessage(msg); }
+                
+                // --- START OF FIX: Simplified onClose Logic ---
                 @Override public void onClose(int code, String reason, boolean remote) {
                     logger.warn("WebSocket closed. Code: {}, Reason: {}, Remote: {}", code, reason, remote);
                     state = ConnectionState.DISCONNECTED;
-                    // FIX: Reconnect unless we are explicitly shutting down. The 'remote' check was too restrictive.
+                    // Always schedule a reconnect unless we are explicitly shutting down.
+                    // This handles both server-side disconnects (remote=true) and client-side
+                    // disconnects for changing subscriptions (remote=false).
                     if (state != ConnectionState.CLOSING) {
                         scheduleReconnect();
                     }
                 }
+                // --- END OF FIX ---
+                
                 @Override public void onError(Exception ex) { logger.error("WebSocket error occurred.", ex); }
             };
             webSocketClient.connect();

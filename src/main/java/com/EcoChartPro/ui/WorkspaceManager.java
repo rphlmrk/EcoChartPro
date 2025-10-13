@@ -74,8 +74,9 @@ public class WorkspaceManager {
     }
 
     public void initializeStandardMode() {
-        this.chartAreaPanel.add(createNewChartView(null, true));
-        
+        // Create the first chart view, but don't add it directly. applyLayout will handle it.
+        createNewChartView(null, true);
+        applyLayout(LayoutType.ONE); // Apply default layout
         if (!chartPanels.isEmpty()) {
             setActiveChartPanel(chartPanels.get(0));
         }
@@ -137,7 +138,7 @@ public class WorkspaceManager {
         }
     }
 
-    public JPanel createNewChartView(Timeframe tf, boolean activateOnClick) {
+    public Component createNewChartView(Timeframe tf, boolean activateOnClick) {
         ChartDataModel model = new ChartDataModel();
         ChartInteractionManager interactionManager = new ChartInteractionManager(model);
         model.setInteractionManager(interactionManager);
@@ -182,7 +183,6 @@ public class WorkspaceManager {
         } else {
             DataSourceManager.ChartDataSource standardSource = owner.getTopToolbarPanel().getSelectedDataSource();
             if (standardSource != null) {
-                // Pass the Timeframe object to loadDataset, not its string representation
                 model.loadDataset(standardSource, targetTimeframe);
             }
         }
@@ -216,6 +216,7 @@ public class WorkspaceManager {
                ? activeChartPanel.getDataModel().getCurrentDisplayTimeframe() : Timeframe.H1;
     }
 
+    // --- START OF REFACTORED METHOD ---
     public void applyLayout(LayoutType layoutType) {
         chartAreaPanel.removeAll();
         indicatorPaneMap.clear();
@@ -227,6 +228,7 @@ public class WorkspaceManager {
             case FOUR: case FOUR_VERTICAL: requiredPanels = 4; break;
         }
         
+        // Create new ChartPanel instances ONLY if we don't have enough.
         while (chartPanels.size() < requiredPanels) {
              List<Timeframe> existingTimeframes = chartPanels.stream()
                 .map(p -> p.getDataModel().getCurrentDisplayTimeframe())
@@ -235,14 +237,10 @@ public class WorkspaceManager {
              Timeframe nextTf = getNextDefaultTimeframe(existingTimeframes);
              createNewChartView(nextTf, true);
         }
+        
+        // ** IMPORTANT: Do NOT remove excess panels. They will be reused later if needed.
+        // The old logic that removed panels was the source of the bugs.
 
-        while (chartPanels.size() > requiredPanels) {
-            ChartPanel toRemove = chartPanels.remove(chartPanels.size() - 1);
-            if (toRemove == activeChartPanel) {
-                setActiveChartPanel(null);
-            }
-            toRemove.cleanup();
-        }
         if (activeChartPanel == null && !chartPanels.isEmpty()) {
             setActiveChartPanel(chartPanels.get(0));
         }
@@ -298,6 +296,7 @@ public class WorkspaceManager {
         chartAreaPanel.revalidate();
         chartAreaPanel.repaint();
     }
+    // --- END OF REFACTORED METHOD ---
     
     public void addIndicatorPane(Indicator indicator) {
         if (activeChartPanel == null) return;

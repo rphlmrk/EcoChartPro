@@ -11,10 +11,6 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.util.List;
 
-/**
- * A custom panel containing buttons for all available timeframes.
- * This is designed to be placed inside a JPopupMenu.
- */
 public class TimeframeSelectionPanel extends JPanel {
     
     private final EventListenerList listenerList = new EventListenerList();
@@ -41,27 +37,18 @@ public class TimeframeSelectionPanel extends JPanel {
         customButton.setFocusPainted(false);
         customButton.setMargin(new Insets(4, 8, 4, 8));
         customButton.addActionListener(e -> {
-            // [FIX] Find the owner Frame in a more robust way.
-            // 1. Get the popup menu that contains this panel.
-            JPopupMenu popup = (JPopupMenu) SwingUtilities.getAncestorOfClass(JPopupMenu.class, this);
-            if (popup == null) return; // Should not happen
-
-            // 2. Get the component that the popup is attached to (the invoker).
-            Component invoker = popup.getInvoker();
-            if (invoker == null) return;
-
-            // 3. Find the top-level Frame from that component.
-            Frame owner = (Frame) SwingUtilities.getAncestorOfClass(Frame.class, invoker);
-
-            // Now, we can safely create the dialog.
+            // --- START OF FIX for Custom Timeframe Dialog ---
+            Frame owner = (Frame) SwingUtilities.getWindowAncestor(this);
             CustomTimeframeDialog dialog = new CustomTimeframeDialog(owner);
             dialog.setVisible(true); 
 
             Timeframe customTf = dialog.getCustomTimeframe();
             if (customTf != null) {
+                // Fire a rich ActionEvent with the Timeframe object as the source
                 ActionEvent customEvent = new ActionEvent(customTf, ActionEvent.ACTION_PERFORMED, "timeframeChanged");
                 fireCustomActionPerformed(customEvent);
             }
+            // --- END OF FIX ---
         });
         add(customButton);
     }
@@ -84,7 +71,9 @@ public class TimeframeSelectionPanel extends JPanel {
         }
     }
 
+    // --- START OF FIX for Custom Timeframe Dialog ---
     protected void fireCustomActionPerformed(ActionEvent e) {
+        // Find the parent JPopupMenu and hide it before firing the event.
         Component parent = this;
         while (parent != null && !(parent instanceof JPopupMenu)) {
             parent = parent.getParent();
@@ -93,6 +82,7 @@ public class TimeframeSelectionPanel extends JPanel {
             ((JPopupMenu) parent).setVisible(false);
         }
 
+        // Fire the event to the parent toolbar
         Object[] listeners = listenerList.getListenerList();
         for (int i = listeners.length - 2; i >= 0; i -= 2) {
             if (listeners[i] == ActionListener.class) {

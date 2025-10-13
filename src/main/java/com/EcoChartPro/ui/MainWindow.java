@@ -175,7 +175,6 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
         DrawingManager.getInstance().addPropertyChangeListener("activeSymbolChanged", this);
         UndoManager.getInstance().addPropertyChangeListener(this);
         
-        // Listen to these services regardless of mode, as they are now context-aware
         LiveSessionTrackerService.getInstance().addPropertyChangeListener(this);
         PaperTradingService.getInstance().addPropertyChangeListener(this);
     }
@@ -470,26 +469,21 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
     }
 
     public void setDbManagerForSource(ChartDataSource source) {
-        DatabaseManager oldDbManager = this.activeDbManager; // Keep a reference to the old one.
+        DatabaseManager oldDbManager = this.activeDbManager;
     
         if (source == null || source.dbPath() == null) {
-            // This is a pure live source or an invalid source. We won't have a new DB manager.
             this.activeDbManager = null;
         } else {
-            // This source has a local DB file. Create a new manager for it.
             String jdbcUrl = "jdbc:sqlite:" + source.dbPath().toAbsolutePath();
             this.activeDbManager = new DatabaseManager(jdbcUrl);
         }
     
-        // Update all chart panels with the new manager (which could be null).
         for (ChartPanel panel : workspaceManager.getChartPanels()) {
             panel.getDataModel().setDatabaseManager(this.activeDbManager, source);
         }
         
-        // Update the toolbar's displayed symbol.
         topToolbarPanel.setCurrentSymbol(source);
     
-        // Now that everything has been updated to the new manager (or null), it's safe to close the old one.
         if (oldDbManager != null) {
             oldDbManager.close();
         }
@@ -549,59 +543,68 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
         new OrderDialog(this, workspaceManager.getActiveChartPanel(), direction).setVisible(true);
     }
 
+    // --- START OF REFACTORED METHOD ---
     private void addTopToolbarListeners() {
         topToolbarPanel.addActionListener(e -> {
             String command = e.getActionCommand();
             ChartPanel activePanel = workspaceManager.getActiveChartPanel();
 
+            // --- 1. Handle Symbol Change ---
             if ("selectionChanged".equals(command)) {
+                DataSourceManager.ChartDataSource newSource = topToolbarPanel.getSelectedDataSource();
                 if (isReplayMode) {
                     handleReplaySymbolChange();
                 } else {
-                    loadChartForSource(topToolbarPanel.getSelectedDataSource());
+                    // In live mode, load the new source for ALL visible charts.
+                    for (ChartPanel panel : workspaceManager.getChartPanels()) {
+                        Timeframe currentTf = panel.getDataModel().getCurrentDisplayTimeframe();
+                        panel.getDataModel().loadDataset(newSource, currentTf);
+                    }
+                    titleBarManager.setStaticTitle(newSource.displayName());
                 }
-            } else if ("timeframeChanged".equals(command) || command.startsWith("timeframeChanged:")) {
-                // [MODIFIED] This block now handles both standard string-based events
-                // and custom events where the Timeframe object is the source.
+            } 
+            // --- 2. Handle Timeframe Change ---
+            else if (command.startsWith("timeframeChanged")) {
                 Timeframe newTimeframe = null;
                 if (e.getSource() instanceof Timeframe) {
-                    // Case 1: Custom timeframe object passed as the event source
                     newTimeframe = (Timeframe) e.getSource();
                 } else {
-                    // Case 2: Standard timeframe string from a button click
                     String tfString = command.substring("timeframeChanged:".length());
                     newTimeframe = Timeframe.fromString(tfString);
                 }
 
                 if (newTimeframe != null) {
+                    // This is now the single source of truth.
+                    // First, update the toolbar UI to show the correct state.
                     topToolbarPanel.selectTimeframe(newTimeframe.displayName());
+                    
+                    // Then, command the active chart panel's model to change.
                     if (activePanel != null) {
                         activePanel.getDataModel().setDisplayTimeframe(newTimeframe);
                     } else if (!isReplayMode && !workspaceManager.getChartPanels().isEmpty()) {
-                        // In standard mode, if no panel is active, load data for the first one.
-                        workspaceManager.getChartPanels().get(0).getDataModel().loadDataset(
-                            topToolbarPanel.getSelectedDataSource(), newTimeframe
-                        );
+                        // If no panel is active (can happen on startup), apply to the first one.
+                        workspaceManager.getChartPanels().get(0).getDataModel().setDisplayTimeframe(newTimeframe);
                     }
                 }
-            } else if (command.startsWith("layoutChanged:")) {
+            } 
+            // --- 3. Handle Layout Change ---
+            else if (command.startsWith("layoutChanged:")) {
                 String layoutName = command.substring("layoutChanged:".length());
-                switch (layoutName) {
-                    case "1 View": workspaceManager.applyLayout(WorkspaceManager.LayoutType.ONE); break;
-                    case "2 Views": workspaceManager.applyLayout(WorkspaceManager.LayoutType.TWO); break;
-                    case "2 Views (Vertical)": workspaceManager.applyLayout(WorkspaceManager.LayoutType.TWO_VERTICAL); break;
-                    case "3 Views (Horizontal)": workspaceManager.applyLayout(WorkspaceManager.LayoutType.THREE_HORIZONTAL); break;
-                    case "3 Views (Right Stack)": workspaceManager.applyLayout(WorkspaceManager.LayoutType.THREE_RIGHT); break;
-                    case "3 Views (Left Stack)": workspaceManager.applyLayout(WorkspaceManager.LayoutType.THREE_LEFT); break;
-                    case "4 Views": workspaceManager.applyLayout(WorkspaceManager.LayoutType.FOUR); break;
-                    case "3 Views (Vertical)": workspaceManager.applyLayout(WorkspaceManager.LayoutType.THREE_VERTICAL); break;
-                    case "4 Views (Vertical)": workspaceManager.applyLayout(WorkspaceManager.LayoutType.FOUR_VERTICAL); break;
+                // This logic correctly uses the enum from WorkspaceManager
+                for (WorkspaceManager.LayoutType type : WorkspaceManager.LayoutType.values()) {
+                    if (type.name().replace("_", " ").equalsIgnoreCase(layoutName.replace(" Views", "").replace(" (", " ").replace(")", "").trim())) {
+                        workspaceManager.applyLayout(type);
+                        break;
+                    }
                 }
-            } else if ("placeLongOrder".equals(command) || "placeShortOrder".equals(command)) {
+            } 
+            // --- 4. Handle Trading Actions ---
+            else if ("placeLongOrder".equals(command) || "placeShortOrder".equals(command)) {
                 handleTradeAction(command);
             }
         });
     }
+    // --- END OF REFACTORED METHOD ---
 
     private void handleReplaySymbolChange() {
         DataSourceManager.ChartDataSource newSource = topToolbarPanel.getSelectedDataSource();
@@ -631,11 +634,10 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
 
     private void loadChartForSource(DataSourceManager.ChartDataSource source) {
         if (source == null) return;
-        // In live mode, DB manager is not required for live data, but might be for historical
         if (source.dbPath() != null) {
             setDbManagerForSource(source);
         } else {
-            setDbManagerForSource(null); // Explicitly null out the DB manager for pure live sources
+            setDbManagerForSource(null);
         }
         PaperTradingService.getInstance().switchActiveSymbol(source.symbol());
         DrawingManager.getInstance().setActiveSymbol(source.symbol());
