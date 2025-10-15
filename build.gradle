@@ -78,7 +78,10 @@ runtime {
         'java.naming',
         'java.compiler', // Required for the in-app JavaEditorDialog
         'jdk.compiler',
-        'jdk.unsupported'
+        'jdk.unsupported',
+        'java.security.jgss',
+        'java.security.sasl',
+        'jdk.crypto.ec'
     ]
 
     jpackage {
