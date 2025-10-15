@@ -279,20 +279,17 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
         
             Timeframe timeframe = dataModel.getCurrentDisplayTimeframe();
 
-            // --- START OF FIX for 1-Minute Countdown ---
-            // Remove the check that prevents the 1-minute countdown from showing.
             if (timeframe == null) {
                 return;
             }
-            // --- END OF FIX ---
         
             long durationMillis = timeframe.duration().toMillis();
             if (durationMillis == 0) return;
         
-            long currentMillis = lastKline.timestamp().toEpochMilli();
             long intervalStartMillis = getIntervalStart(lastKline.timestamp(), timeframe).toEpochMilli();
             long nextIntervalStartMillis = intervalStartMillis + durationMillis;
-            long millisRemaining = nextIntervalStartMillis - currentMillis;
+            long currentSystemMillis = Instant.now().toEpochMilli();
+            long millisRemaining = nextIntervalStartMillis - currentSystemMillis;
         
             if (millisRemaining > 0 && millisRemaining <= durationMillis) {
                 long totalSecondsRemaining = TimeUnit.MILLISECONDS.toSeconds(millisRemaining);
@@ -355,7 +352,6 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
             layoutAndDrawLabels(g2d, labelsToDraw);
         }
         
-        // --- START OF FIX: Restored Missing Method ---
         private void layoutAndDrawLabels(Graphics2D g2d, List<PriceLabel> labels) {
             if (labels.isEmpty()) return;
 
@@ -380,7 +376,6 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
                 drawPriceLabel(g2d, label);
             }
         }
-        // --- END OF FIX ---
 
         private void collectPositionAndOrderLabels(List<PriceLabel> labelsToDraw) {
             if (dataModel == null || !dataModel.isInReplayMode()) return;

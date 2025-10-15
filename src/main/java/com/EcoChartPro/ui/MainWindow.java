@@ -543,7 +543,6 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
         new OrderDialog(this, workspaceManager.getActiveChartPanel(), direction).setVisible(true);
     }
 
-    // --- START OF REFACTORED METHOD ---
     private void addTopToolbarListeners() {
         topToolbarPanel.addActionListener(e -> {
             String command = e.getActionCommand();
@@ -574,28 +573,23 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
                 }
 
                 if (newTimeframe != null) {
-                    // This is now the single source of truth.
-                    // First, update the toolbar UI to show the correct state.
                     topToolbarPanel.selectTimeframe(newTimeframe.displayName());
                     
-                    // Then, command the active chart panel's model to change.
                     if (activePanel != null) {
                         activePanel.getDataModel().setDisplayTimeframe(newTimeframe);
                     } else if (!isReplayMode && !workspaceManager.getChartPanels().isEmpty()) {
-                        // If no panel is active (can happen on startup), apply to the first one.
                         workspaceManager.getChartPanels().get(0).getDataModel().setDisplayTimeframe(newTimeframe);
                     }
                 }
             } 
             // --- 3. Handle Layout Change ---
             else if (command.startsWith("layoutChanged:")) {
-                String layoutName = command.substring("layoutChanged:".length());
-                // This logic correctly uses the enum from WorkspaceManager
-                for (WorkspaceManager.LayoutType type : WorkspaceManager.LayoutType.values()) {
-                    if (type.name().replace("_", " ").equalsIgnoreCase(layoutName.replace(" Views", "").replace(" (", " ").replace(")", "").trim())) {
-                        workspaceManager.applyLayout(type);
-                        break;
-                    }
+                try {
+                    String layoutName = command.substring("layoutChanged:".length());
+                    WorkspaceManager.LayoutType type = WorkspaceManager.LayoutType.valueOf(layoutName);
+                    workspaceManager.applyLayout(type);
+                } catch (IllegalArgumentException ex) {
+                    System.err.println("Invalid layout type received: " + command);
                 }
             } 
             // --- 4. Handle Trading Actions ---
@@ -604,7 +598,6 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
             }
         });
     }
-    // --- END OF REFACTORED METHOD ---
 
     private void handleReplaySymbolChange() {
         DataSourceManager.ChartDataSource newSource = topToolbarPanel.getSelectedDataSource();

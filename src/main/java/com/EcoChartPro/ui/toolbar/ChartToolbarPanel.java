@@ -161,44 +161,30 @@ public class ChartToolbarPanel extends JPanel {
         setupHoverPopup(layoutButton, layoutPopup);
     }
 
-    // --- START OF FIX for Timeframe Selection ---
     private JPopupMenu createPopupMenu(JPanel contentPanel) {
         JPopupMenu popupMenu = new JPopupMenu();
         popupMenu.setBorder(BorderFactory.createLineBorder(UIManager.getColor("Component.borderColor")));
 
         if (contentPanel instanceof TimeframeSelectionPanel panel) {
-            // The listener now handles both standard and custom timeframe events.
             panel.addActionListener(e -> {
                 if (e.getSource() instanceof Timeframe) {
-                    // This is a custom timeframe event. The source IS the Timeframe object.
-                    // We re-fire it so MainWindow can receive this rich event object.
                     ActionEvent newEvent = new ActionEvent(e.getSource(), e.getID(), "timeframeChanged");
                     fireActionEvent(newEvent);
-                    // The popup is now correctly closed by the TimeframeSelectionPanel itself.
                 } else {
-                    // This is a standard button click, pass the string command.
                     fireActionEvent(e.getActionCommand());
                     popupMenu.setVisible(false);
                 }
             });
         } else if (contentPanel instanceof LayoutSelectionPanel panel) {
             panel.addActionListener(e -> {
-                String layoutCommand = e.getActionCommand();
-                // Extract the core name (e.g., "1 View" -> "ONE", "2 Views (Vertical)" -> "TWO_VERTICAL")
-                String layoutEnumName = layoutCommand.substring("layoutChanged:".length())
-                                                     .toUpperCase()
-                                                     .replace(" VIEWS", "")
-                                                     .replace(" (", "_")
-                                                     .replace(")", "")
-                                                     .replace(" ", "_");
-                fireActionEvent("layoutChanged:" + layoutEnumName);
+                // The action command is now already in the correct format (e.g., "layoutChanged:TWO_VERTICAL")
+                fireActionEvent(e.getActionCommand());
                 popupMenu.setVisible(false);
             });
         }
         popupMenu.add(contentPanel);
         return popupMenu;
     }
-    // --- END OF FIX ---
 
     private void addRecursiveMouseListener(Component component, MouseAdapter adapter) {
         component.addMouseListener(adapter);
@@ -246,8 +232,6 @@ public class ChartToolbarPanel extends JPanel {
         addRecursiveMouseListener(popup, hoverListener);
     }
     
-    // ... rest of the file remains the same ...
-
     public void setUndoEnabled(boolean enabled) {
         undoButton.setEnabled(enabled);
         undoButton.setIcon(enabled ? undoEnabledIcon : undoDisabledIcon);

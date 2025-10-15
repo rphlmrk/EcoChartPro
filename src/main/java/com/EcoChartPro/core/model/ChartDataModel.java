@@ -234,42 +234,13 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
             return;
         }
 
-        if (activeRebuildWorker != null && !activeRebuildWorker.isDone()) {
-            activeRebuildWorker.cancel(true);
-        }
-
-        if (currentMode == ChartMode.LIVE && liveDataProvider != null && liveDataConsumer != null && currentSource != null && currentDisplayTimeframe != null) {
-            liveDataProvider.disconnectFromLiveStream(currentSource.symbol(), currentDisplayTimeframe.displayName(), liveDataConsumer);
-        }
-
-        clearData();
-
-        this.currentSource = source;
+        // --- START OF MODIFICATION ---
         this.currentMode = ChartMode.LIVE;
-        this.currentDisplayTimeframe = timeframe;
-        this.liveDataProvider = new BinanceProvider();
+        this.currentSource = source;
+        this.liveDataProvider = new BinanceProvider(); // Ensure provider exists
 
-        if (timeframe == null) {
-             return;
-        }
-        
-        if (dbManager != null) {
-            this.totalCandleCount = dbManager.getTotalKLineCount(new Symbol(source.symbol()), timeframe.displayName());
-        } else {
-            this.totalCandleCount = 1000;
-        }
-        
-        if(totalCandleCount == 0){
-             startLiveMode(liveDataProvider, source.symbol(), timeframe.displayName());
-             return;
-        }
-        
-        int dataBarsOnScreen = (int) (interactionManager.getBarsPerScreen() * (1.0 - interactionManager.getRightMarginRatio()));
-        int initialStartIndex = Math.max(0, totalCandleCount - dataBarsOnScreen);
-
-        rebuildHistoryAsync(initialStartIndex, false, () -> {
-            startLiveMode(liveDataProvider, source.symbol(), timeframe.displayName());
-        });
+        initializeLiveModeForTimeframe(timeframe);
+        // --- END OF MODIFICATION ---
     }
 
     public void startLiveMode(DataProvider provider, String symbol, String timeframe) {
@@ -296,18 +267,14 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
                 totalCandleCount++;
                 currentlyFormingCandle = new KLine(intervalStart, newTick.open(), newTick.high(), newTick.low(), newTick.close(), newTick.volume());
             } else {
-                // --- START OF FIX for Countdown Timer & Live Price ---
-                // CRITICAL: Re-assign the new KLine object back to currentlyFormingCandle.
-                // This ensures the model's state is actually updated with the latest tick info.
                 currentlyFormingCandle = new KLine(
-                        newTick.timestamp(), // Use the latest timestamp from the tick
+                        currentlyFormingCandle.timestamp(),
                         currentlyFormingCandle.open(),
                         currentlyFormingCandle.high().max(newTick.high()),
                         currentlyFormingCandle.low().min(newTick.low()),
                         newTick.close(),
-                        currentlyFormingCandle.volume().add(newTick.volume())
+                        newTick.volume()
                 );
-                // --- END OF FIX ---
             }
 
             interactionManager.onReplayTick(newTick);
@@ -354,29 +321,27 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
 
     public void setDisplayTimeframe(Timeframe newTimeframe, boolean forceReload) {
         if (newTimeframe == null) return;
-        if (!forceReload && this.currentDisplayTimeframe == newTimeframe) return;
+        if (!forceReload && this.currentDisplayTimeframe != null && this.currentDisplayTimeframe.equals(newTimeframe)) return;
         
-        if (activeRebuildWorker != null && !activeRebuildWorker.isDone()) {
-            activeRebuildWorker.cancel(true);
-        }
-        
-        if (currentMode == ChartMode.LIVE && liveDataProvider != null && liveDataConsumer != null && currentSource != null && this.currentDisplayTimeframe != null) {
-            liveDataProvider.disconnectFromLiveStream(currentSource.symbol(), this.currentDisplayTimeframe.displayName(), liveDataConsumer);
-        }
-        
-        clearData();
-        interactionManager.setAutoScalingY(true);
+        if (currentMode == ChartMode.LIVE) {
+            // --- START OF FIX for Live Timeframe Switch ---
+            // Disconnect old stream before initializing new state
+            if (liveDataProvider != null && liveDataConsumer != null && currentSource != null && this.currentDisplayTimeframe != null) {
+                liveDataProvider.disconnectFromLiveStream(currentSource.symbol(), this.currentDisplayTimeframe.displayName(), liveDataConsumer);
+            }
+            initializeLiveModeForTimeframe(newTimeframe);
+            // --- END OF FIX ---
+        } else { // REPLAY Mode
+            if (activeRebuildWorker != null && !activeRebuildWorker.isDone()) {
+                activeRebuildWorker.cancel(true);
+            }
+            clearData();
+            interactionManager.setAutoScalingY(true);
+            this.currentDisplayTimeframe = newTimeframe;
 
-        this.currentDisplayTimeframe = newTimeframe;
-
-        if (currentMode == ChartMode.REPLAY) {
             ReplaySessionManager manager = ReplaySessionManager.getInstance();
             int m1HeadIndex = manager.getReplayHeadIndex();
-
-            if (m1HeadIndex < 0) {
-                clearData();
-                return;
-            }
+            if (m1HeadIndex < 0) { clearData(); return; }
 
             if (currentDisplayTimeframe != Timeframe.M1 && !currentDisplayTimeframe.duration().isZero()) {
                 totalCandleCount = (m1HeadIndex + 1) / (int)currentDisplayTimeframe.duration().toMinutes();
@@ -386,19 +351,45 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
 
             int dataBarsOnScreen = (int) (interactionManager.getBarsPerScreen() * (1.0 - interactionManager.getRightMarginRatio()));
             int targetStartIndex = Math.max(0, totalCandleCount - dataBarsOnScreen);
-            
             rebuildHistoryAsync(targetStartIndex, false);
-        } else { // LIVE Mode
-            if (dbManager != null) {
-                this.totalCandleCount = dbManager.getTotalKLineCount(new Symbol(currentSource.symbol()), newTimeframe.displayName());
-            } else {
-                this.totalCandleCount = 1000;
-            }
-            int initialStartIndex = Math.max(0, totalCandleCount - interactionManager.getBarsPerScreen());
-            rebuildHistoryAsync(initialStartIndex, false, () -> {
-                startLiveMode(liveDataProvider, currentSource.symbol(), newTimeframe.displayName());
-            });
         }
+    }
+
+    private void initializeLiveModeForTimeframe(Timeframe timeframe) {
+        if (timeframe == null) return;
+
+        // Cancel any pending work from the old timeframe
+        if (activeRebuildWorker != null && !activeRebuildWorker.isDone()) {
+            activeRebuildWorker.cancel(true);
+        }
+
+        clearData();
+        this.currentDisplayTimeframe = timeframe;
+
+        // Reconstruct the initial state for the new timeframe
+        if (dbManager != null && currentSource != null) {
+            // 1. Load all historical candles for the new timeframe.
+            finalizedCandles = dbManager.getAllKLines(new Symbol(currentSource.symbol()), timeframe.displayName());
+            
+            // 2. Calculate what the current forming candle's start time SHOULD be.
+            Instant now = Instant.now();
+            Instant currentIntervalStart = getIntervalStart(now, timeframe);
+            
+            // 3. Check if the last candle from our DB history is the currently forming one.
+            if (!finalizedCandles.isEmpty()) {
+                KLine lastDbCandle = finalizedCandles.get(finalizedCandles.size() - 1);
+                if (lastDbCandle.timestamp().equals(currentIntervalStart)) {
+                    // It is! Pop it from the finalized list and set it as our forming candle.
+                    currentlyFormingCandle = finalizedCandles.remove(finalizedCandles.size() - 1);
+                    logger.info("Live init: Found forming candle for interval {} in DB.", currentIntervalStart);
+                }
+            }
+        }
+        
+        this.totalCandleCount = finalizedCandles.size();
+        interactionManager.jumpToLiveEdge(); // This calculates startIndex and triggers updateView
+        
+        startLiveMode(liveDataProvider, currentSource.symbol(), timeframe.displayName());
     }
 
     public void clearData() {

@@ -81,7 +81,8 @@ runtime {
         'jdk.unsupported',
         'java.security.jgss',
         'java.security.sasl',
-        'jdk.crypto.ec'
+        'jdk.crypto.ec',
+        'jdk.crypto.cryptoki'
     ]
 
     jpackage {

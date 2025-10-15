@@ -1,10 +1,10 @@
 package com.EcoChartPro.ui.toolbar.components;
 
+import com.EcoChartPro.ui.WorkspaceManager;
 import com.EcoChartPro.ui.dashboard.theme.UITheme;
 
 import javax.swing.*;
 import javax.swing.event.EventListenerList;
-
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
@@ -19,18 +19,18 @@ public class LayoutSelectionPanel extends JPanel {
 
     private final EventListenerList listenerList = new EventListenerList();
 
-    // A map of the action command to the icon path
-    private static final Map<String, String> LAYOUT_CONFIG = new LinkedHashMap<>();
+    // A map of the LayoutType enum to the icon path for robust handling
+    private static final Map<WorkspaceManager.LayoutType, String> LAYOUT_CONFIG = new LinkedHashMap<>();
     static {
-        LAYOUT_CONFIG.put("layoutChanged:1 View", UITheme.Icons.LAYOUT_1);
-        LAYOUT_CONFIG.put("layoutChanged:2 Views", UITheme.Icons.LAYOUT_2_H);
-        LAYOUT_CONFIG.put("layoutChanged:2 Views (Vertical)", UITheme.Icons.LAYOUT_2_V);
-        LAYOUT_CONFIG.put("layoutChanged:3 Views (Horizontal)", UITheme.Icons.LAYOUT_3_H);
-        LAYOUT_CONFIG.put("layoutChanged:3 Views (Left Stack)", UITheme.Icons.LAYOUT_3_L);
-        LAYOUT_CONFIG.put("layoutChanged:3 Views (Right Stack)", UITheme.Icons.LAYOUT_3_R);
-        LAYOUT_CONFIG.put("layoutChanged:3 Views (Vertical)", UITheme.Icons.LAYOUT_3_V);
-        LAYOUT_CONFIG.put("layoutChanged:4 Views", UITheme.Icons.LAYOUT_4);
-        LAYOUT_CONFIG.put("layoutChanged:4 Views (Vertical)", UITheme.Icons.LAYOUT_4_V);
+        LAYOUT_CONFIG.put(WorkspaceManager.LayoutType.ONE, UITheme.Icons.LAYOUT_1);
+        LAYOUT_CONFIG.put(WorkspaceManager.LayoutType.TWO, UITheme.Icons.LAYOUT_2_H);
+        LAYOUT_CONFIG.put(WorkspaceManager.LayoutType.TWO_VERTICAL, UITheme.Icons.LAYOUT_2_V);
+        LAYOUT_CONFIG.put(WorkspaceManager.LayoutType.THREE_HORIZONTAL, UITheme.Icons.LAYOUT_3_H);
+        LAYOUT_CONFIG.put(WorkspaceManager.LayoutType.THREE_LEFT, UITheme.Icons.LAYOUT_3_L);
+        LAYOUT_CONFIG.put(WorkspaceManager.LayoutType.THREE_RIGHT, UITheme.Icons.LAYOUT_3_R);
+        LAYOUT_CONFIG.put(WorkspaceManager.LayoutType.THREE_VERTICAL, UITheme.Icons.LAYOUT_3_V);
+        LAYOUT_CONFIG.put(WorkspaceManager.LayoutType.FOUR, UITheme.Icons.LAYOUT_4);
+        LAYOUT_CONFIG.put(WorkspaceManager.LayoutType.FOUR_VERTICAL, UITheme.Icons.LAYOUT_4_V);
     }
 
     public LayoutSelectionPanel() {
@@ -39,13 +39,13 @@ public class LayoutSelectionPanel extends JPanel {
         setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
         setOpaque(false);
 
-        for (Map.Entry<String, String> entry : LAYOUT_CONFIG.entrySet()) {
+        for (Map.Entry<WorkspaceManager.LayoutType, String> entry : LAYOUT_CONFIG.entrySet()) {
             JButton button = createLayoutButton(entry.getKey(), entry.getValue());
             add(button);
         }
     }
 
-    private JButton createLayoutButton(String actionCommand, String iconPath) {
+    private JButton createLayoutButton(WorkspaceManager.LayoutType layoutType, String iconPath) {
         Icon icon = UITheme.getIcon(iconPath, 24, 24, UIManager.getColor("Button.foreground"));
         JButton button = new JButton(icon);
 
@@ -55,7 +55,8 @@ public class LayoutSelectionPanel extends JPanel {
         button.setBorderPainted(false);
         button.setFocusPainted(false);
         button.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        button.setActionCommand(actionCommand);
+        // The action command is now the direct enum name, which is robust
+        button.setActionCommand("layoutChanged:" + layoutType.name());
         
         // Add listener to fire event to the parent
         button.addActionListener(e -> fireActionPerformed(e.getActionCommand()));
