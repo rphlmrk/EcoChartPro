@@ -21,6 +21,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
@@ -33,7 +34,9 @@ public class BinanceProvider implements DataProvider {
 
     private static final Logger logger = LoggerFactory.getLogger(BinanceProvider.class);
     private static final String API_BASE_URL = "https://api.binance.com/api/v3";
-    private static final OkHttpClient client = new OkHttpClient();
+    private static final OkHttpClient client = new OkHttpClient.Builder()
+            .readTimeout(30, TimeUnit.SECONDS)
+            .build();
     private static final Gson gson = new Gson();
 
     @Override
@@ -62,6 +65,7 @@ public class BinanceProvider implements DataProvider {
             List<ChartDataSource> sources = binanceSymbols.stream()
                     .filter(s -> "TRADING".equals(s.status) && s.quoteAsset.equals("USDT")) // Filter for trading USDT pairs
                     .map(s -> new ChartDataSource(
+                            getProviderName(),
                             s.symbol.toLowerCase(), // e.g. "btcusdt"
                             s.baseAsset + "/" + s.quoteAsset, // e.g. "BTC/USDT"
                             null, // No local DB path for a live provider

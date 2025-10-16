@@ -1,46 +1,42 @@
 package com.EcoChartPro.data;
 
 import com.EcoChartPro.data.provider.BinanceDataUtils;
+import com.EcoChartPro.data.provider.BinanceWebSocketClient;
+import com.EcoChartPro.data.provider.OkxDataUtils;
+import com.EcoChartPro.data.provider.OkxWebSocketClient;
 import com.EcoChartPro.model.KLine;
+import com.EcoChartPro.utils.DataSourceManager;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import org.java_websocket.client.WebSocketClient;
-import org.java_websocket.handshake.ServerHandshake;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
-import java.net.URI;
 import java.time.Instant;
 import java.util.List;
-import java.util.Objects;
+import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 
 /**
- * A thread-safe, singleton service that maintains a single WebSocket connection
- * for the entire application, handling all stream subscriptions, message routing,
- * and automatic reconnections.
+ * [MODIFIED] A thread-safe, singleton service that multiplexes WebSocket connections
+ * for the entire application, delegating to exchange-specific clients for handling
+ * subscriptions, message routing, and reconnections.
  */
 public class LiveDataManager {
     private static final Logger logger = LoggerFactory.getLogger(LiveDataManager.class);
     private static final LiveDataManager INSTANCE = new LiveDataManager();
 
-    private static final String WEBSOCKET_BASE_URL = "wss://stream.binance.com:9443/ws/";
-    private static final long INITIAL_RECONNECT_DELAY_MS = 1000;
-    private static final long MAX_RECONNECT_DELAY_MS = 30000;
-
-    private enum ConnectionState { CONNECTED, CONNECTING, DISCONNECTED, CLOSING }
-    private volatile ConnectionState state = ConnectionState.DISCONNECTED;
-
-    private WebSocketClient webSocketClient;
+    private final Map<String, I_ExchangeWebSocketClient> exchangeClients = new ConcurrentHashMap<>();
+    private final Map<String, String> symbolToExchangeMap = new ConcurrentHashMap<>();
     private final Set<String> activeSubscriptions = ConcurrentHashMap.newKeySet();
     private final ConcurrentMap<String, List<Consumer<KLine>>> subscribers = new ConcurrentHashMap<>();
-
-    private final ScheduledExecutorService reconnectScheduler = Executors.newSingleThreadScheduledExecutor(r -> new Thread(r, "WebSocketReconnectScheduler"));
-    private final AtomicLong reconnectDelayMs = new AtomicLong(INITIAL_RECONNECT_DELAY_MS);
 
     private LiveDataManager() {}
 
@@ -48,137 +44,178 @@ public class LiveDataManager {
         return INSTANCE;
     }
 
+    public void initialize(List<DataSourceManager.ChartDataSource> allSources) {
+        symbolToExchangeMap.clear();
+        for (DataSourceManager.ChartDataSource source : allSources) {
+            if (source.providerName() != null && !source.providerName().equals("Local Files")) {
+                 symbolToExchangeMap.put(source.symbol(), source.providerName());
+            }
+        }
+        logger.info("LiveDataManager initialized with {} symbol-to-exchange mappings.", symbolToExchangeMap.size());
+    }
+
     public synchronized void subscribe(String symbol, String timeframe, Consumer<KLine> onKLineUpdate) {
-        String streamName = buildStreamName(symbol, timeframe);
+        String exchange = symbolToExchangeMap.get(symbol);
+        if (exchange == null) {
+            logger.error("Cannot subscribe to live data for symbol '{}': Unknown exchange.", symbol);
+            return;
+        }
+
+        String streamName = buildStreamName(symbol, timeframe, exchange);
         subscribers.computeIfAbsent(streamName, k -> new CopyOnWriteArrayList<>()).add(onKLineUpdate);
 
         if (activeSubscriptions.add(streamName)) {
-            logger.info("New subscription added: {}. Total active: {}", streamName, activeSubscriptions.size());
-            reconnect(); // Reconnect with the new stream name in the URI
+            logger.info("New subscription added: {}. Total active: {}. Updating {} client.", streamName, activeSubscriptions.size(), exchange);
+            updateClientSubscriptions(exchange);
         }
     }
 
     public synchronized void unsubscribe(String symbol, String timeframe, Consumer<KLine> onKLineUpdate) {
-        String streamName = buildStreamName(symbol, timeframe);
+        String exchange = symbolToExchangeMap.get(symbol);
+        if (exchange == null) {
+            logger.warn("Cannot unsubscribe for symbol '{}': Unknown exchange.", symbol);
+            return;
+        }
+        
+        String streamName = buildStreamName(symbol, timeframe, exchange);
         List<Consumer<KLine>> streamSubscribers = subscribers.get(streamName);
+        
         if (streamSubscribers != null) {
             streamSubscribers.remove(onKLineUpdate);
             if (streamSubscribers.isEmpty()) {
                 subscribers.remove(streamName);
                 if (activeSubscriptions.remove(streamName)) {
-                    logger.info("Last subscriber for {} removed. Total active: {}", streamName, activeSubscriptions.size());
-                    reconnect(); // Reconnect with the updated stream list
+                    logger.info("Last subscriber for {} removed. Total active: {}. Updating {} client.", streamName, activeSubscriptions.size(), exchange);
+                    updateClientSubscriptions(exchange);
                 }
             }
         }
     }
 
-    // --- START OF FIX: Simplified Reconnect Logic ---
-    private synchronized void reconnect() {
-        // To change subscriptions, we simply close the current connection.
-        // The onClose handler will then be the single source of truth for scheduling a new connection attempt.
-        // This eliminates race conditions between this method and the onClose handler.
-        if (webSocketClient != null && webSocketClient.isOpen()) {
-            webSocketClient.close();
-        } else {
-            // If there's no client or it's already closed/closing, we can safely initiate a reconnect sequence.
-            scheduleReconnect();
+    private void updateClientSubscriptions(String exchange) {
+        I_ExchangeWebSocketClient client = exchangeClients.computeIfAbsent(exchange, this::createClientForExchange);
+        
+        Set<String> exchangeStreams = activeSubscriptions.stream()
+                .filter(stream -> getExchangeForStream(stream).equals(exchange))
+                .collect(Collectors.toSet());
+        
+        client.updateSubscriptions(exchangeStreams);
+    }
+    
+    private I_ExchangeWebSocketClient createClientForExchange(String exchange) {
+        logger.info("Creating new WebSocket client for exchange: {}", exchange);
+        I_ExchangeWebSocketClient client;
+        switch (exchange) {
+            case "Binance":
+                client = new BinanceWebSocketClient();
+                client.setMessageHandler(message -> this.handleStreamMessage(message, "Binance"));
+                break;
+            case "OKX":
+                client = new OkxWebSocketClient();
+                client.setMessageHandler(message -> this.handleStreamMessage(message, "OKX"));
+                break;
+            default:
+                throw new IllegalArgumentException("No WebSocket client implementation for exchange: " + exchange);
+        }
+        return client;
+    }
+    
+    private void handleStreamMessage(String message, String exchange) {
+        try {
+            switch (exchange) {
+                case "Binance":
+                    handleBinanceMessage(message);
+                    break;
+                case "OKX":
+                    handleOkxMessage(message);
+                    break;
+            }
+        } catch (Exception e) {
+            logger.error("Error parsing incoming WebSocket message from {}: {}", exchange, message, e);
         }
     }
-    // --- END OF FIX ---
 
-    private synchronized void connect() {
-        if (state == ConnectionState.CONNECTED || state == ConnectionState.CONNECTING) return;
-        if (activeSubscriptions.isEmpty()) {
-            logger.info("No active subscriptions. WebSocket connection not required.");
-            state = ConnectionState.DISCONNECTED;
+    private void handleBinanceMessage(String message) {
+        JsonObject root = JsonParser.parseString(message).getAsJsonObject();
+        String streamName = root.get("stream").getAsString();
+        JsonObject data = root.getAsJsonObject("data");
+        String eventType = data.get("e").getAsString();
+
+        if (!"kline".equals(eventType)) return;
+
+        List<Consumer<KLine>> streamSubscribers = subscribers.get(streamName);
+        if (streamSubscribers == null || streamSubscribers.isEmpty()) return;
+
+        JsonObject klineJson = data.getAsJsonObject("k");
+        KLine kline = new KLine(
+                Instant.ofEpochMilli(klineJson.get("t").getAsLong()),
+                new BigDecimal(klineJson.get("o").getAsString()),
+                new BigDecimal(klineJson.get("h").getAsString()),
+                new BigDecimal(klineJson.get("l").getAsString()),
+                new BigDecimal(klineJson.get("c").getAsString()),
+                new BigDecimal(klineJson.get("v").getAsString())
+        );
+
+        for (Consumer<KLine> consumer : streamSubscribers) {
+            consumer.accept(kline);
+        }
+    }
+    
+    private void handleOkxMessage(String message) {
+        JsonObject root = JsonParser.parseString(message).getAsJsonObject();
+
+        if (root.has("event") || !root.has("arg") || !root.has("data")) {
             return;
         }
 
-        state = ConnectionState.CONNECTING;
-        try {
-            String combinedStreams = String.join("/", activeSubscriptions);
-            URI serverUri = new URI(WEBSOCKET_BASE_URL + "../stream?streams=" + combinedStreams);
-            logger.info("LiveDataManager connecting to: {}", serverUri);
+        JsonObject arg = root.getAsJsonObject("arg");
+        String channel = arg.get("channel").getAsString();
+        String instId = arg.get("instId").getAsString();
+        String streamName = String.format("%s:%s", channel, instId);
 
-            webSocketClient = new WebSocketClient(serverUri) {
-                @Override public void onOpen(ServerHandshake h) {
-                    logger.info("WebSocket connection established.");
-                    state = ConnectionState.CONNECTED;
-                    reconnectDelayMs.set(INITIAL_RECONNECT_DELAY_MS);
-                }
-                @Override public void onMessage(String msg) { handleStreamMessage(msg); }
-                
-                // --- START OF FIX: Simplified onClose Logic ---
-                @Override public void onClose(int code, String reason, boolean remote) {
-                    logger.warn("WebSocket closed. Code: {}, Reason: {}, Remote: {}", code, reason, remote);
-                    state = ConnectionState.DISCONNECTED;
-                    // Always schedule a reconnect unless we are explicitly shutting down.
-                    // This handles both server-side disconnects (remote=true) and client-side
-                    // disconnects for changing subscriptions (remote=false).
-                    if (state != ConnectionState.CLOSING) {
-                        scheduleReconnect();
-                    }
-                }
-                // --- END OF FIX ---
-                
-                @Override public void onError(Exception ex) { logger.error("WebSocket error occurred.", ex); }
-            };
-            webSocketClient.connect();
-        } catch (Exception e) {
-            logger.error("Invalid WebSocket URI or connection failed.", e);
-            state = ConnectionState.DISCONNECTED;
-        }
-    }
+        List<Consumer<KLine>> streamSubscribers = subscribers.get(streamName);
+        if (streamSubscribers == null || streamSubscribers.isEmpty()) return;
 
-    private void handleStreamMessage(String message) {
-        try {
-            JsonObject root = JsonParser.parseString(message).getAsJsonObject();
-            String streamName = root.get("stream").getAsString();
-            JsonObject data = root.getAsJsonObject("data");
-            String eventType = data.get("e").getAsString();
-
-            if (!"kline".equals(eventType)) return;
-
-            List<Consumer<KLine>> streamSubscribers = subscribers.get(streamName);
-            if (streamSubscribers == null || streamSubscribers.isEmpty()) return;
-
-            JsonObject klineJson = data.getAsJsonObject("k");
+        JsonArray dataArray = root.getAsJsonArray("data");
+        for (JsonElement candleElement : dataArray) {
+            JsonArray rawBar = candleElement.getAsJsonArray();
             KLine kline = new KLine(
-                    Instant.ofEpochMilli(klineJson.get("t").getAsLong()),
-                    new BigDecimal(klineJson.get("o").getAsString()),
-                    new BigDecimal(klineJson.get("h").getAsString()),
-                    new BigDecimal(klineJson.get("l").getAsString()),
-                    new BigDecimal(klineJson.get("c").getAsString()),
-                    new BigDecimal(klineJson.get("v").getAsString())
+                Instant.ofEpochMilli(rawBar.get(0).getAsLong()),
+                new BigDecimal(rawBar.get(1).getAsString()), 
+                new BigDecimal(rawBar.get(2).getAsString()), 
+                new BigDecimal(rawBar.get(3).getAsString()), 
+                new BigDecimal(rawBar.get(4).getAsString()), 
+                new BigDecimal(rawBar.get(5).getAsString())
             );
 
             for (Consumer<KLine> consumer : streamSubscribers) {
                 consumer.accept(kline);
             }
-        } catch (Exception e) {
-            logger.error("Error parsing incoming WebSocket message: {}", message, e);
         }
     }
 
-    private void scheduleReconnect() {
-        if (state == ConnectionState.CONNECTING || state == ConnectionState.CLOSING) return;
-
-        long currentDelay = reconnectDelayMs.get();
-        logger.info("Scheduling WebSocket reconnect attempt in {} ms.", currentDelay);
-
-        try {
-            reconnectScheduler.schedule(this::connect, currentDelay, TimeUnit.MILLISECONDS);
-            long nextDelay = Math.min(currentDelay * 2, MAX_RECONNECT_DELAY_MS);
-            reconnectDelayMs.set(nextDelay);
-        } catch (RejectedExecutionException e) {
-            logger.warn("Reconnect scheduling failed. Scheduler may be shutting down.");
+    private String getExchangeForStream(String streamName) {
+        if (streamName.contains("@")) {
+            return "Binance";
+        } else if (streamName.contains(":")) {
+            return "OKX";
         }
+        return "Unknown";
     }
-    
-    private String buildStreamName(String symbol, String timeframe) {
-        String binanceSymbol = BinanceDataUtils.toBinanceSymbol(symbol);
-        String binanceInterval = BinanceDataUtils.toBinanceInterval(timeframe);
-        return String.format("%s@kline_%s", binanceSymbol, binanceInterval);
+
+    private String buildStreamName(String symbol, String timeframe, String exchange) {
+        switch (exchange) {
+            case "Binance":
+                String binanceSymbol = BinanceDataUtils.toBinanceSymbol(symbol);
+                String binanceInterval = BinanceDataUtils.toBinanceInterval(timeframe);
+                return String.format("%s@kline_%s", binanceSymbol, binanceInterval);
+            case "OKX":
+                 String okxSymbol = OkxDataUtils.toOkxSymbol(symbol);
+                 String okxInterval = OkxDataUtils.toOkxInterval(timeframe);
+                 String channel = "candle" + okxInterval;
+                 return String.format("%s:%s", channel, okxSymbol);
+            default:
+                throw new IllegalArgumentException("Cannot build stream name for unknown exchange: " + exchange);
+        }
     }
 }

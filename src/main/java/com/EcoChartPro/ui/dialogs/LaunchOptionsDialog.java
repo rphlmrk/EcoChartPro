@@ -157,7 +157,8 @@ public class LaunchOptionsDialog extends JDialog {
     private void populateSymbolComboBox() {
         List<ChartDataSource> sources = DataSourceManager.getInstance().getAvailableSources();
         if (sources.isEmpty()) {
-            symbolComboBox.addItem(new ChartDataSource("No Data", "No Data Found", null, List.of()));
+            // [FIX] Added a placeholder string for the missing providerName argument.
+            symbolComboBox.addItem(new ChartDataSource("System", "No Data", "No Data Found", null, List.of()));
             launchButton.setEnabled(false);
         } else {
             for (ChartDataSource source : sources) {

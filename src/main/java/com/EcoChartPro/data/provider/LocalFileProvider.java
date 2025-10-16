@@ -18,10 +18,6 @@ import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
 
-/**
- * An implementation of DataProvider that discovers and loads data from
- * local SQLite database files located in the application's 'data' directory.
- */
 public class LocalFileProvider implements DataProvider {
 
     private static final Logger logger = LoggerFactory.getLogger(LocalFileProvider.class);
@@ -49,29 +45,22 @@ public class LocalFileProvider implements DataProvider {
 
     @Override
     public List<KLine> getHistoricalData(String symbol, String timeframe, int limit) {
-        // This provider is primarily for discovering files for Replay Mode.
-        // The ChartDataModel handles loading directly from the DB path.
-        // This method is a fallback and not the primary data path for local files.
         logger.warn("getHistoricalData called on LocalFileProvider. This is not the primary data loading path for local files.");
         return Collections.emptyList();
     }
 
     @Override
     public void connectToLiveStream(String symbol, String timeframe, Consumer<KLine> onKLineUpdate) {
-        // Local files do not support live data streaming. This is a no-op.
         logger.debug("connectToLiveStream called on LocalFileProvider, which does not support live data. Ignoring.");
     }
 
     @Override
     public void disconnectFromLiveStream(String symbol, String timeframe, Consumer<KLine> onKLineUpdate) {
-        // Local files do not support live data streaming. This is a no-op.
         logger.debug("disconnectFromLiveStream called on LocalFileProvider. Nothing to disconnect.");
     }
 
     private void processSymbolDirectory(Path symbolDir, List<ChartDataSource> sources) {
         String symbolName = symbolDir.getFileName().toString().toLowerCase();
-
-        // Scan for *any* .db file instead of a hardcoded name
         Optional<Path> dbPathOpt;
         try (Stream<Path> files = Files.list(symbolDir)) {
             dbPathOpt = files.filter(f -> f.toString().toLowerCase().endsWith(".db")).findFirst();
@@ -85,9 +74,9 @@ public class LocalFileProvider implements DataProvider {
             String displayName = formatDisplayName(symbolName);
             List<String> timeframes = getTimeframesFromDb(dbPath);
 
-            ChartDataSource source = new ChartDataSource(symbolName, displayName, dbPath.toAbsolutePath(), timeframes);
+            ChartDataSource source = new ChartDataSource(getProviderName(), symbolName, displayName, dbPath.toAbsolutePath(), timeframes);
             sources.add(source);
-            logger.info("LocalFileProvider discovered data source: {}", source);
+            logger.info("LocalFileProvider discovered data source: {}", source.displayName() + " (" + String.join(", ", timeframes) + ")");
         } else {
             logger.warn("LocalFileProvider: Directory '{}' does not contain a database (.db) file. Skipping.", symbolName);
         }
@@ -103,6 +92,7 @@ public class LocalFileProvider implements DataProvider {
     }
 
     private String formatDisplayName(String rawSymbol) {
+        // This will now correctly format "eurusd" to "EUR/USD" for display
         return rawSymbol.toUpperCase().replace("_", "/");
     }
 }

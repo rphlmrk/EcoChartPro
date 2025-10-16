@@ -11,6 +11,8 @@ import java.math.BigDecimal;
 import java.text.NumberFormat;
 import java.util.List;
 import java.util.Locale;
+import java.util.Vector;
+import java.util.stream.Collectors;
 
 /**
  * [MODIFIED] A modal dialog for configuring and launching a new chart window.
@@ -19,9 +21,10 @@ import java.util.Locale;
  */
 public class SessionDialog extends JDialog {
 
-    // --- NEW: Context-aware Session Mode ---
     public enum SessionMode { REPLAY, LIVE_PAPER_TRADING }
 
+    // [NEW] Provider filter ComboBox
+    private final JComboBox<String> providerComboBox;
     private final JComboBox<ChartDataSource> symbolComboBox;
     private final JRadioButton standardModeRadioButton;
     private final JRadioButton replayModeRadioButton;
@@ -43,7 +46,8 @@ public class SessionDialog extends JDialog {
     public SessionDialog(Frame owner, SessionMode mode) {
         super(owner, "Launch Chart Options", true);
         this.sessionMode = mode;
-        setSize(500, 320);
+        // Adjusted size to accommodate the new filter
+        setSize(500, 350);
         setLocationRelativeTo(owner);
         setLayout(new GridBagLayout());
         setResizable(false);
@@ -52,8 +56,16 @@ public class SessionDialog extends JDialog {
         gbc.insets = new Insets(5, 10, 5, 10);
         gbc.fill = GridBagConstraints.HORIZONTAL;
 
-        // --- Symbol Selection ---
+        // --- [NEW] Provider/Exchange Selection ---
         gbc.gridx = 0; gbc.gridy = 0;
+        gbc.anchor = GridBagConstraints.EAST;
+        add(new JLabel("Exchange:"), gbc);
+        gbc.gridx = 1; gbc.gridwidth = 2; gbc.weightx = 1.0;
+        providerComboBox = new JComboBox<>();
+        add(providerComboBox, gbc);
+
+        // --- Symbol Selection ---
+        gbc.gridy++; gbc.gridx = 0;
         gbc.anchor = GridBagConstraints.EAST;
         add(new JLabel("Symbol:"), gbc);
         gbc.gridx = 1; gbc.gridwidth = 2; gbc.weightx = 1.0;
@@ -111,7 +123,8 @@ public class SessionDialog extends JDialog {
         add(buttonPanel, gbc);
 
         addListeners();
-        populateSymbolComboBox();
+        populateProviderComboBox();
+        // populateSymbolComboBox is now called by the providerComboBox listener
         configureForMode(mode);
     }
 
@@ -128,8 +141,6 @@ public class SessionDialog extends JDialog {
             standardModeRadioButton.setSelected(true);
             standardModeRadioButton.setVisible(false);
             updateReplayControlsState();
-
-            // Visually hide the replay controls for a cleaner UI
             replayStartLabel.setVisible(false);
             replayStartSlider.setVisible(false);
             replaySliderValueLabel.setVisible(false);
@@ -137,8 +148,10 @@ public class SessionDialog extends JDialog {
     }
 
     private void addListeners() {
-        symbolComboBox.addActionListener(e -> updateReplaySliderRange());
+        // [NEW] When provider changes, filter the symbol list
+        providerComboBox.addActionListener(e -> populateSymbolComboBox());
 
+        symbolComboBox.addActionListener(e -> updateReplaySliderRange());
         standardModeRadioButton.addActionListener(e -> updateReplayControlsState());
         replayModeRadioButton.addActionListener(e -> updateReplayControlsState());
 
@@ -160,15 +173,39 @@ public class SessionDialog extends JDialog {
         cancelButton.addActionListener(e -> dispose());
     }
 
+    private void populateProviderComboBox() {
+        List<String> providers = DataSourceManager.getInstance().getAvailableSources().stream()
+                .map(ChartDataSource::providerName)
+                .distinct()
+                .sorted()
+                .collect(Collectors.toList());
+
+        providerComboBox.addItem("All");
+        for (String provider : providers) {
+            providerComboBox.addItem(provider);
+        }
+    }
+
     private void populateSymbolComboBox() {
-        List<ChartDataSource> sources = DataSourceManager.getInstance().getAvailableSources();
-        if (sources.isEmpty()) {
-            symbolComboBox.addItem(new ChartDataSource("No Data", "No Data Found", null, List.of()));
+        String selectedProvider = (String) providerComboBox.getSelectedItem();
+        List<ChartDataSource> allSources = DataSourceManager.getInstance().getAvailableSources();
+        
+        List<ChartDataSource> filteredSources;
+        if (selectedProvider == null || "All".equals(selectedProvider)) {
+            filteredSources = allSources;
+        } else {
+            filteredSources = allSources.stream()
+                .filter(source -> selectedProvider.equals(source.providerName()))
+                .collect(Collectors.toList());
+        }
+
+        symbolComboBox.setModel(new DefaultComboBoxModel<>(new Vector<>(filteredSources)));
+
+        if (filteredSources.isEmpty()) {
             launchButton.setEnabled(false);
         } else {
-            for (ChartDataSource source : sources) {
-                symbolComboBox.addItem(source);
-            }
+            launchButton.setEnabled(true);
+            symbolComboBox.setSelectedIndex(0);
         }
     }
 

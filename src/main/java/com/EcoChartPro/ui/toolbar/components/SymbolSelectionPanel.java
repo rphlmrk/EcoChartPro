@@ -15,28 +15,33 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Vector;
 import java.util.stream.Collectors;
 
 /**
- * A self-contained panel for selecting a symbol.
- * It displays a searchable list of available data sources along with the
- * backtesting progress for each symbol, retrieved from a cache.
+ * [MODIFIED] A self-contained panel for selecting a symbol.
+ * For live charting, it provides a searchable and filterable list of all available data sources.
+ * For replay mode, it shows local files with their backtesting progress.
  */
 public class SymbolSelectionPanel extends JPanel {
 
     private static final Logger logger = LoggerFactory.getLogger(SymbolSelectionPanel.class);
     private final EventListenerList listenerList = new EventListenerList();
-    private final List<SymbolProgressCache.SymbolProgressInfo> progressInfoList;
+    private final List<SymbolProgressCache.SymbolProgressInfo> fullDataList;
     private final DefaultListModel<SymbolProgressCache.SymbolProgressInfo> listModel = new DefaultListModel<>();
     private final boolean isReplayMode;
+    
+    // UI components for filtering
+    private final JTextField searchField;
+    private final JComboBox<String> providerComboBox;
 
     public SymbolSelectionPanel(boolean isReplayMode) {
         this.isReplayMode = isReplayMode;
         setLayout(new BorderLayout());
         setBackground(UIManager.getColor("Panel.background"));
 
-        // 1. Data Loading from cache with filtering and sorting based on mode
-        this.progressInfoList = SymbolProgressCache.getInstance().getAllProgressInfo().stream()
+        // 1. Data Loading from cache with filtering based on mode
+        this.fullDataList = SymbolProgressCache.getInstance().getAllProgressInfo().stream()
                 .filter(info -> {
                     boolean isLocalData = info.source().dbPath() != null;
                     // If in replay mode, we want local data. If not in replay mode, we want non-local (live) data.
@@ -44,41 +49,78 @@ public class SymbolSelectionPanel extends JPanel {
                 })
                 .sorted(Comparator.comparing(info -> info.source().displayName()))
                 .collect(Collectors.toList());
-        listModel.addAll(this.progressInfoList);
+        listModel.addAll(this.fullDataList);
 
         // 2. UI Components
-        JTextField searchField = createSearchField();
+        searchField = createSearchField();
+        providerComboBox = createProviderComboBox();
         JList<SymbolProgressCache.SymbolProgressInfo> suggestionsList = createSuggestionsList();
+
+        JPanel topPanel = new JPanel(new BorderLayout());
+        topPanel.add(searchField, BorderLayout.CENTER);
+        // Only show the provider filter when not in replay mode
+        if (!isReplayMode) {
+            topPanel.add(providerComboBox, BorderLayout.NORTH);
+        }
 
         JScrollPane scrollPane = new JScrollPane(suggestionsList);
         scrollPane.setBorder(null);
 
-        add(searchField, BorderLayout.NORTH);
+        add(topPanel, BorderLayout.NORTH);
         add(scrollPane, BorderLayout.CENTER);
         setPreferredSize(new Dimension(300, 350));
     }
 
+    private JComboBox<String> createProviderComboBox() {
+        JComboBox<String> comboBox = new JComboBox<>();
+        comboBox.setBorder(BorderFactory.createTitledBorder(
+            BorderFactory.createEmptyBorder(5, 5, 0, 5), "Exchange"));
+
+        // Populate with providers found in our live data list
+        List<String> providers = fullDataList.stream()
+                .map(info -> info.source().providerName())
+                .distinct()
+                .sorted()
+                .collect(Collectors.toList());
+
+        comboBox.addItem("All");
+        for (String provider : providers) {
+            comboBox.addItem(provider);
+        }
+
+        comboBox.addActionListener(e -> filterList());
+        return comboBox;
+    }
+
     private JTextField createSearchField() {
-        JTextField searchField = new JTextField();
-        searchField.setBackground(UIManager.getColor("TextField.background"));
-        searchField.setForeground(UIManager.getColor("TextField.foreground"));
-        searchField.setBorder(BorderFactory.createTitledBorder(
+        JTextField field = new JTextField();
+        field.setBackground(UIManager.getColor("TextField.background"));
+        field.setForeground(UIManager.getColor("TextField.foreground"));
+        field.setBorder(BorderFactory.createTitledBorder(
             BorderFactory.createEmptyBorder(5, 5, 5, 5), "Search Symbol"));
 
-        searchField.getDocument().addDocumentListener(new DocumentListener() {
-            private void filter() {
-                String searchText = searchField.getText().toLowerCase().trim();
-                List<SymbolProgressCache.SymbolProgressInfo> filtered = progressInfoList.stream()
-                        .filter(info -> info.source().displayName().toLowerCase().contains(searchText))
-                        .collect(Collectors.toList());
-                listModel.clear();
-                listModel.addAll(filtered);
-            }
-            @Override public void insertUpdate(DocumentEvent e) { filter(); }
-            @Override public void removeUpdate(DocumentEvent e) { filter(); }
-            @Override public void changedUpdate(DocumentEvent e) { filter(); }
+        field.getDocument().addDocumentListener(new DocumentListener() {
+            @Override public void insertUpdate(DocumentEvent e) { filterList(); }
+            @Override public void removeUpdate(DocumentEvent e) { filterList(); }
+            @Override public void changedUpdate(DocumentEvent e) { filterList(); }
         });
-        return searchField;
+        return field;
+    }
+
+    private void filterList() {
+        String searchText = searchField.getText().toLowerCase().trim();
+        String selectedProvider = (String) providerComboBox.getSelectedItem();
+
+        List<SymbolProgressCache.SymbolProgressInfo> filtered = fullDataList.stream()
+                .filter(info -> {
+                    boolean matchesProvider = "All".equals(selectedProvider) || selectedProvider.equals(info.source().providerName());
+                    boolean matchesSearch = info.source().displayName().toLowerCase().contains(searchText);
+                    return matchesProvider && matchesSearch;
+                })
+                .collect(Collectors.toList());
+        
+        listModel.clear();
+        listModel.addAll(filtered);
     }
 
     private JList<SymbolProgressCache.SymbolProgressInfo> createSuggestionsList() {

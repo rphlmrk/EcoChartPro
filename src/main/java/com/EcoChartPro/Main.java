@@ -4,6 +4,7 @@ import com.EcoChartPro.core.gamification.AchievementService;
 import com.EcoChartPro.core.plugin.PluginManager;
 import com.EcoChartPro.core.settings.SettingsManager;
 import com.EcoChartPro.core.theme.ThemeManager;
+import com.EcoChartPro.data.LiveDataManager;
 import com.EcoChartPro.ui.dashboard.DashboardFrame;
 import com.EcoChartPro.ui.toolbar.components.SymbolProgressCache;
 import com.EcoChartPro.utils.AppDataManager;
@@ -83,6 +84,9 @@ public class Main {
 
         try {
             DataSourceManager.getInstance().scanDataDirectory();
+            
+            // [NEW] Initialize the LiveDataManager with symbol mappings
+            LiveDataManager.getInstance().initialize(DataSourceManager.getInstance().getAvailableSources());
 
             // [NEW] Build the symbol progress cache on a background thread after scanning.
             new SwingWorker<Void, Void>() {

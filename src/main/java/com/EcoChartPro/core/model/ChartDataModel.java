@@ -8,6 +8,7 @@ import com.EcoChartPro.data.provider.BinanceProvider;
 import com.EcoChartPro.core.indicator.IndicatorManager;
 import com.EcoChartPro.core.manager.DrawingManager;
 import com.EcoChartPro.data.DataResampler;
+import com.EcoChartPro.data.provider.OkxProvider;
 import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.Symbol;
 import com.EcoChartPro.model.Timeframe;
@@ -248,8 +249,25 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
         this.currentSource = source;
         this.currentMode = ChartMode.LIVE;
         this.currentDisplayTimeframe = timeframe;
-        this.liveDataProvider = new BinanceProvider();
 
+        // --- START OF FIX: Instantiate the correct provider ---
+        if (source.providerName() != null) {
+            switch (source.providerName()) {
+                case "Binance":
+                    this.liveDataProvider = new BinanceProvider();
+                    break;
+                case "OKX":
+                    this.liveDataProvider = new OkxProvider();
+                    break;
+                default:
+                    logger.warn("No live data provider implementation for '{}'", source.providerName());
+                    this.liveDataProvider = null;
+            }
+        } else {
+            this.liveDataProvider = null; // Should not happen for live sources
+        }
+        // --- END OF FIX ---
+        
         if (timeframe == null) {
              return;
         }
@@ -257,13 +275,13 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
         // --- START OF BACKFILL LOGIC ---
         if (dbManager != null) {
             this.totalCandleCount = dbManager.getTotalKLineCount(new Symbol(source.symbol()), timeframe.displayName());
-            if (this.totalCandleCount == 0) {
+            if (this.totalCandleCount == 0 && liveDataProvider instanceof BinanceProvider) { // Only backfill for Binance for now
                 logger.info("No historical data found for {} @ {}. Triggering backfill...", source.displayName(), timeframe.displayName());
                 backfillHistoricalIfNeeded(source.symbol(), timeframe.displayName());
                 // Re-check count after backfill
                 this.totalCandleCount = dbManager.getTotalKLineCount(new Symbol(source.symbol()), timeframe.displayName());
             }
-        } else {
+        } else if (liveDataProvider != null) { // Fallback for pure API providers without DB
             this.totalCandleCount = 1000;
         }
         // --- END OF BACKFILL LOGIC ---
@@ -272,7 +290,9 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
         int initialStartIndex = Math.max(0, totalCandleCount - dataBarsOnScreen);
 
         rebuildHistoryAsync(initialStartIndex, false, () -> {
-            startLiveMode(liveDataProvider, source.symbol(), timeframe.displayName());
+            if (liveDataProvider != null) {
+                startLiveMode(liveDataProvider, source.symbol(), timeframe.displayName());
+            }
         });
     }
 
@@ -384,7 +404,7 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
                      backfillHistoricalIfNeeded(currentSource.symbol(), newTimeframe.displayName());
                      this.totalCandleCount = dbManager.getTotalKLineCount(new Symbol(currentSource.symbol()), newTimeframe.displayName());
                 }
-            } else {
+            } else if (liveDataProvider != null) {
                 this.totalCandleCount = 1000;
             }
             int initialStartIndex = Math.max(0, totalCandleCount - interactionManager.getBarsPerScreen());
