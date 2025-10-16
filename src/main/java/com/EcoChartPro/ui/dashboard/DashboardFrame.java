@@ -86,7 +86,8 @@ public class DashboardFrame extends JFrame implements PropertyChangeListener {
     }
     
     public ComprehensiveReportPanel getReportPanel() {
-        // Assuming the report panel is inside the ReplayViewPanel, which is inside MainContentPanel
+        // This method now correctly returns the report panel from the Replay view,
+        // which holds the overall/historical session data.
         return mainContentPanel.getReplayViewPanel().getReportPanel();
     }
 
@@ -144,18 +145,25 @@ public class DashboardFrame extends JFrame implements PropertyChangeListener {
             SwingUtilities.invokeLater(this::updateXpBar);
         } else if ("viewSwitched".equals(evt.getPropertyName()) && evt.getSource() == floatingNavPanel) {
             String viewName = (String) evt.getNewValue();
-            ComprehensiveReportPanel reportPanel = getReportPanel();
+
+            // Get references to both report panels.
+            ComprehensiveReportPanel replayReportPanel = mainContentPanel.getReplayViewPanel().getReportPanel();
+            ComprehensiveReportPanel liveReportPanel = mainContentPanel.getLiveViewPanel().getReportPanel();
 
             if ("LIVE".equals(viewName)) {
-                // When switching to the LIVE view, activate live tracking
+                // Configure services for a LIVE session context.
                 LiveSessionTrackerService.getInstance().setActiveSessionType(SessionType.LIVE);
                 PaperTradingService.getInstance().setActiveSessionType(SessionType.LIVE);
-                reportPanel.activateLiveMode(LiveSessionTrackerService.getInstance());
-            } else { // For DASHBOARD or REPLAY views, show the replay context
+                
+                // Activate the widgets on the live panel to start listening for live data.
+                liveReportPanel.activateLiveMode(LiveSessionTrackerService.getInstance());
+            } else { // For DASHBOARD or REPLAY views
+                // Configure services for a REPLAY session context.
                 LiveSessionTrackerService.getInstance().setActiveSessionType(SessionType.REPLAY);
                 PaperTradingService.getInstance().setActiveSessionType(SessionType.REPLAY);
-                reportPanel.deactivateLiveMode();
-                mainContentPanel.refreshWithLastSession();
+                
+                // Deactivate the widgets on the live panel to stop them listening and reset their view.
+                liveReportPanel.deactivateLiveMode();
             }
         }
     }

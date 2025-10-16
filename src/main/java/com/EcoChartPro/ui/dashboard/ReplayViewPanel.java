@@ -14,6 +14,8 @@ import org.slf4j.LoggerFactory;
 import javax.swing.*;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.io.File;
 import java.io.IOException;
 import java.math.BigDecimal;
@@ -153,9 +155,11 @@ public class ReplayViewPanel extends JPanel {
         button.setCursor(new Cursor(Cursor.HAND_CURSOR));
         button.setMargin(new Insets(2, 10, 2, 10));
         
-        button.addMouseListener(new java.awt.event.MouseAdapter() {
+        button.addMouseListener(new MouseAdapter() {
             public void mouseEntered(java.awt.event.MouseEvent evt) {
-                button.setForeground(UIManager.getColor("Button.foreground"));
+                if (button.isEnabled()) {
+                    button.setForeground(UIManager.getColor("Button.foreground"));
+                }
             }
             public void mouseExited(java.awt.event.MouseEvent evt) {
                 button.setForeground(UIManager.getColor("Button.disabledText"));
@@ -206,7 +210,7 @@ public class ReplayViewPanel extends JPanel {
 
     private void handleStartNewSession() {
         Frame parentFrame = (Frame) SwingUtilities.getWindowAncestor(this);
-        SessionDialog dialog = new SessionDialog(parentFrame);
+        SessionDialog dialog = new SessionDialog(parentFrame, SessionDialog.SessionMode.REPLAY);
         dialog.setVisible(true);
 
         if (dialog.isLaunched()) {
@@ -218,6 +222,7 @@ public class ReplayViewPanel extends JPanel {
                     dialog.getLeverage()
                 );
             } else { // LIVE_PAPER_TRADING
+                // This branch is now unlikely to be hit due to the context-aware dialog
                 SessionController.getInstance().startLiveSession(
                     dialog.getSelectedDataSource(),
                     dialog.getStartingBalance(),
