@@ -33,7 +33,8 @@ public class SymbolSelectionPanel extends JPanel {
     
     // UI components for filtering
     private final JTextField searchField;
-    private final JComboBox<String> providerComboBox;
+    // [FIX] Replaced JComboBox with a ButtonGroup to manage toggle buttons for a stable UI.
+    private final ButtonGroup providerButtonGroup = new ButtonGroup();
 
     public SymbolSelectionPanel(boolean isReplayMode) {
         this.isReplayMode = isReplayMode;
@@ -53,14 +54,14 @@ public class SymbolSelectionPanel extends JPanel {
 
         // 2. UI Components
         searchField = createSearchField();
-        providerComboBox = createProviderComboBox();
         JList<SymbolProgressCache.SymbolProgressInfo> suggestionsList = createSuggestionsList();
 
         JPanel topPanel = new JPanel(new BorderLayout());
         topPanel.add(searchField, BorderLayout.CENTER);
         // Only show the provider filter when not in replay mode
         if (!isReplayMode) {
-            topPanel.add(providerComboBox, BorderLayout.NORTH);
+            JPanel providerFilterPanel = createProviderFilterPanel();
+            topPanel.add(providerFilterPanel, BorderLayout.NORTH);
         }
 
         JScrollPane scrollPane = new JScrollPane(suggestionsList);
@@ -71,10 +72,22 @@ public class SymbolSelectionPanel extends JPanel {
         setPreferredSize(new Dimension(300, 350));
     }
 
-    private JComboBox<String> createProviderComboBox() {
-        JComboBox<String> comboBox = new JComboBox<>();
-        comboBox.setBorder(BorderFactory.createTitledBorder(
+    /**
+     * [NEW] Creates a panel with toggle buttons for filtering by exchange/provider.
+     * This replaces the flickering JComboBox.
+     */
+    private JPanel createProviderFilterPanel() {
+        JPanel panel = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 2));
+        panel.setBorder(BorderFactory.createTitledBorder(
             BorderFactory.createEmptyBorder(5, 5, 0, 5), "Exchange"));
+
+        // Add the "All" button first and select it
+        JToggleButton allButton = new JToggleButton("All", true);
+        allButton.setActionCommand("All");
+        allButton.setMargin(new Insets(2, 5, 2, 5));
+        allButton.addActionListener(e -> filterList());
+        providerButtonGroup.add(allButton);
+        panel.add(allButton);
 
         // Populate with providers found in our live data list
         List<String> providers = fullDataList.stream()
@@ -83,13 +96,15 @@ public class SymbolSelectionPanel extends JPanel {
                 .sorted()
                 .collect(Collectors.toList());
 
-        comboBox.addItem("All");
         for (String provider : providers) {
-            comboBox.addItem(provider);
+            JToggleButton providerButton = new JToggleButton(provider);
+            providerButton.setActionCommand(provider);
+            providerButton.setMargin(new Insets(2, 5, 2, 5));
+            providerButton.addActionListener(e -> filterList());
+            providerButtonGroup.add(providerButton);
+            panel.add(providerButton);
         }
-
-        comboBox.addActionListener(e -> filterList());
-        return comboBox;
+        return panel;
     }
 
     private JTextField createSearchField() {
@@ -109,7 +124,10 @@ public class SymbolSelectionPanel extends JPanel {
 
     private void filterList() {
         String searchText = searchField.getText().toLowerCase().trim();
-        String selectedProvider = (String) providerComboBox.getSelectedItem();
+        
+        // [FIX] Get the selected provider from the button group's selection model.
+        ButtonModel selectedModel = providerButtonGroup.getSelection();
+        String selectedProvider = (selectedModel != null) ? selectedModel.getActionCommand() : "All";
 
         List<SymbolProgressCache.SymbolProgressInfo> filtered = fullDataList.stream()
                 .filter(info -> {
