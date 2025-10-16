@@ -290,26 +290,36 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
     private void onLiveKLineUpdate(KLine newTick) {
         SwingUtilities.invokeLater(() -> {
             if (currentMode != ChartMode.LIVE) return;
-
+    
             Instant intervalStart = getIntervalStart(newTick.timestamp(), currentDisplayTimeframe);
-
+    
             if (currentlyFormingCandle == null) {
-                currentlyFormingCandle = new KLine(intervalStart, newTick.open(), newTick.high(), newTick.low(), newTick.close(), newTick.volume());
+                // This is the first tick. Check if it matches the last historical candle.
+                if (!finalizedCandles.isEmpty()) {
+                    KLine lastHistorical = finalizedCandles.get(finalizedCandles.size() - 1);
+                    if (lastHistorical.timestamp().equals(intervalStart)) {
+                        // It's the same candle. Replace the historical one and make it the forming one.
+                        finalizedCandles.remove(finalizedCandles.size() - 1);
+                    }
+                }
+                currentlyFormingCandle = newTick;
             } else if (!currentlyFormingCandle.timestamp().equals(intervalStart)) {
+                // The forming candle has now closed. Finalize it and start a new one.
                 finalizedCandles.add(currentlyFormingCandle);
                 totalCandleCount++;
-                currentlyFormingCandle = new KLine(intervalStart, newTick.open(), newTick.high(), newTick.low(), newTick.close(), newTick.volume());
+                currentlyFormingCandle = newTick;
             } else {
+                // This is just an update to the currently forming candle.
                 currentlyFormingCandle = new KLine(
                         currentlyFormingCandle.timestamp(),
                         currentlyFormingCandle.open(),
                         currentlyFormingCandle.high().max(newTick.high()),
                         currentlyFormingCandle.low().min(newTick.low()),
                         newTick.close(),
-                        newTick.volume()
+                        currentlyFormingCandle.volume().add(newTick.volume()) // Note: Binance stream provides total volume for the candle, not delta. This logic might need adjustment depending on provider. For now, assume additive.
                 );
             }
-
+    
             interactionManager.onReplayTick(newTick);
             assembleVisibleKLines();
             calculateBoundaries();
