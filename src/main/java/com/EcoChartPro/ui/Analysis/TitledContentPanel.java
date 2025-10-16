@@ -7,9 +7,11 @@ import java.awt.geom.RoundRectangle2D;
 public class TitledContentPanel extends JPanel {
 
     private final JLabel titleLabel;
+    private final JComponent content;
 
     public TitledContentPanel(String title, JComponent content) {
         super(new BorderLayout(0, 8));
+        this.content = content;
         setOpaque(false);
         setBorder(BorderFactory.createEmptyBorder(12, 15, 12, 15));
 
@@ -25,6 +27,15 @@ public class TitledContentPanel extends JPanel {
         if (titleLabel != null) {
             titleLabel.setText(newTitle);
         }
+    }
+
+    /**
+     * [FIX] Added this method to provide access to the content panel,
+     * resolving the compilation error in subclasses.
+     * @return The JComponent passed to the constructor.
+     */
+    public JComponent getContentPane() {
+        return this.content;
     }
 
     @Override

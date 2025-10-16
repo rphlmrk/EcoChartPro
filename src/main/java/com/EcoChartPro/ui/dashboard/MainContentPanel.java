@@ -24,7 +24,8 @@ public class MainContentPanel extends JPanel {
     private final ReplayViewPanel replayViewPanel;
     private final LiveViewPanel liveViewPanel;
 
-    public MainContentPanel() {
+    // [MODIFIED] Constructor now accepts the DashboardViewPanel
+    public MainContentPanel(DashboardViewPanel dashboardViewPanel) {
         setOpaque(false);
         setLayout(cardLayout);
         
@@ -33,7 +34,7 @@ public class MainContentPanel extends JPanel {
 
         refreshWithLastSession();
 
-        add(new DashboardViewPanel(), "DASHBOARD");
+        add(dashboardViewPanel, "DASHBOARD"); // Add the passed-in instance
         add(this.replayViewPanel, "REPLAY");
         add(this.liveViewPanel, "LIVE");
     }

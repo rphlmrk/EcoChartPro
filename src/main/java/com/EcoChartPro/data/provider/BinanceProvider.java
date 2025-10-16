@@ -39,6 +39,17 @@ public class BinanceProvider implements DataProvider {
             .build();
     private static final Gson gson = new Gson();
 
+    /**
+     * [NEW] DTO for parsing 24h ticker data.
+     */
+    public static class TickerData {
+        public String symbol;
+        public String priceChange;
+        public String priceChangePercent;
+        public String lastPrice;
+        // Add other fields like highPrice, lowPrice, etc. as needed
+    }
+
     @Override
     public String getProviderName() {
         return "Binance";
@@ -80,6 +91,28 @@ public class BinanceProvider implements DataProvider {
         } catch (Exception e) {
             logger.error("Error fetching or parsing exchange info from Binance.", e);
             return Collections.emptyList();
+        }
+    }
+
+    /**
+     * [NEW] Fetches 24-hour price change statistics for a single symbol.
+     * @param symbol The symbol in application format (e.g., "btcusdt").
+     * @return A TickerData object or null on failure.
+     */
+    public TickerData get24hTickerData(String symbol) {
+        String binanceSymbol = BinanceDataUtils.toBinanceSymbol(symbol).toUpperCase();
+        String url = API_BASE_URL + "/ticker/24hr?symbol=" + binanceSymbol;
+        Request request = new Request.Builder().url(url).build();
+
+        try (Response response = client.newCall(request).execute()) {
+            if (!response.isSuccessful() || response.body() == null) {
+                logger.error("Failed to fetch 24h ticker data for {}. Code: {}", symbol, response.code());
+                return null;
+            }
+            return gson.fromJson(response.body().string(), TickerData.class);
+        } catch (IOException e) {
+            logger.error("Network error while fetching 24h ticker for {}", symbol, e);
+            return null;
         }
     }
 

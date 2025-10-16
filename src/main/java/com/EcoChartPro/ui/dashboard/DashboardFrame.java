@@ -11,6 +11,8 @@ import org.slf4j.LoggerFactory;
 
 import javax.swing.*;
 import java.awt.*;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 import java.nio.file.Path;
@@ -24,17 +26,32 @@ public class DashboardFrame extends JFrame implements PropertyChangeListener {
     private final SidebarPanel floatingNavPanel;
     private final BackgroundLayeredPane backgroundPane;
     private final XPBarPanel xpBarPanel;
+    private final DashboardViewPanel dashboardViewPanel; // [NEW]
     private static final Logger logger = LoggerFactory.getLogger(DashboardFrame.class);
 
     public DashboardFrame() {
         setTitle("Eco Chart Pro - Dashboard");
-        setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        // [MODIFIED] Add a window listener to handle cleanup
+        setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
+        addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosing(WindowEvent windowEvent) {
+                // Perform cleanup before exiting
+                if (dashboardViewPanel != null) {
+                    dashboardViewPanel.cleanup();
+                }
+                System.exit(0);
+            }
+        });
         setIconImage(new ImageIcon(getClass().getResource(UITheme.Icons.APP_LOGO)).getImage());
 
         backgroundPane = new BackgroundLayeredPane();
         setContentPane(backgroundPane);
 
-        mainContentPanel = new MainContentPanel();
+        // [MODIFIED] Store the panel in the new field and pass it to MainContentPanel
+        this.dashboardViewPanel = new DashboardViewPanel();
+        mainContentPanel = new MainContentPanel(this.dashboardViewPanel);
+
         floatingNavPanel = new SidebarPanel(mainContentPanel, backgroundPane);
         xpBarPanel = new XPBarPanel();
 
