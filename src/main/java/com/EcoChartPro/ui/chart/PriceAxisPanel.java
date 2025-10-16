@@ -31,6 +31,7 @@ import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -270,40 +271,57 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
             g2d.setColor(textColor);
             g2d.drawString(priceStr, rectX + PADDING_X, yPriceRect + fmPrice.getAscent() + 1);
         
-            if (dataModel.getCurrentMode() == ChartDataModel.ChartMode.REPLAY) {
-                ReplaySessionManager manager = ReplaySessionManager.getInstance();
-                if (!manager.isPlaying()) {
-                    return;
-                }
-            }
-        
             Timeframe timeframe = dataModel.getCurrentDisplayTimeframe();
-
             if (timeframe == null) {
                 return;
             }
         
-            long durationMillis = timeframe.duration().toMillis();
-            if (durationMillis == 0) return;
+            String countdownText = null;
+            if (dataModel.getCurrentMode() == ChartDataModel.ChartMode.LIVE) {
+                long durationMillis = timeframe.duration().toMillis();
+                if (durationMillis > 0) {
+                    long intervalStartMillis = getIntervalStart(lastKline.timestamp(), timeframe).toEpochMilli();
+                    long nextIntervalStartMillis = intervalStartMillis + durationMillis;
+                    long currentSystemMillis = Instant.now().toEpochMilli();
+                    long millisRemaining = nextIntervalStartMillis - currentSystemMillis;
         
-            long intervalStartMillis = getIntervalStart(lastKline.timestamp(), timeframe).toEpochMilli();
-            long nextIntervalStartMillis = intervalStartMillis + durationMillis;
-            long currentSystemMillis = Instant.now().toEpochMilli();
-            long millisRemaining = nextIntervalStartMillis - currentSystemMillis;
-        
-            if (millisRemaining > 0 && millisRemaining <= durationMillis) {
-                long totalSecondsRemaining = TimeUnit.MILLISECONDS.toSeconds(millisRemaining);
-                long hours = TimeUnit.SECONDS.toHours(totalSecondsRemaining);
-                long minutes = TimeUnit.SECONDS.toMinutes(totalSecondsRemaining) % 60;
-                long seconds = totalSecondsRemaining % 60;
-        
-                String countdownText;
-                if (hours > 0) {
-                    countdownText = String.format("-%d:%02d:%02d", hours, minutes, seconds);
-                } else {
-                    countdownText = String.format("-%02d:%02d", minutes, seconds);
+                    if (millisRemaining > 0 && millisRemaining <= durationMillis) {
+                        long totalSecondsRemaining = TimeUnit.MILLISECONDS.toSeconds(millisRemaining);
+                        long hours = TimeUnit.SECONDS.toHours(totalSecondsRemaining);
+                        long minutes = TimeUnit.SECONDS.toMinutes(totalSecondsRemaining) % 60;
+                        long seconds = totalSecondsRemaining % 60;
+                        
+                        if (hours > 0) {
+                            countdownText = String.format("-%d:%02d:%02d", hours, minutes, seconds);
+                        } else {
+                            countdownText = String.format("-%02d:%02d", minutes, seconds);
+                        }
+                    }
                 }
+            } else { // REPLAY Mode
+                ReplaySessionManager manager = ReplaySessionManager.getInstance();
+                if (manager.isPlaying() && timeframe != Timeframe.M1) {
+                    KLine currentM1Bar = manager.getCurrentBar();
+                    if (currentM1Bar != null) {
+                        Instant intervalStart = getIntervalStart(currentM1Bar.timestamp(), timeframe);
+                        long minutesPassed = Duration.between(intervalStart, currentM1Bar.timestamp()).toMinutes();
+                        long totalMinutesInBar = timeframe.duration().toMinutes();
+                        long minutesRemaining = totalMinutesInBar - minutesPassed - 1;
+
+                        if (minutesRemaining >= 0) {
+                            long hours = minutesRemaining / 60;
+                            long mins = minutesRemaining % 60;
+                            if (hours > 0) {
+                                countdownText = String.format("-%d:%02d", hours, mins);
+                            } else {
+                                countdownText = String.format("-%dm", minutesRemaining);
+                            }
+                        }
+                    }
+                }
+            }
         
+            if (countdownText != null) {
                 g2d.setFont(liveFont);
                 FontMetrics fmCountdown = g2d.getFontMetrics();
                 
@@ -378,9 +396,8 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
         }
 
         private void collectPositionAndOrderLabels(List<PriceLabel> labelsToDraw) {
-            if (dataModel == null || !dataModel.isInReplayMode()) return;
-            if (!SettingsManager.getInstance().isPriceAxisLabelsShowOrders()) return;
-
+            if (dataModel == null || !SettingsManager.getInstance().isPriceAxisLabelsShowOrders()) return;
+        
             PaperTradingService service = PaperTradingService.getInstance();
             for (Position pos : service.getOpenPositions()) {
                 Color color = pos.direction() == TradeDirection.LONG ? LONG_COLOR : SHORT_COLOR;
@@ -388,7 +405,7 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
                 if (pos.stopLoss() != null) labelsToDraw.add(new PriceLabel("SL", pos.stopLoss(), SHORT_COLOR.darker(), 0));
                 if (pos.takeProfit() != null) labelsToDraw.add(new PriceLabel("TP", pos.takeProfit(), LONG_COLOR.darker(), 0));
             }
-
+        
             for (Order order : service.getPendingOrders()) {
                 Color color = order.direction() == TradeDirection.LONG ? LONG_COLOR.brighter() : SHORT_COLOR.brighter();
                 labelsToDraw.add(new PriceLabel(order.type().toString(), order.limitPrice(), color, 0));

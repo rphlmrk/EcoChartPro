@@ -141,8 +141,8 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
         CrosshairManager.getInstance().addPropertyChangeListener("crosshairMoved", this);
         if (dataModel.isInReplayMode()) {
             ReplaySessionManager.getInstance().addListener(this);
-            PaperTradingService.getInstance().addPropertyChangeListener(this);
         }
+        PaperTradingService.getInstance().addPropertyChangeListener(this);
 
         addComponentListener(new ComponentAdapter() {
             @Override
@@ -248,18 +248,16 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
         decreaseMarginButton.setBounds(panelWidth - (buttonWidth * 2) - (margin * 2), topY, buttonWidth, buttonHeight);
     }
     private void updateOverlayButtonsVisibility() {
-        if (!dataModel.isInReplayMode()) {
-            jumpToLiveEdgeButton.setVisible(false);
-            increaseMarginButton.setVisible(false);
-            decreaseMarginButton.setVisible(false);
-            return;
-        }
-
         boolean isAtLiveEdge = interactionManager.isViewingLiveEdge();
-
         jumpToLiveEdgeButton.setVisible(!isAtLiveEdge);
-
-        boolean showMarginControls = isAtLiveEdge && isReplayPlaying;
+    
+        boolean showMarginControls;
+        if (dataModel.isInReplayMode()) {
+            showMarginControls = isAtLiveEdge && isReplayPlaying;
+        } else { // Live mode
+            showMarginControls = isAtLiveEdge;
+        }
+        
         increaseMarginButton.setVisible(showMarginControls);
         decreaseMarginButton.setVisible(showMarginControls);
     }
@@ -296,8 +294,8 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
         }
         if (dataModel.isInReplayMode()) {
             ReplaySessionManager.getInstance().removeListener(this);
-            PaperTradingService.getInstance().removePropertyChangeListener(this);
         }
+        PaperTradingService.getInstance().removePropertyChangeListener(this);
     }
 
     @Override
@@ -416,7 +414,7 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
         );
 
         DataSourceManager.ChartDataSource currentSource = dataModel.getCurrentSymbol();
-        if (currentSource == null) {
+        if (currentSource == null && dataModel.isInReplayMode()) {
              currentSource = ReplaySessionManager.getInstance().getCurrentSource();
         }
         Timeframe currentTimeframe = dataModel.getCurrentDisplayTimeframe();
@@ -475,7 +473,7 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
                 }
             }
 
-            if (showPositionsAndOrders && dataModel.isInReplayMode()) {
+            if (showPositionsAndOrders) {
                 PaperTradingService service = PaperTradingService.getInstance();
                 List<Trade> allTrades = service.getTradeHistory();
                 List<Trade> visibleTrades = filterVisibleTrades(allTrades, timeRange);
@@ -502,7 +500,15 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
                 boolean isBullish = lastKline.close().compareTo(lastKline.open()) >= 0;
                 Color backgroundColor = isBullish ? settings.getBullColor() : settings.getBearColor();
                 
-                int lastGlobalIndex = dataModel.getTotalCandleCount() - 1;
+                int lastGlobalIndex;
+                if (dataModel.getCurrentMode() == ChartDataModel.ChartMode.LIVE) {
+                    // For live, the forming candle is at the next logical index
+                    lastGlobalIndex = dataModel.getTotalCandleCount();
+                } else {
+                    // For replay, it's the last available index
+                    lastGlobalIndex = dataModel.getTotalCandleCount() - 1;
+                }
+                
                 int slot = lastGlobalIndex - interactionManager.getStartIndex();
                 int startX = chartAxis.slotToX(slot);
                 Stroke dashed = new BasicStroke(1, BasicStroke.CAP_BUTT, BasicStroke.JOIN_BEVEL, 0, new float[]{5}, 0);
