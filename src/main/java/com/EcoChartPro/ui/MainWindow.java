@@ -98,7 +98,35 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
         this.undoMenuItem = menuResult.undoMenuItem();
         this.redoMenuItem = menuResult.redoMenuItem();
 
-        mainContainerPanel.add(this.topToolbarPanel, BorderLayout.NORTH);
+        // --- Add trading buttons to the top panel for Live Mode ---
+        JPanel northPanel = new JPanel(new BorderLayout());
+        northPanel.add(this.topToolbarPanel, BorderLayout.CENTER);
+
+        // In live mode, the toolbar may not have trading buttons, so we add them here to ensure they are available.
+        if (!isReplayMode) {
+            JPanel tradingButtonsPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
+            tradingButtonsPanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 10)); // Add some padding
+
+            JButton buyButton = new JButton("Buy");
+            buyButton.setActionCommand("placeLongOrder");
+            buyButton.setBackground(new Color(0x4CAF50)); // Green for buy
+            buyButton.setForeground(Color.WHITE);
+            buyButton.setFocusPainted(false);
+            buyButton.addActionListener(e -> handleTradeAction("placeLongOrder"));
+
+            JButton sellButton = new JButton("Sell");
+            sellButton.setActionCommand("placeShortOrder");
+            sellButton.setBackground(new Color(0xF44336)); // Red for sell
+            sellButton.setForeground(Color.WHITE);
+            sellButton.setFocusPainted(false);
+            sellButton.addActionListener(e -> handleTradeAction("placeShortOrder"));
+
+            tradingButtonsPanel.add(buyButton);
+            tradingButtonsPanel.add(sellButton);
+            
+            northPanel.add(tradingButtonsPanel, BorderLayout.EAST);
+        }
+        mainContainerPanel.add(northPanel, BorderLayout.NORTH);
 
         if (isReplayMode) {
             setupReplayMode();
