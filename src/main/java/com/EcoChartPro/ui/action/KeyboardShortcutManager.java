@@ -8,6 +8,7 @@ import com.EcoChartPro.ui.chart.ChartPanel;
 import com.EcoChartPro.ui.dialogs.TimeframeInputDialog;
 
 import javax.swing.*;
+import javax.swing.text.JTextComponent;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.InputEvent;
@@ -123,6 +124,12 @@ public class KeyboardShortcutManager {
             }
 
             if (e.getID() == KeyEvent.KEY_TYPED) {
+                // If the event comes from a text component, let it handle the typing.
+                Component focused = e.getComponent();
+                if (focused instanceof JTextComponent) {
+                    return false; // Do not consume the event, let the text field process it.
+                }
+
                 char c = e.getKeyChar();
                 if (Character.isLetterOrDigit(c)) {
                     // Start or continue timeframe input

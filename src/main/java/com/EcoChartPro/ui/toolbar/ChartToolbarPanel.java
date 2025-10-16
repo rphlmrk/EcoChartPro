@@ -145,7 +145,7 @@ public class ChartToolbarPanel extends JPanel {
         this.layoutPopup = createPopupMenu(new LayoutSelectionPanel());
         this.symbolPopup = new JPopupMenu();
         this.symbolPopup.setBorder(BorderFactory.createLineBorder(UIManager.getColor("Component.borderColor")));
-        SymbolSelectionPanel symbolPanel = new SymbolSelectionPanel();
+        SymbolSelectionPanel symbolPanel = new SymbolSelectionPanel(isReplayMode);
         symbolPanel.addActionListener(e -> {
             if (e.getSource() instanceof ChartDataSource) {
                 ChartDataSource selected = (ChartDataSource) e.getSource();
