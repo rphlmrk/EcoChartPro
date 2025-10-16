@@ -400,6 +400,15 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
     public SessionController getSessionController() { return sessionController; }
     public TitleBarManager getTitleBarManager() { return titleBarManager; }
     public DatabaseManager getActiveDbManager() { return activeDbManager; }
+
+    /**
+     * [NEW] Provides the currently selected data source from the main toolbar.
+     * This is used by WorkspaceManager to initialize new chart panels.
+     * @return The currently selected ChartDataSource, or null.
+     */
+    public ChartDataSource getCurrentSource() {
+        return topToolbarPanel.getSelectedDataSource();
+    }
     
     public void openNewSyncedWindow() {
         if (ReplaySessionManager.getInstance().getCurrentSource() != null) {
@@ -630,7 +639,9 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
         if (source.dbPath() != null) {
             setDbManagerForSource(source);
         } else {
-            setDbManagerForSource(null);
+            // For live sources, we might use a global DB or none if it's purely API driven.
+            // Let's assume a global DB for now. If activeDbManager is null, ChartDataModel will handle it.
+            setDbManagerForSource(null); // Or set to a global DB manager instance
         }
         PaperTradingService.getInstance().switchActiveSymbol(source.symbol());
         DrawingManager.getInstance().setActiveSymbol(source.symbol());

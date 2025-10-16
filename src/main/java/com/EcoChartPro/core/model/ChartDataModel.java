@@ -23,6 +23,7 @@ import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 import java.beans.PropertyChangeSupport;
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -234,13 +235,45 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
             return;
         }
 
-        // --- START OF MODIFICATION ---
-        this.currentMode = ChartMode.LIVE;
-        this.currentSource = source;
-        this.liveDataProvider = new BinanceProvider(); // Ensure provider exists
+        if (activeRebuildWorker != null && !activeRebuildWorker.isDone()) {
+            activeRebuildWorker.cancel(true);
+        }
 
-        initializeLiveModeForTimeframe(timeframe);
-        // --- END OF MODIFICATION ---
+        if (currentMode == ChartMode.LIVE && liveDataProvider != null && liveDataConsumer != null && currentSource != null && currentDisplayTimeframe != null) {
+            liveDataProvider.disconnectFromLiveStream(currentSource.symbol(), currentDisplayTimeframe.displayName(), liveDataConsumer);
+        }
+
+        clearData();
+
+        this.currentSource = source;
+        this.currentMode = ChartMode.LIVE;
+        this.currentDisplayTimeframe = timeframe;
+        this.liveDataProvider = new BinanceProvider();
+
+        if (timeframe == null) {
+             return;
+        }
+        
+        // --- START OF BACKFILL LOGIC ---
+        if (dbManager != null) {
+            this.totalCandleCount = dbManager.getTotalKLineCount(new Symbol(source.symbol()), timeframe.displayName());
+            if (this.totalCandleCount == 0) {
+                logger.info("No historical data found for {} @ {}. Triggering backfill...", source.displayName(), timeframe.displayName());
+                backfillHistoricalIfNeeded(source.symbol(), timeframe.displayName());
+                // Re-check count after backfill
+                this.totalCandleCount = dbManager.getTotalKLineCount(new Symbol(source.symbol()), timeframe.displayName());
+            }
+        } else {
+            this.totalCandleCount = 1000;
+        }
+        // --- END OF BACKFILL LOGIC ---
+        
+        int dataBarsOnScreen = (int) (interactionManager.getBarsPerScreen() * (1.0 - interactionManager.getRightMarginRatio()));
+        int initialStartIndex = Math.max(0, totalCandleCount - dataBarsOnScreen);
+
+        rebuildHistoryAsync(initialStartIndex, false, () -> {
+            startLiveMode(liveDataProvider, source.symbol(), timeframe.displayName());
+        });
     }
 
     public void startLiveMode(DataProvider provider, String symbol, String timeframe) {
@@ -284,7 +317,6 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
         });
     }
 
-
     @Override
     public void onReplayTick(KLine newBar) {
         if (currentMode != ChartMode.REPLAY) return;
@@ -323,24 +355,40 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
         if (newTimeframe == null) return;
         if (!forceReload && this.currentDisplayTimeframe != null && this.currentDisplayTimeframe.equals(newTimeframe)) return;
         
+        if (activeRebuildWorker != null && !activeRebuildWorker.isDone()) {
+            activeRebuildWorker.cancel(true);
+        }
+        
         if (currentMode == ChartMode.LIVE) {
-            // --- START OF FIX for Live Timeframe Switch ---
-            // Disconnect old stream before initializing new state
-            if (liveDataProvider != null && liveDataConsumer != null && currentSource != null && this.currentDisplayTimeframe != null) {
+             if (liveDataProvider != null && liveDataConsumer != null && currentSource != null && this.currentDisplayTimeframe != null) {
                 liveDataProvider.disconnectFromLiveStream(currentSource.symbol(), this.currentDisplayTimeframe.displayName(), liveDataConsumer);
-            }
-            initializeLiveModeForTimeframe(newTimeframe);
-            // --- END OF FIX ---
-        } else { // REPLAY Mode
-            if (activeRebuildWorker != null && !activeRebuildWorker.isDone()) {
-                activeRebuildWorker.cancel(true);
             }
             clearData();
             interactionManager.setAutoScalingY(true);
             this.currentDisplayTimeframe = newTimeframe;
 
+            if (dbManager != null) {
+                this.totalCandleCount = dbManager.getTotalKLineCount(new Symbol(currentSource.symbol()), newTimeframe.displayName());
+                if (this.totalCandleCount == 0) {
+                     logger.info("No historical data found for {} @ {} on timeframe switch. Triggering backfill...", currentSource.displayName(), newTimeframe.displayName());
+                     backfillHistoricalIfNeeded(currentSource.symbol(), newTimeframe.displayName());
+                     this.totalCandleCount = dbManager.getTotalKLineCount(new Symbol(currentSource.symbol()), newTimeframe.displayName());
+                }
+            } else {
+                this.totalCandleCount = 1000;
+            }
+            int initialStartIndex = Math.max(0, totalCandleCount - interactionManager.getBarsPerScreen());
+            rebuildHistoryAsync(initialStartIndex, false, () -> {
+                startLiveMode(liveDataProvider, currentSource.symbol(), newTimeframe.displayName());
+            });
+
+        } else { // REPLAY Mode
+            clearData();
+            interactionManager.setAutoScalingY(true);
+            this.currentDisplayTimeframe = newTimeframe;
             ReplaySessionManager manager = ReplaySessionManager.getInstance();
             int m1HeadIndex = manager.getReplayHeadIndex();
+
             if (m1HeadIndex < 0) { clearData(); return; }
 
             if (currentDisplayTimeframe != Timeframe.M1 && !currentDisplayTimeframe.duration().isZero()) {
@@ -351,45 +399,42 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
 
             int dataBarsOnScreen = (int) (interactionManager.getBarsPerScreen() * (1.0 - interactionManager.getRightMarginRatio()));
             int targetStartIndex = Math.max(0, totalCandleCount - dataBarsOnScreen);
+            
             rebuildHistoryAsync(targetStartIndex, false);
         }
     }
 
-    private void initializeLiveModeForTimeframe(Timeframe timeframe) {
-        if (timeframe == null) return;
-
-        // Cancel any pending work from the old timeframe
-        if (activeRebuildWorker != null && !activeRebuildWorker.isDone()) {
-            activeRebuildWorker.cancel(true);
+    private void backfillHistoricalIfNeeded(String symbol, String timeframe) {
+        if (dbManager == null || !(liveDataProvider instanceof BinanceProvider)) {
+            logger.warn("Cannot backfill data: DBManager or a BinanceProvider is not available.");
+            return;
         }
 
-        clearData();
-        this.currentDisplayTimeframe = timeframe;
+        long startTimeMillis = Instant.now().minus(Duration.ofDays(30)).toEpochMilli();
+        BinanceProvider binanceProvider = (BinanceProvider) liveDataProvider;
 
-        // Reconstruct the initial state for the new timeframe
-        if (dbManager != null && currentSource != null) {
-            // 1. Load all historical candles for the new timeframe.
-            finalizedCandles = dbManager.getAllKLines(new Symbol(currentSource.symbol()), timeframe.displayName());
-            
-            // 2. Calculate what the current forming candle's start time SHOULD be.
-            Instant now = Instant.now();
-            Instant currentIntervalStart = getIntervalStart(now, timeframe);
-            
-            // 3. Check if the last candle from our DB history is the currently forming one.
-            if (!finalizedCandles.isEmpty()) {
-                KLine lastDbCandle = finalizedCandles.get(finalizedCandles.size() - 1);
-                if (lastDbCandle.timestamp().equals(currentIntervalStart)) {
-                    // It is! Pop it from the finalized list and set it as our forming candle.
-                    currentlyFormingCandle = finalizedCandles.remove(finalizedCandles.size() - 1);
-                    logger.info("Live init: Found forming candle for interval {} in DB.", currentIntervalStart);
+        // Run backfill in a background thread to not freeze the UI
+        new SwingWorker<List<KLine>, Void>() {
+            @Override
+            protected List<KLine> doInBackground() {
+                return binanceProvider.backfillHistoricalData(symbol, timeframe, startTimeMillis);
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    List<KLine> historicalData = get();
+                    if (historicalData != null && !historicalData.isEmpty()) {
+                        dbManager.saveKLines(historicalData, new Symbol(symbol), timeframe);
+                        logger.info("Successfully backfilled and saved {} klines for {} @ {}", historicalData.size(), symbol, timeframe);
+                        // Trigger a reload now that data is available
+                        loadDataset(currentSource, currentDisplayTimeframe);
+                    }
+                } catch (Exception e) {
+                    logger.error("Failed to execute historical data backfill.", e);
                 }
             }
-        }
-        
-        this.totalCandleCount = finalizedCandles.size();
-        interactionManager.jumpToLiveEdge(); // This calculates startIndex and triggers updateView
-        
-        startLiveMode(liveDataProvider, currentSource.symbol(), timeframe.displayName());
+        }.execute();
     }
 
     public void clearData() {

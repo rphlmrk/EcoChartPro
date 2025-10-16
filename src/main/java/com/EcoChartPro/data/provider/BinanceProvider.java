@@ -3,7 +3,6 @@ package com.EcoChartPro.data.provider;
 import com.EcoChartPro.data.DataProvider;
 import com.EcoChartPro.data.LiveDataManager;
 import com.EcoChartPro.model.KLine;
-import com.EcoChartPro.model.SymbolInfo;
 import com.EcoChartPro.utils.DataSourceManager.ChartDataSource;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
@@ -80,11 +79,27 @@ public class BinanceProvider implements DataProvider {
         }
     }
 
+    @Override
     public List<KLine> getHistoricalData(String symbol, String timeframe, int limit) {
+        return getHistoricalData(symbol, timeframe, limit, null, null);
+    }
+
+    /**
+     * [MODIFIED] Fetches historical K-line records with optional time range parameters.
+     */
+    public List<KLine> getHistoricalData(String symbol, String timeframe, int limit, Long startTimeMillis, Long endTimeMillis) {
         String binanceSymbol = BinanceDataUtils.toBinanceSymbol(symbol).toUpperCase();
         String binanceInterval = BinanceDataUtils.toBinanceInterval(timeframe);
-        String url = String.format("%s/klines?symbol=%s&interval=%s&limit=%d",
-                API_BASE_URL, binanceSymbol, binanceInterval, limit);
+        
+        StringBuilder urlBuilder = new StringBuilder(String.format("%s/klines?symbol=%s&interval=%s&limit=%d",
+                API_BASE_URL, binanceSymbol, binanceInterval, limit));
+        if (startTimeMillis != null) {
+            urlBuilder.append("&startTime=").append(startTimeMillis);
+        }
+        if (endTimeMillis != null) {
+            urlBuilder.append("&endTime=").append(endTimeMillis);
+        }
+        String url = urlBuilder.toString();
 
         Request request = new Request.Builder().url(url).build();
         logger.info("Fetching historical data from Binance: {}", url);
@@ -118,6 +133,55 @@ public class BinanceProvider implements DataProvider {
             return Collections.emptyList();
         }
     }
+
+    /**
+     * [NEW] Fetches a large amount of historical data by making chunked requests to the API.
+     * @param symbol The symbol to fetch (e.g., "BTC/USDT").
+     * @param timeframe The timeframe string (e.g., "1H").
+     * @param startTimeMillis The earliest timestamp to fetch data from.
+     * @return A list of all KLine data retrieved.
+     */
+    public List<KLine> backfillHistoricalData(String symbol, String timeframe, long startTimeMillis) {
+        List<KLine> allData = new ArrayList<>();
+        long currentStartTime = startTimeMillis;
+        final int batchLimit = 1000;
+
+        logger.info("Starting historical data backfill for {} @ {} from {}", symbol, timeframe, Instant.ofEpochMilli(startTimeMillis));
+
+        while (true) {
+            List<KLine> batch = getHistoricalData(symbol, timeframe, batchLimit, currentStartTime, null);
+            
+            if (batch == null || batch.isEmpty()) {
+                logger.info("Backfill complete. No more data returned from API.");
+                break;
+            }
+            
+            allData.addAll(batch);
+            
+            // Set the start time for the next batch to be right after the last candle we received.
+            currentStartTime = batch.get(batch.size() - 1).timestamp().toEpochMilli() + 1;
+            logger.debug("Fetched batch of {} candles. Next fetch starts at {}.", batch.size(), Instant.ofEpochMilli(currentStartTime));
+
+            // If we receive fewer candles than we asked for, it means we've reached the end of available history.
+            if (batch.size() < batchLimit) {
+                logger.info("Backfill complete. Received last batch of data.");
+                break;
+            }
+
+            // A small delay to respect API rate limits.
+            try {
+                Thread.sleep(200);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                logger.warn("Backfill process was interrupted.");
+                break;
+            }
+        }
+        
+        logger.info("Total historical klines backfilled for {} @ {}: {}", symbol, timeframe, allData.size());
+        return allData;
+    }
+
 
     public void connectToLiveStream(String symbol, String timeframe, Consumer<KLine> onKLineUpdate) {
         LiveDataManager.getInstance().subscribe(symbol, timeframe, onKLineUpdate);

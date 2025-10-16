@@ -143,19 +143,27 @@ public class WorkspaceManager {
         ChartInteractionManager interactionManager = new ChartInteractionManager(model);
         model.setInteractionManager(interactionManager);
         
-        DataSourceManager.ChartDataSource replaySource = ReplaySessionManager.getInstance().getCurrentSource();
-        if (replaySource != null) {
+        // --- START OF FIX: Ensure new panels get the correct context ---
+        DataSourceManager.ChartDataSource sourceToLoad = owner.getCurrentSource();
+        // Fallback if the main source isn't set yet (e.g., during initial window creation)
+        if (sourceToLoad == null && !chartPanels.isEmpty() && chartPanels.get(0).getDataModel().getCurrentSymbol() != null) {
+            sourceToLoad = chartPanels.get(0).getDataModel().getCurrentSymbol();
+        }
+
+        // Determine if we are in replay or live mode
+        boolean isReplay = ReplaySessionManager.getInstance().getCurrentSource() != null;
+
+        if (isReplay) {
+            DataSourceManager.ChartDataSource replaySource = ReplaySessionManager.getInstance().getCurrentSource();
             model.configureForReplay(tf, replaySource);
             model.setDatabaseManager(owner.getActiveDbManager(), replaySource);
             ReplaySessionManager.getInstance().addListener(model);
             ReplaySessionManager.getInstance().addListener(interactionManager);
         } else {
-            DataSourceManager.ChartDataSource standardSource = owner.getTopToolbarPanel().getSelectedDataSource();
-            DatabaseManager dbManager = owner.getActiveDbManager();
-            if (standardSource != null && dbManager != null) {
-                model.setDatabaseManager(dbManager, standardSource);
-            }
+            // Live mode: ensure DB manager is set, even if source is from API
+            model.setDatabaseManager(owner.getActiveDbManager(), sourceToLoad);
         }
+        // --- END OF FIX ---
 
         ChartAxis chartAxis = new ChartAxis();
         PriceAxisPanel priceAxisPanel = new PriceAxisPanel(model, chartAxis, interactionManager);
@@ -178,14 +186,13 @@ public class WorkspaceManager {
         Timeframe targetTimeframe = (tf != null) ? tf : Timeframe.fromString(selectedTfString);
         if (targetTimeframe == null) targetTimeframe = Timeframe.H1;
 
-        if (replaySource != null) {
+        // --- START OF FIX: Load data immediately for the new panel ---
+        if (isReplay) {
             model.setDisplayTimeframe(targetTimeframe, true);
-        } else {
-            DataSourceManager.ChartDataSource standardSource = owner.getTopToolbarPanel().getSelectedDataSource();
-            if (standardSource != null) {
-                model.loadDataset(standardSource, targetTimeframe);
-            }
+        } else if (sourceToLoad != null) {
+            model.loadDataset(sourceToLoad, targetTimeframe);
         }
+        // --- END OF FIX ---
 
         JPanel container = new JPanel(new BorderLayout());
         container.add(chartPanel, BorderLayout.CENTER);
@@ -216,7 +223,6 @@ public class WorkspaceManager {
                ? activeChartPanel.getDataModel().getCurrentDisplayTimeframe() : Timeframe.H1;
     }
 
-    // --- START OF REFACTORED METHOD ---
     public void applyLayout(LayoutType layoutType) {
         chartAreaPanel.removeAll();
         indicatorPaneMap.clear();
@@ -228,7 +234,6 @@ public class WorkspaceManager {
             case FOUR: case FOUR_VERTICAL: requiredPanels = 4; break;
         }
         
-        // Create new ChartPanel instances ONLY if we don't have enough.
         while (chartPanels.size() < requiredPanels) {
              List<Timeframe> existingTimeframes = chartPanels.stream()
                 .map(p -> p.getDataModel().getCurrentDisplayTimeframe())
@@ -238,9 +243,6 @@ public class WorkspaceManager {
              createNewChartView(nextTf, true);
         }
         
-        // ** IMPORTANT: Do NOT remove excess panels. They will be reused later if needed.
-        // The old logic that removed panels was the source of the bugs.
-
         if (activeChartPanel == null && !chartPanels.isEmpty()) {
             setActiveChartPanel(chartPanels.get(0));
         }
@@ -296,7 +298,6 @@ public class WorkspaceManager {
         chartAreaPanel.revalidate();
         chartAreaPanel.repaint();
     }
-    // --- END OF REFACTORED METHOD ---
     
     public void addIndicatorPane(Indicator indicator) {
         if (activeChartPanel == null) return;
