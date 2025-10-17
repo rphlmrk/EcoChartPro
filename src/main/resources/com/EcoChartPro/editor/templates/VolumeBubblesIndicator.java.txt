@@ -1,0 +1,191 @@
+package com.EcoChartPro.plugins.inapp;
+
+import com.EcoChartPro.api.indicator.*;
+import com.EcoChartPro.api.indicator.drawing.*;
+import com.EcoChartPro.core.indicator.IndicatorContext;
+import java.awt.Color;
+import java.awt.Font;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * =====================================================================================================================
+ * Indicator: Volume Bubbles
+ * Author: EcoChartPro AI Assistant
+ * Version: 1.1 (Improved based on user feedback)
+ * =====================================================================================================================
+ *
+ * Description:
+ * The Volume Bubbles indicator detects and visualizes significant volume spikes (often referred to as "whale activity")
+ * relative to a moving average of volume. It helps traders spot potential institutional buying or selling pressure.
+ *
+ * How to Interpret:
+ * - Green Bubbles (at Lows): A large volume spike on a bullish (up) candle. This suggests potential accumulation
+ *   or strong buying interest, often appearing near support levels or during reversals.
+ * - Red Bubbles (at Highs): A large volume spike on a bearish (down) candle. This suggests potential distribution
+ *   or heavy selling pressure, often seen near resistance or at the peak of a rally.
+ * - Bubble Size & Opacity: Larger, more opaque bubbles indicate a stronger volume spike relative to recent history.
+ *
+ * Recommended Usage:
+ * This indicator is most effective when used as a confirmation tool alongside other forms of analysis, such as
+ * price action (support/resistance, chart patterns) or momentum oscillators (RSI, Stochastics). It is versatile
+ * and can be applied to various markets including cryptocurrencies, stocks, and forex.
+ *
+ * =====================================================================================================================
+ */
+public class VolumeBubblesIndicator implements CustomIndicator {
+
+    @Override
+    public String getName() {
+        return "Volume Bubbles";
+    }
+
+    @Override
+    public IndicatorType getType() {
+        return IndicatorType.OVERLAY;
+    }
+
+    @Override
+    public List<Parameter> getParameters() {
+        // Defines the user-configurable settings for the indicator.
+        return List.of(
+            new Parameter("Volume MA Period", ParameterType.INTEGER, 50),
+            new Parameter("Spike Multiplier", ParameterType.DECIMAL, BigDecimal.valueOf(2.0)),
+            new Parameter("Scaling Lookback", ParameterType.INTEGER, 100),
+            new Parameter("Show Volume Text", ParameterType.BOOLEAN, true), // [NEW] Toggle for volume figures
+            new Parameter("Buy Bubble Color", ParameterType.COLOR, new Color(0, 255, 0, 120)),
+            new Parameter("Sell Bubble Color", ParameterType.COLOR, new Color(255, 0, 0, 120)),
+            new Parameter("Min Bubble Size", ParameterType.INTEGER, 12),
+            new Parameter("Max Bubble Size", ParameterType.INTEGER, 48),
+            new Parameter("Bubble Offset %", ParameterType.DECIMAL, BigDecimal.valueOf(10.0), "Percentage of candle range"),
+            new Parameter("Show Volume MA", ParameterType.BOOLEAN, false)
+        );
+    }
+
+    @Override
+    public List<DrawableObject> calculate(IndicatorContext context) {
+        // 1. --- Retrieve Settings & Data ---
+        final List<ApiKLine> klineData = context.klineData();
+        final Map<String, Object> settings = context.settings();
+
+        final int maPeriod = (int) settings.get("Volume MA Period");
+        final BigDecimal multiplier = (BigDecimal) settings.get("Spike Multiplier");
+        final int lookback = (int) settings.get("Scaling Lookback");
+        final boolean showVolumeText = (boolean) settings.get("Show Volume Text");
+        final Color buyColor = (Color) settings.get("Buy Bubble Color");
+        final Color sellColor = (Color) settings.get("Sell Bubble Color");
+        final int minSize = (int) settings.get("Min Bubble Size");
+        final int maxSize = (int) settings.get("Max Bubble Size");
+        final BigDecimal offsetPercent = (BigDecimal) settings.get("Bubble Offset %");
+
+        if (klineData.size() < maPeriod || klineData.size() < lookback) {
+            return Collections.emptyList();
+        }
+
+        // 2. --- Calculate Volume & Moving Average ---
+        List<BigDecimal> volumes = IndicatorUtils.extractSourceData(klineData, ApiKLine::volume);
+        List<BigDecimal> volumeMA = IndicatorUtils.calculateSMA(volumes, maPeriod);
+
+        List<DrawableObject> drawables = new ArrayList<>();
+
+        // 3. --- Main Loop: Detect Whales and Create Bubbles ---
+        int maOffset = klineData.size() - volumeMA.size();
+        for (int i = maOffset; i < klineData.size(); i++) {
+            ApiKLine kline = klineData.get(i);
+            BigDecimal currentVolume = kline.volume();
+            BigDecimal avgVolume = volumeMA.get(i - maOffset);
+
+            if (avgVolume.compareTo(BigDecimal.ZERO) == 0) continue;
+
+            boolean isWhale = currentVolume.compareTo(avgVolume.multiply(multiplier)) > 0;
+
+            if (isWhale) {
+                boolean isBullishCandle = kline.close().compareTo(kline.open()) >= 0;
+
+                // --- Calculate Bubble Scaling ---
+                int lookbackStart = Math.max(0, i - lookback + 1);
+                BigDecimal minVol = volumes.get(lookbackStart);
+                BigDecimal maxVol = volumes.get(lookbackStart);
+                for (int j = lookbackStart; j <= i; j++) {
+                    minVol = minVol.min(volumes.get(j));
+                    maxVol = maxVol.max(volumes.get(j));
+                }
+
+                double scaleFactor = 0.5;
+                BigDecimal volRange = maxVol.subtract(minVol);
+                if (volRange.compareTo(BigDecimal.ZERO) > 0) {
+                    scaleFactor = currentVolume.subtract(minVol).divide(volRange, 4, RoundingMode.HALF_UP).doubleValue();
+                }
+
+                int bubbleSize = (int) (minSize + (maxSize - minSize) * scaleFactor);
+                Color baseColor = isBullishCandle ? buyColor : sellColor;
+
+                // [FIX] Opacity scaling now respects the user-selected alpha as the maximum.
+                int maxAlpha = baseColor.getAlpha();
+                int minAlpha = 30; // Bubbles are at least slightly visible
+                int scaledAlpha = (int) (minAlpha + (maxAlpha - minAlpha) * scaleFactor);
+                Color bubbleColor = new Color(baseColor.getRed(), baseColor.getGreen(), baseColor.getBlue(), scaledAlpha);
+
+                // --- Calculate Bubble & Text Position with Offset ---
+                BigDecimal candleRange = kline.high().subtract(kline.low());
+                BigDecimal priceOffset = candleRange.multiply(offsetPercent).divide(BigDecimal.valueOf(100), 8, RoundingMode.HALF_UP);
+                
+                DataPoint bubblePosition;
+                DataPoint textPosition;
+                TextAnchor bubbleAnchor, textAnchor;
+
+                if (isBullishCandle) {
+                    bubblePosition = new DataPoint(kline.timestamp(), kline.low().subtract(priceOffset));
+                    bubbleAnchor = TextAnchor.TOP_CENTER;
+                    textPosition = new DataPoint(kline.timestamp(), kline.low().subtract(priceOffset.multiply(BigDecimal.valueOf(2))));
+                    textAnchor = TextAnchor.TOP_CENTER;
+                } else {
+                    bubblePosition = new DataPoint(kline.timestamp(), kline.high().add(priceOffset));
+                    bubbleAnchor = TextAnchor.BOTTOM_CENTER;
+                    textPosition = new DataPoint(kline.timestamp(), kline.high().add(priceOffset.multiply(BigDecimal.valueOf(2))));
+                    textAnchor = TextAnchor.BOTTOM_CENTER;
+                }
+
+                // Create and add the bubble.
+                drawables.add(new DrawableText(
+                    bubblePosition, "●", new Font("SansSerif", Font.PLAIN, bubbleSize), bubbleColor, bubbleAnchor
+                ));
+
+                // [NEW] Create and add the volume text if enabled.
+                if (showVolumeText) {
+                    drawables.add(new DrawableText(
+                        textPosition,
+                        formatVolume(currentVolume),
+                        new Font("SansSerif", Font.BOLD, 12),
+                        baseColor.brighter(), // Use a brighter, solid color for readability
+                        textAnchor
+                    ));
+                }
+            }
+
+            // Log debug data for the Data Inspector panel.
+            context.log(i, "Volume", currentVolume);
+            context.log(i, "Volume MA", avgVolume.setScale(2, RoundingMode.HALF_UP));
+        }
+
+        return drawables;
+    }
+
+    /**
+     * [NEW] Helper method to format large volume numbers into a readable "K" (thousands) or "M" (millions) format.
+     */
+    private String formatVolume(BigDecimal volume) {
+        if (volume == null) return "";
+        if (volume.compareTo(new BigDecimal("1000000")) >= 0) {
+            return volume.divide(new BigDecimal("1000000"), 1, RoundingMode.HALF_UP).toPlainString() + "M";
+        }
+        if (volume.compareTo(new BigDecimal("1000")) >= 0) {
+            return volume.divide(new BigDecimal("1000"), 1, RoundingMode.HALF_UP).toPlainString() + "K";
+        }
+        return volume.setScale(0, RoundingMode.HALF_UP).toPlainString();
+    }
+}

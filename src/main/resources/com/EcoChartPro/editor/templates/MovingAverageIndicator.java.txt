@@ -7,7 +7,6 @@ import com.EcoChartPro.api.indicator.drawing.DrawablePolyline;
 import com.EcoChartPro.core.indicator.IndicatorContext;
 import java.awt.Color;
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -27,14 +26,14 @@ public class MovingAverageIndicator implements CustomIndicator {
 
     @Override
     public List<DrawableObject> calculate(IndicatorContext context) {
-        // --- [FIX] Change the local variable type to ApiKLine ---
+        // [FIX] Correctly use the ApiKLine type provided by the context.
         List<ApiKLine> data = context.klineData();
         int period = (int) context.settings().get("period");
         Color color = (Color) context.settings().get("color");
 
         if (data.size() < period) return Collections.emptyList();
 
-        // --- This line will now work correctly with IndicatorUtils ---
+        // Use the public API utility to extract close prices and calculate the SMA.
         List<BigDecimal> closePrices = IndicatorUtils.extractSourceData(data, ApiKLine::close);
         List<BigDecimal> smaValues = IndicatorUtils.calculateSMA(closePrices, period);
 

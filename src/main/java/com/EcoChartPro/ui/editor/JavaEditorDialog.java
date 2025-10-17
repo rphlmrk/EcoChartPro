@@ -180,6 +180,11 @@ public class JavaEditorDialog extends JDialog {
         advanced.add(new DefaultMutableTreeNode("Stateful RSI"));
         root.add(advanced);
 
+        // --- Visual & Stateful Examples ---
+        DefaultMutableTreeNode visual = new DefaultMutableTreeNode("Visual & Stateful");
+        visual.add(new DefaultMutableTreeNode("Volume Bubbles"));
+        root.add(visual);
+
         JTree exampleTree = new JTree(root);
         for (int i = 0; i < exampleTree.getRowCount(); i++) {
             exampleTree.expandRow(i);

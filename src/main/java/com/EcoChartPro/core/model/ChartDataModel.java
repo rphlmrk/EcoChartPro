@@ -393,7 +393,8 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
              if (liveDataProvider != null && liveDataConsumer != null && currentSource != null && this.currentDisplayTimeframe != null) {
                 liveDataProvider.disconnectFromLiveStream(currentSource.symbol(), this.currentDisplayTimeframe.displayName(), liveDataConsumer);
             }
-            clearData();
+            // [FIX] Use the new, safer reset method instead of clearData()
+            resetDataForTimeframeSwitch();
             interactionManager.setAutoScalingY(true);
             this.currentDisplayTimeframe = newTimeframe;
 
@@ -413,13 +414,18 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
             });
 
         } else { // REPLAY Mode
-            clearData();
+            // [FIX] Use the new, safer reset method instead of clearData()
+            resetDataForTimeframeSwitch();
             interactionManager.setAutoScalingY(true);
             this.currentDisplayTimeframe = newTimeframe;
             ReplaySessionManager manager = ReplaySessionManager.getInstance();
             int m1HeadIndex = manager.getReplayHeadIndex();
 
-            if (m1HeadIndex < 0) { clearData(); return; }
+            if (m1HeadIndex < 0) { 
+                // [FIX] Call the safe reset method here too
+                resetDataForTimeframeSwitch();
+                return; 
+            }
 
             if (currentDisplayTimeframe != Timeframe.M1 && !currentDisplayTimeframe.duration().isZero()) {
                 totalCandleCount = (m1HeadIndex + 1) / (int)currentDisplayTimeframe.duration().toMinutes();
@@ -477,6 +483,22 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
         this.indicatorManager.clearAllIndicators();
         this.totalCandleCount = 0;
         this.dataWindowStartIndex = 0;
+        fireDataUpdated();
+    }
+
+    /**
+     * [NEW METHOD] A safe reset method that only clears data, not indicators.
+     */
+    private void resetDataForTimeframeSwitch() {
+        this.visibleKLines.clear();
+        this.minPrice = BigDecimal.ZERO;
+        this.maxPrice = BigDecimal.ZERO;
+        this.finalizedCandles.clear();
+        this.currentlyFormingCandle = null;
+        this.baseDataWindow.clear();
+        this.totalCandleCount = 0;
+        this.dataWindowStartIndex = 0;
+        // Notice: this.indicatorManager.clearAllIndicators() is NOT called.
         fireDataUpdated();
     }
 
