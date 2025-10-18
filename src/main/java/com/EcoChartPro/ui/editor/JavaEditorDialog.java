@@ -183,6 +183,7 @@ public class JavaEditorDialog extends JDialog {
         // --- Visual & Stateful Examples ---
         DefaultMutableTreeNode visual = new DefaultMutableTreeNode("Visual & Stateful");
         visual.add(new DefaultMutableTreeNode("Volume Bubbles"));
+        visual.add(new DefaultMutableTreeNode("HTF Overlay")); // [NEW] Add the HTF Overlay example
         root.add(visual);
 
         JTree exampleTree = new JTree(root);

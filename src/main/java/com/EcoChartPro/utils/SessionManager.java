@@ -10,6 +10,7 @@ import com.EcoChartPro.model.trading.Position;
 import com.EcoChartPro.ui.toolbar.components.SymbolProgressCache;
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.core.StreamReadConstraints;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.*;
 import com.fasterxml.jackson.databind.deser.std.StdKeyDeserializer;
@@ -54,6 +55,13 @@ public final class SessionManager {
 
     private SessionManager() {
         this.objectMapper = new ObjectMapper();
+
+        // [FIX] Increase the maximum number length limit to prevent StreamConstraintsException
+        // on very high precision BigDecimal values saved in session files.
+        this.objectMapper.getFactory().setStreamReadConstraints(
+            StreamReadConstraints.builder().maxNumberLength(Integer.MAX_VALUE).build()
+        );
+
         // Configure for pretty printing JSON output
         this.objectMapper.enable(SerializationFeature.INDENT_OUTPUT);
         // Don't fail on unknown properties during deserialization
