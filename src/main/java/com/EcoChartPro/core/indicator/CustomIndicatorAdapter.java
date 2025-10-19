@@ -3,9 +3,10 @@ package com.EcoChartPro.core.indicator;
 import com.EcoChartPro.api.indicator.CustomIndicator;
 import com.EcoChartPro.api.indicator.IndicatorType;
 import com.EcoChartPro.api.indicator.drawing.DrawableObject;
+
 import java.util.List;
 import java.util.Map;
-import java.util.UUID; // [NEW] Import UUID
+import java.util.UUID;
 
 /**
  * An adapter that wraps a public {@link CustomIndicator} plugin and makes it
@@ -21,7 +22,7 @@ public class CustomIndicatorAdapter extends Indicator {
     }
 
     /**
-     * [NEW] Overloaded constructor to support hot-reloading.
+     * [NEW] Overloaded constructor to support hot-reloading by preserving the indicator's ID.
      */
     public CustomIndicatorAdapter(UUID id, CustomIndicator plugin, Map<String, Object> settings) {
         super(id, plugin.getName(), settings);

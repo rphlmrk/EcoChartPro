@@ -61,14 +61,12 @@ public class OkxProvider implements DataProvider {
             List<ChartDataSource> sources = okxInstruments.stream()
                     .filter(s -> "live".equals(s.state))
                     .map(s -> {
-                        // [FIX] Format display name correctly: "BTC-USDT-SWAP" -> "BTC/USDT-SWAP"
                         String displayName = s.instId.replaceFirst("-", "/");
                         return new ChartDataSource(
                             getProviderName(),
-                            s.instId.toLowerCase(), // e.g., "btc-usdt-swap"
+                            s.instId.toLowerCase(), 
                             displayName,
-                            null, // No local DB path for a live provider
-                            // Provide a standard list of common timeframes
+                            null, 
                             List.of("1m", "5m", "15m", "30m", "1H", "4H", "1D")
                         );
                     })
@@ -85,10 +83,19 @@ public class OkxProvider implements DataProvider {
 
     @Override
     public List<KLine> getHistoricalData(String symbol, String timeframe, int limit) {
+        try {
+            return getHistoricalData(symbol, timeframe, limit, null);
+        } catch (IOException e) {
+            logger.error("Network error while fetching k-line data for {} @ {}", symbol, timeframe, e);
+            return Collections.emptyList();
+        }
+    }
+    
+    public List<KLine> getHistoricalData(String symbol, String timeframe, int limit, Long before) throws IOException {
         String okxSymbol = OkxDataUtils.toOkxSymbol(symbol);
         String okxInterval = OkxDataUtils.toOkxInterval(timeframe);
 
-        String url = String.format("%s/api/v5/market/history-candles?instId=%s&bar=%s&limit=%d",
+        String url = String.format("%s/api/v5/market/history-candles?instId=%s&bar=%s&limit=%d" + (before != null ? "&before=" + before : ""),
                 API_BASE_URL, okxSymbol, okxInterval, limit);
 
         Request request = new Request.Builder().url(url).build();
@@ -96,9 +103,9 @@ public class OkxProvider implements DataProvider {
 
         try (Response response = client.newCall(request).execute()) {
             if (!response.isSuccessful() || response.body() == null) {
-                logger.error("Failed to fetch k-line data from OKX. Code: {}, Message: {}",
-                        response.code(), response.body() != null ? response.body().string() : "N/A");
-                return Collections.emptyList();
+                String errorBody = response.body() != null ? response.body().string() : "N/A";
+                logger.error("Failed to fetch k-line data from OKX. Code: {}, Message: {}", response.code(), errorBody);
+                throw new IOException("OKX API error: " + response.code() + " - " + errorBody);
             }
 
             String jsonBody = response.body().string();
@@ -108,24 +115,68 @@ public class OkxProvider implements DataProvider {
 
             List<KLine> klineDataList = new ArrayList<>();
             for (List<String> rawBar : rawData) {
-                // [ts, o, h, l, c, vol, volCcy, volCcyQuote, confirm]
                 klineDataList.add(new KLine(
                     Instant.ofEpochMilli(Long.parseLong(rawBar.get(0))),
-                    new BigDecimal(rawBar.get(1)), // open
-                    new BigDecimal(rawBar.get(2)), // high
-                    new BigDecimal(rawBar.get(3)), // low
-                    new BigDecimal(rawBar.get(4)), // close
-                    new BigDecimal(rawBar.get(5))  // vol (base currency volume)
+                    new BigDecimal(rawBar.get(1)), 
+                    new BigDecimal(rawBar.get(2)), 
+                    new BigDecimal(rawBar.get(3)), 
+                    new BigDecimal(rawBar.get(4)), 
+                    new BigDecimal(rawBar.get(5))
                 ));
             }
-            // OKX returns data in reverse chronological order (newest first)
             Collections.reverse(klineDataList);
             return klineDataList;
-
-        } catch (IOException e) {
-            logger.error("Network error while fetching k-line data for {} @ {}", symbol, timeframe, e);
-            return Collections.emptyList();
         }
+    }
+
+    public List<KLine> backfillHistoricalData(String symbol, String timeframe, long startTimeMillis) {
+        List<KLine> allData = new ArrayList<>();
+        Long currentBefore = null;
+        final int batchLimit = 100;
+
+        logger.info("Starting historical data backfill for {} @ {} from {}", symbol, timeframe, Instant.ofEpochMilli(startTimeMillis));
+
+        while (true) {
+            // [FIX] Add retry logic for network robustness
+            int retries = 3;
+            List<KLine> batch = null;
+            while (retries > 0) {
+                try {
+                    batch = getHistoricalData(symbol, timeframe, batchLimit, currentBefore);
+                    break;
+                } catch (IOException e) {
+                    retries--;
+                    logger.warn("Retry {}/3 for OKX backfill due to: {}. Retrying in 2s...", (3 - retries), e.getMessage());
+                    try { Thread.sleep(2000); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); break; }
+                }
+            }
+
+            if (batch == null || batch.isEmpty()) {
+                logger.info("Backfill complete. No more data returned or retries failed.");
+                break;
+            }
+
+            allData.addAll(0, batch);
+            currentBefore = batch.get(0).timestamp().toEpochMilli();
+
+            if (currentBefore <= startTimeMillis) {
+                logger.info("Backfill complete. Reached start time.");
+                break;
+            }
+            
+            // [FIX] Increased sleep duration
+            try {
+                Thread.sleep(500);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                logger.warn("OKX backfill process was interrupted.");
+                break;
+            }
+        }
+        
+        allData.removeIf(k -> k.timestamp().toEpochMilli() < startTimeMillis);
+        logger.info("Total historical klines backfilled for {} @ {}: {}", symbol, timeframe, allData.size());
+        return allData;
     }
 
     @Override
@@ -138,7 +189,6 @@ public class OkxProvider implements DataProvider {
         LiveDataManager.getInstance().unsubscribe(symbol, timeframe, onKLineUpdate);
     }
     
-    // Helper inner class for parsing the /public/instruments endpoint JSON
     private static class OkxInstrumentData {
         String instId;
         String baseCcy;

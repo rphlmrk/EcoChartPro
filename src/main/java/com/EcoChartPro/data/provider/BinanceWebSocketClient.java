@@ -18,7 +18,8 @@ import java.util.function.Consumer;
 public class BinanceWebSocketClient implements I_ExchangeWebSocketClient {
     private static final Logger logger = LoggerFactory.getLogger(BinanceWebSocketClient.class);
 
-    private static final String WEBSOCKET_BASE_URL = "wss://stream.binance.com:9443/ws/";
+    // [FIX] Corrected the base URL to remove the `/ws` path segment.
+    private static final String WEBSOCKET_BASE_URL = "wss://stream.binance.com:9443/";
     private static final long INITIAL_RECONNECT_DELAY_MS = 1000;
     private static final long MAX_RECONNECT_DELAY_MS = 30000;
 
@@ -71,7 +72,8 @@ public class BinanceWebSocketClient implements I_ExchangeWebSocketClient {
         state = ConnectionState.CONNECTING;
         try {
             String combinedStreams = String.join("/", activeSubscriptions);
-            URI serverUri = new URI(WEBSOCKET_BASE_URL + "../stream?streams=" + combinedStreams);
+            // [FIX] Construct the correct URI for combined streams, which is /stream?streams=...
+            URI serverUri = new URI(WEBSOCKET_BASE_URL + "stream?streams=" + combinedStreams);
             logger.info("Binance client connecting to: {}", serverUri);
 
             webSocketClient = new WebSocketClient(serverUri) {
@@ -93,7 +95,7 @@ public class BinanceWebSocketClient implements I_ExchangeWebSocketClient {
                 public void onClose(int code, String reason, boolean remote) {
                     logger.warn("Binance WebSocket closed. Code: {}, Reason: {}, Remote: {}", code, reason, remote);
                     state = ConnectionState.DISCONNECTED;
-                    if (state != ConnectionState.CLOSING) {
+                    if (state != ConnectionState.CLOSING) { // Enum comparison is safe
                         scheduleReconnect();
                     }
                 }

@@ -17,6 +17,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.swing.JDialog;
 import javax.swing.JFrame;
@@ -25,20 +26,28 @@ import javax.swing.SwingWorker;
 
 public class Main {
 
-    // IMPORTANT: logger must be initialized AFTER System.setProperty for log_dir
-    // For this reason, we will move its initialization later, or ensure the property is set before its first use.
-    // For simplicity, we'll keep the logger here, but ensure the property is set before its usage.
-    private static final Logger logger = LoggerFactory.getLogger(Main.class);
+    // [MODIFIED] Delay logger initialization
+    private static Logger logger;
+    // [NEW] Flag to prevent multiple initializations.
+    private static final AtomicBoolean hasInitialized = new AtomicBoolean(false);
+
 
     public static void main(String[] args) {
-        // [NEW] Configure Logback's log directory FIRST
+        // [NEW] Ensure this block runs only once.
+        if (hasInitialized.getAndSet(true)) {
+            System.out.println("Application already initialized. Ignoring subsequent main() call.");
+            return;
+        }
+
+        // Configure Logback's log directory FIRST
         AppDataManager.getLogDirectory().ifPresent(path -> {
             System.setProperty("ecochartpro.log.dir", path.toAbsolutePath().toString());
-            // This System.out is for critical early debugging, before logback is fully configured
             System.out.println("Set ecochartpro.log.dir to: " + path.toAbsolutePath());
         });
 
-        // [CRITICAL DEBUGGING STEP] This log message will now appear reliably.
+        // [MODIFIED] Initialize logger AFTER setting the property.
+        logger = LoggerFactory.getLogger(Main.class);
+
         logger.info("Application is running with Java from: {}", System.getProperty("java.home"));
 
         // shutdown hook to handle application restarts.
@@ -52,10 +61,9 @@ public class Main {
                 }
             } else {
                 logger.info("Application shutting down normally.");
-                // Ensure gamification and achievement states are saved on normal shutdown.
                 com.EcoChartPro.core.gamification.GamificationService.getInstance().saveState();
                 AchievementService.getInstance().saveState();
-                com.EcoChartPro.core.controller.ReplaySessionManager.getInstance().shutdown(); // <-- Add this line
+                com.EcoChartPro.core.controller.ReplaySessionManager.getInstance().shutdown();
             }
         }));
 
@@ -71,13 +79,9 @@ public class Main {
             logger.info("macOS detected. Configuring for screen menu bar.");
         }
 
-        // [FIX] Enable custom window decorations for FlatLaf.
-        // This is the CRITICAL step that allows custom components in the title bar.
-        // It must be called BEFORE the Look and Feel is set.
         JFrame.setDefaultLookAndFeelDecorated(true);
         JDialog.setDefaultLookAndFeelDecorated(true);
 
-        // Apply the theme from settings at startup. This sets the Look and Feel.
         ThemeManager.applyTheme(SettingsManager.getInstance().getCurrentTheme());
 
         PluginManager.getInstance();
@@ -85,10 +89,8 @@ public class Main {
         try {
             DataSourceManager.getInstance().scanDataDirectory();
             
-            // [NEW] Initialize the LiveDataManager with symbol mappings
             LiveDataManager.getInstance().initialize(DataSourceManager.getInstance().getAvailableSources());
 
-            // [NEW] Build the symbol progress cache on a background thread after scanning.
             new SwingWorker<Void, Void>() {
                 @Override
                 protected Void doInBackground() throws Exception {
@@ -108,10 +110,6 @@ public class Main {
         });
     }
 
-    /**
-     * method to handle restarting the application.
-     * This finds the java command and the application's classpath to relaunch itself.
-     */
     private static void restartApplication() throws IOException {
         String java = System.getProperty("java.home") + "/bin/java";
         String classpath = System.getProperty("java.class.path");

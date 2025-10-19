@@ -5,6 +5,7 @@ import com.EcoChartPro.api.indicator.drawing.DrawableObject;
 import com.EcoChartPro.core.indicator.IndicatorRunner.CalculationResult;
 import com.EcoChartPro.core.model.ChartDataModel;
 import com.EcoChartPro.model.KLine;
+import com.EcoChartPro.model.Timeframe;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -18,11 +19,10 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors; // [NEW] Import
+import java.util.stream.Collectors;
 
 public final class IndicatorManager {
     private static final Logger logger = LoggerFactory.getLogger(IndicatorManager.class);
-    // [MODIFIED] The manager now holds runners, which in turn hold the indicator and its state.
     private final Map<UUID, IndicatorRunner> activeIndicators = new ConcurrentHashMap<>();
     private final Map<UUID, List<IndicatorContext.DebugLogEntry>> debugData = new ConcurrentHashMap<>();
     private final PropertyChangeSupport pcs = new PropertyChangeSupport(this);
@@ -39,22 +39,35 @@ public final class IndicatorManager {
         pcs.removePropertyChangeListener(listener);
     }
 
-    public void addIndicator(Indicator indicator, ChartDataModel dataModel) { // [MODIFIED] Signature
+    public void addIndicator(Indicator indicator, ChartDataModel dataModel) {
         if (indicator != null) {
-            // [MODIFIED] Create and store an IndicatorRunner.
             IndicatorRunner runner = new IndicatorRunner(indicator, dataModel);
             activeIndicators.put(indicator.getId(), runner);
             logger.info("Added indicator: {} with settings {}", indicator.getName(), indicator.getSettings());
+
+            // [NEW] Pre-fetch HTF data for HTF Overlay if its required TF is higher than the current display TF.
+            if ("HTF Overlay".equals(indicator.getName())) {
+                Object htfSetting = indicator.getSettings().get("Higher Timeframe");
+                if (htfSetting instanceof String) {
+                    Timeframe htf = Timeframe.fromString((String) htfSetting);
+                    Timeframe displayTf = dataModel.getCurrentDisplayTimeframe();
+                    if (htf != null && displayTf != null && htf.duration().compareTo(displayTf.duration()) > 0) {
+                        logger.info("Pre-fetching data for HTF Overlay ({})...", htf.displayName());
+                        // This call will trigger the direct fetch and cache the data.
+                        dataModel.getResampledDataForView(htf);
+                    }
+                }
+            }
+
             pcs.firePropertyChange("indicatorAdded", null, indicator);
         }
     }
 
     public void removeIndicator(UUID id) {
-        // [MODIFIED] Retrieve the runner, call the hook, then remove.
         IndicatorRunner removedRunner = activeIndicators.remove(id);
         debugData.remove(id);
         if (removedRunner != null) {
-            removedRunner.onRemoved(); // Trigger lifecycle hook.
+            removedRunner.onRemoved(); 
             Indicator removedIndicator = removedRunner.getIndicator();
             logger.info("Removed indicator: {} (ID: {})", removedIndicator.getName(), id);
             pcs.firePropertyChange("indicatorRemoved", null, removedIndicator.getId());
@@ -62,10 +75,9 @@ public final class IndicatorManager {
     }
 
     public void updateIndicatorSettings(UUID id, Map<String, Object> newSettings) {
-        // [MODIFIED] Retrieve the runner and call its hook handler.
         IndicatorRunner runner = activeIndicators.get(id);
         if (runner != null) {
-            runner.onSettingsChanged(newSettings); // This calls the hook and updates settings internally.
+            runner.onSettingsChanged(newSettings); 
             Indicator indicator = runner.getIndicator();
             logger.info("Updating settings for indicator: {} (ID: {}). New settings: {}", indicator.getName(), id, newSettings);
             pcs.firePropertyChange("indicatorUpdated", null, indicator);
@@ -73,7 +85,6 @@ public final class IndicatorManager {
     }
 
     public void recalculateAll(ChartDataModel dataModel, List<KLine> dataSlice) {
-        // [MODIFIED] Iterate over runners.
         for (IndicatorRunner runner : activeIndicators.values()) {
             CalculationResult result = runner.recalculate(dataSlice);
             Indicator indicator = runner.getIndicator();
@@ -95,14 +106,12 @@ public final class IndicatorManager {
             IndicatorRunner existingRunner = existingRunnerOpt.get();
             Indicator existingIndicator = existingRunner.getIndicator();
             
-            // [MODIFIED] Create a new adapter with the *preserved UUID*.
             CustomIndicatorAdapter newAdapter = new CustomIndicatorAdapter(
                 existingIndicator.getId(), 
                 plugin, 
                 existingIndicator.getSettings()
             );
             
-            // Replace the old runner with a new one. This implicitly resets the state, which is correct for a hot-reload.
             activeIndicators.put(existingIndicator.getId(), new IndicatorRunner(newAdapter, dataModel));
             
             logger.info("Hot-reloaded indicator: {}", plugin.getName());
@@ -110,7 +119,6 @@ public final class IndicatorManager {
         } else {
             Map<String, Object> defaultSettings = new HashMap<>();
             plugin.getParameters().forEach(p -> defaultSettings.put(p.key(), p.defaultValue()));
-            // [MODIFIED] Call the updated addIndicator method.
             addIndicator(new CustomIndicatorAdapter(plugin, defaultSettings), dataModel);
         }
 
@@ -119,7 +127,6 @@ public final class IndicatorManager {
     }
 
     public List<Indicator> getIndicators() {
-        // [MODIFIED] Extract indicators from the runners.
         return activeIndicators.values().stream()
                 .map(IndicatorRunner::getIndicator)
                 .collect(Collectors.toList());
@@ -130,7 +137,6 @@ public final class IndicatorManager {
     }
 
     public void clearAllIndicators() {
-        // [MODIFIED] Call onRemoved for all indicators before clearing.
         activeIndicators.values().forEach(IndicatorRunner::onRemoved);
         activeIndicators.clear();
         debugData.clear();

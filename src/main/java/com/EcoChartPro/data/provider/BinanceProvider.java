@@ -118,13 +118,20 @@ public class BinanceProvider implements DataProvider {
 
     @Override
     public List<KLine> getHistoricalData(String symbol, String timeframe, int limit) {
-        return getHistoricalData(symbol, timeframe, limit, null, null);
+        // [FIX] Handle the declared IOException from the detailed getHistoricalData method.
+        try {
+            return getHistoricalData(symbol, timeframe, limit, null, null);
+        } catch (IOException e) {
+            logger.error("Network error while fetching data for {} @ {}", symbol, timeframe, e);
+            return Collections.emptyList();
+        }
     }
 
     /**
      * [MODIFIED] Fetches historical K-line records with optional time range parameters.
+     * This method now declares IOException to allow the caller (e.g., backfill logic) to implement retries.
      */
-    public List<KLine> getHistoricalData(String symbol, String timeframe, int limit, Long startTimeMillis, Long endTimeMillis) {
+    public List<KLine> getHistoricalData(String symbol, String timeframe, int limit, Long startTimeMillis, Long endTimeMillis) throws IOException {
         String binanceSymbol = BinanceDataUtils.toBinanceSymbol(symbol).toUpperCase();
         String binanceInterval = BinanceDataUtils.toBinanceInterval(timeframe);
         
@@ -143,9 +150,9 @@ public class BinanceProvider implements DataProvider {
 
         try (Response response = client.newCall(request).execute()) {
             if (!response.isSuccessful() || response.body() == null) {
-                logger.error("Failed to fetch data from Binance. Code: {}, Message: {}",
-                        response.code(), response.body() != null ? response.body().string() : "N/A");
-                return Collections.emptyList();
+                String errorBody = response.body() != null ? response.body().string() : "N/A";
+                logger.error("Failed to fetch data from Binance. Code: {}, Message: {}", response.code(), errorBody);
+                throw new IOException("Binance API error: " + response.code() + " - " + errorBody);
             }
 
             String jsonBody = response.body().string();
@@ -164,10 +171,6 @@ public class BinanceProvider implements DataProvider {
                 ));
             }
             return klineDataList;
-
-        } catch (IOException e) {
-            logger.error("Network error while fetching data for {} @ {}", symbol, timeframe, e);
-            return Collections.emptyList();
         }
     }
 
@@ -186,28 +189,36 @@ public class BinanceProvider implements DataProvider {
         logger.info("Starting historical data backfill for {} @ {} from {}", symbol, timeframe, Instant.ofEpochMilli(startTimeMillis));
 
         while (true) {
-            List<KLine> batch = getHistoricalData(symbol, timeframe, batchLimit, currentStartTime, null);
-            
+            int retries = 3;
+            List<KLine> batch = null;
+            while (retries > 0) {
+                try {
+                    batch = getHistoricalData(symbol, timeframe, batchLimit, currentStartTime, null);
+                    break; 
+                } catch (IOException e) {
+                    retries--;
+                    logger.warn("Retry {}/3 for backfill due to: {}. Retrying in 2s...", (3 - retries), e.getMessage());
+                    try { Thread.sleep(2000); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); break; }
+                }
+            }
+
             if (batch == null || batch.isEmpty()) {
-                logger.info("Backfill complete. No more data returned from API.");
+                logger.info("Backfill complete. No more data returned from API or retries failed.");
                 break;
             }
             
             allData.addAll(batch);
             
-            // Set the start time for the next batch to be right after the last candle we received.
             currentStartTime = batch.get(batch.size() - 1).timestamp().toEpochMilli() + 1;
             logger.debug("Fetched batch of {} candles. Next fetch starts at {}.", batch.size(), Instant.ofEpochMilli(currentStartTime));
 
-            // If we receive fewer candles than we asked for, it means we've reached the end of available history.
             if (batch.size() < batchLimit) {
                 logger.info("Backfill complete. Received last batch of data.");
                 break;
             }
 
-            // A small delay to respect API rate limits.
             try {
-                Thread.sleep(200);
+                Thread.sleep(500);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 logger.warn("Backfill process was interrupted.");
