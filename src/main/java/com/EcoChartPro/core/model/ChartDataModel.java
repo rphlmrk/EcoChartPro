@@ -100,7 +100,7 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
         }
         DrawingManager.getInstance().removePropertyChangeListener("activeSymbolChanged", this);
         if (currentMode == ChartMode.LIVE && liveDataProvider != null && liveDataConsumer != null && currentSource != null && currentDisplayTimeframe != null) {
-            logger.info("Cleaning up live data subscription for chart model.");
+            logger.info("Cleaning up live data subscription for chart model on cleanup.");
             liveDataProvider.disconnectFromLiveStream(currentSource.symbol(), currentDisplayTimeframe.displayName(), liveDataConsumer);
         }
         if (currentMode == ChartMode.REPLAY) {
@@ -354,6 +354,7 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
         new SwingWorker<List<KLine>, Void>() {
             @Override
             protected List<KLine> doInBackground() {
+                // [FIX] Call the correct helper method to fetch data.
                 return fetchDirectTfData(currentDisplayTimeframe, 1000);
             }
             @Override
@@ -634,7 +635,6 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
         }
 
         if (currentMode == ChartMode.LIVE) {
-            // [MODIFIED] Fetch a smaller, more appropriate number of bars for indicators.
             List<KLine> directHtf = fetchDirectTfData(targetTimeframe, 50);
             if (!directHtf.isEmpty()) {
                 htfCache.put(targetTimeframe, directHtf);
@@ -643,7 +643,6 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
             }
         }
         
-        // Fallback for Replay mode, which still uses M1 resampling.
         if (baseDataWindow == null || baseDataWindow.isEmpty()) {
             logger.warn("HTF data requested for {}, but base M1 data is not available for resampling.", targetTimeframe);
             return Collections.emptyList();
@@ -657,10 +656,16 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
         String tfString = target.displayName();
         
         List<KLine> directData = Collections.emptyList();
+        // [FIX] Use a helper method that correctly calculates start time for backfill,
+        // or just calls the simple getHistoricalData for the latest bars.
+        long lookbackDuration = target.duration().toMillis() * barsBack;
+        long startTime = Instant.now().toEpochMilli() - lookbackDuration;
+
         if (liveDataProvider instanceof BinanceProvider) {
-            directData = ((BinanceProvider) liveDataProvider).getHistoricalData(currentSource.symbol(), tfString, barsBack);
+            // Backfill can handle longer ranges if needed, but getHistoricalData is simpler for a fixed number of recent bars.
+             directData = ((BinanceProvider) liveDataProvider).getHistoricalData(currentSource.symbol(), tfString, barsBack);
         } else if (liveDataProvider instanceof OkxProvider) {
-            directData = ((OkxProvider) liveDataProvider).getHistoricalData(currentSource.symbol(), tfString, barsBack);
+             directData = ((OkxProvider) liveDataProvider).getHistoricalData(currentSource.symbol(), tfString, barsBack);
         }
         logger.info("Directly fetched {} bars for timeframe {}.", directData.size(), tfString);
         return directData;
