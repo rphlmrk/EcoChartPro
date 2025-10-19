@@ -2,11 +2,13 @@ package com.EcoChartPro.ui.action;
 
 import com.EcoChartPro.core.manager.UndoManager;
 import com.EcoChartPro.ui.MainWindow;
+import com.EcoChartPro.ui.dialogs.AboutDialog;
 
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
+import java.net.URI;
 
 /**
  * Manages the creation and assembly of the main application menu bar.
@@ -35,6 +37,7 @@ public class MenuBarManager {
         // and are added directly to the menu bar.
         menuBar.add(createInsightsMenuItem());
         menuBar.add(createProgressionMenuItem());
+        menuBar.add(createHelpMenu());
 
         // The final result uses the full menu bar
         return new MenuBarResult(menuBar, editMenuResult.undoMenuItem(), editMenuResult.redoMenuItem());
@@ -125,6 +128,33 @@ public class MenuBarManager {
         JMenuItem progressionMenuItem = new JMenuItem("Progression");
         progressionMenuItem.addActionListener(e -> owner.getUiManager().openAchievementsDialog());
         return progressionMenuItem;
+    }
+
+    private JMenu createHelpMenu() {
+        JMenu helpMenu = new JMenu("Help");
+    
+        JMenuItem aboutItem = new JMenuItem("About Eco Chart Pro");
+        aboutItem.addActionListener(e -> {
+            AboutDialog aboutDialog = new AboutDialog(owner);
+            aboutDialog.setVisible(true);
+        });
+        helpMenu.add(aboutItem);
+    
+        JMenuItem docsItem = new JMenuItem("View Documentation");
+        docsItem.addActionListener(e -> {
+            try {
+                if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
+                    Desktop.getDesktop().browse(new URI("https://github.com/rphlmrk/EcoChartPro"));
+                } else {
+                    JOptionPane.showMessageDialog(owner, "Could not open browser. Please visit:\nhttps://github.com/rphlmrk/EcoChartPro", "Browser Not Supported", JOptionPane.INFORMATION_MESSAGE);
+                }
+            } catch (Exception ex) {
+                JOptionPane.showMessageDialog(owner, "Error opening documentation link:\n" + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+            }
+        });
+        helpMenu.add(docsItem);
+    
+        return helpMenu;
     }
 
     private void showShortcutsDialog() {
