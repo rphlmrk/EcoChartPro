@@ -1,8 +1,7 @@
 package com.EcoChartPro.api.indicator.drawing;
 
-import com.EcoChartPro.model.drawing.DrawingObjectPoint;
-
 import java.awt.Color;
+import java.math.BigDecimal;
 
 /**
  * A public API record that describes a single line segment to be drawn on the chart.
@@ -18,4 +17,20 @@ public record DrawableLine(
     DataPoint end,
     Color color,
     float strokeWidth
-) implements DrawableObject {}
+) implements DrawableObject {
+
+    /**
+     * [NEW] A public API record that describes a horizontal line to be drawn across the chart at a specific price level.
+     *
+     * @param price       The price level for the horizontal line.
+     * @param color       The color of the line.
+     * @param strokeWidth The width of the line.
+     * @param isDashed    If true, the line will be rendered with a dashed pattern.
+     */
+    public record Horizontal(
+        BigDecimal price,
+        Color color,
+        float strokeWidth,
+        boolean isDashed
+    ) implements DrawableObject {}
+}

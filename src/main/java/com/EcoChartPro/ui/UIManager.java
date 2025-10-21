@@ -4,6 +4,7 @@ import com.EcoChartPro.core.state.ReplaySessionState;
 import com.EcoChartPro.core.trading.PaperTradingService;
 import com.EcoChartPro.ui.dialogs.AchievementsDialog;
 import com.EcoChartPro.ui.dialogs.InsightsDialog;
+import com.EcoChartPro.ui.dialogs.MarketplaceDialog;
 import com.EcoChartPro.ui.dialogs.PositionSizeCalculatorDialog;
 import com.EcoChartPro.ui.dialogs.SettingsDialog;
 import com.EcoChartPro.ui.editor.JavaEditorDialog;
@@ -20,6 +21,7 @@ public class UIManager {
     private PositionSizeCalculatorDialog positionSizeCalculatorDialog;
     private InsightsDialog insightsDialog; // Managed single instance
     private AchievementsDialog achievementsDialog;
+    private MarketplaceDialog marketplaceDialog; // [NEW]
 
     public UIManager(MainWindow owner) {
         this.owner = owner;
@@ -77,6 +79,18 @@ public class UIManager {
         achievementsDialog.toFront();
         achievementsDialog.requestFocus();
     }
+
+    /**
+     * [NEW] Opens the community marketplace dialog.
+     */
+    public void openMarketplaceDialog() {
+        if (marketplaceDialog == null || !marketplaceDialog.isDisplayable()) {
+            marketplaceDialog = new MarketplaceDialog(owner);
+        }
+        marketplaceDialog.setVisible(true);
+        marketplaceDialog.toFront();
+        marketplaceDialog.requestFocus();
+    }
     
     public void disposeDialogs() {
         if (javaEditorDialog != null) {
@@ -91,9 +105,11 @@ public class UIManager {
         if (insightsDialog != null) { // Dispose of the InsightsDialog as well
             insightsDialog.dispose();
         }
-        // Dispose of the achievements dialog as well
         if (achievementsDialog != null) {
             achievementsDialog.dispose();
+        }
+        if (marketplaceDialog != null) { // [NEW]
+            marketplaceDialog.dispose();
         }
     }
 }

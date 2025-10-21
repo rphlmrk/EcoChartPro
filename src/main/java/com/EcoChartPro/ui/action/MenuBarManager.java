@@ -33,13 +33,10 @@ public class MenuBarManager {
         menuBar.add(editMenuResult.menu());
         menuBar.add(createToolsMenu());
         
-        // FIX: The create methods now return JMenuItem instead of JMenu
-        // and are added directly to the menu bar.
         menuBar.add(createInsightsMenuItem());
         menuBar.add(createProgressionMenuItem());
         menuBar.add(createHelpMenu());
 
-        // The final result uses the full menu bar
         return new MenuBarResult(menuBar, editMenuResult.undoMenuItem(), editMenuResult.redoMenuItem());
     }
 
@@ -51,7 +48,6 @@ public class MenuBarManager {
             fileMenu.add(newSyncedWindowItem);
 
             JMenuItem saveSessionItem = new JMenuItem("Save Replay Session...");
-            // FIX: Pass the isReplayMode flag to the saveSessionWithUI method.
             saveSessionItem.addActionListener(e -> owner.getSessionController().saveSessionWithUI(owner, isReplayMode));
             fileMenu.add(saveSessionItem);
             fileMenu.addSeparator();
@@ -97,6 +93,13 @@ public class MenuBarManager {
         javaEditorItem.addActionListener(e -> owner.getUiManager().openJavaEditor());
         toolsMenu.add(javaEditorItem);
 
+        // [NEW] Add Marketplace menu item
+        JMenuItem marketplaceItem = new JMenuItem("Community Marketplace...");
+        marketplaceItem.addActionListener(e -> owner.getUiManager().openMarketplaceDialog());
+        toolsMenu.add(marketplaceItem);
+        
+        toolsMenu.addSeparator();
+
         JMenuItem calculatorItem = new JMenuItem("Position Size Calculator...");
         calculatorItem.addActionListener(e -> owner.getUiManager().openPositionSizeCalculator());
         toolsMenu.add(calculatorItem);
@@ -115,15 +118,13 @@ public class MenuBarManager {
         return toolsMenu;
     }
 
-    // FIX: Changed from JMenu to JMenuItem and added direct action listener.
     private JMenuItem createInsightsMenuItem() {
         JMenuItem insightsMenuItem = new JMenuItem("Insights");
-        insightsMenuItem.setEnabled(isReplayMode); // Only enable in replay mode
+        insightsMenuItem.setEnabled(isReplayMode);
         insightsMenuItem.addActionListener(e -> owner.getUiManager().openInsightsDialog());
         return insightsMenuItem;
     }
     
-    // FIX: Changed from JMenu to JMenuItem and added direct action listener.
     private JMenuItem createProgressionMenuItem() {
         JMenuItem progressionMenuItem = new JMenuItem("Progression");
         progressionMenuItem.addActionListener(e -> owner.getUiManager().openAchievementsDialog());

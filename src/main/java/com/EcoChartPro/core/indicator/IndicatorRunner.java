@@ -1,7 +1,6 @@
 package com.EcoChartPro.core.indicator;
 
 import com.EcoChartPro.api.indicator.ApiKLine;
-import com.EcoChartPro.api.indicator.CustomIndicator;
 import com.EcoChartPro.api.indicator.drawing.DrawableObject;
 import com.EcoChartPro.core.indicator.IndicatorContext.DebugLogEntry;
 import com.EcoChartPro.core.model.ChartDataModel;
@@ -32,6 +31,9 @@ public class IndicatorRunner {
     
     // The persistent state store for this indicator instance.
     private final Map<String, Object> stateStore = new HashMap<>();
+    
+    // [NEW] Flag to signal a state reset to the indicator
+    private boolean isResetNeeded = true;
 
 
     public record CalculationResult(List<DrawableObject> drawables, List<DebugLogEntry> debugLogs) {}
@@ -45,6 +47,7 @@ public class IndicatorRunner {
         this.indicator.reset();
         this.mtfCache.clear();
         this.stateStore.clear();
+        this.isResetNeeded = true;
     }
 
     public CalculationResult recalculate(List<KLine> dataSlice) {
@@ -69,13 +72,20 @@ public class IndicatorRunner {
             indicator.getSettings(),
             mtfDataProvider,
             loggerConsumer,
-            this.stateStore
+            this.stateStore,
+            this.isResetNeeded // Pass the reset flag
         );
 
         try {
             // Clear the MTF cache before every calculation to ensure fresh data
             mtfCache.clear();
             List<DrawableObject> drawables = indicator.calculate(context);
+            
+            // After a reset calculation, turn the flag off
+            if (this.isResetNeeded) {
+                this.isResetNeeded = false;
+            }
+
             return new CalculationResult(drawables, collectedLogs);
         } catch (Exception e) {
             logger.error("Error during calculation for indicator '{}'", indicator.getName(), e);
@@ -89,6 +99,7 @@ public class IndicatorRunner {
      */
     public void onSettingsChanged(Map<String, Object> newSettings) {
         indicator.setSettings(newSettings);
+        this.isResetNeeded = true; // [MODIFIED] Signal that a reset is required on next calculation.
         if (indicator instanceof CustomIndicatorAdapter adapter) {
             try {
                 adapter.getPlugin().onSettingsChanged(newSettings, this.stateStore);

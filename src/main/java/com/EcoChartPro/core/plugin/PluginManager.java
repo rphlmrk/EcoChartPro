@@ -21,12 +21,11 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.stream.Stream;
 
 /**
  * A singleton service that discovers and loads custom indicator plugins.
- * It scans a designated 'indicators' directory for JARs and a 'classes'
- * directory for .class files (from the in-app editor) at startup.
+ * It scans a designated 'indicators' directory for .java files, compiles them,
+ * and loads the resulting .class files from a 'classes' directory.
  */
 public final class PluginManager {
 
@@ -36,6 +35,7 @@ public final class PluginManager {
     private final List<CustomIndicator> loadedIndicators = new CopyOnWriteArrayList<>();
     private final PropertyChangeSupport pcs = new PropertyChangeSupport(this);
     private URLClassLoader pluginClassLoader;
+    private final JavaIndicatorCompiler compiler = new JavaIndicatorCompiler();
 
     private PluginManager() {
         scanAndLoadPlugins();
@@ -61,45 +61,17 @@ public final class PluginManager {
     }
 
     /**
-     * Scans all plugin locations (JARs and the classes directory) and loads
-     * any found indicators into a new ClassLoader.
+     * Scans, compiles, and loads all plugins from the designated directories.
      */
     private synchronized void scanAndLoadPlugins() {
+        // First, compile any new or modified .java files
+        compiler.compileIndicators();
+
         List<URL> pluginLocations = new ArrayList<>();
-
-        // 1. Scan for JARs in the 'indicators' directory
-        Optional<Path> indicatorsDirOpt = AppDataManager.getIndicatorsDirectory();
-        if (indicatorsDirOpt.isPresent()) {
-            logger.info("Scanning for JAR plugins in: {}", indicatorsDirOpt.get().toAbsolutePath());
-            try (Stream<Path> stream = Files.walk(indicatorsDirOpt.get(), 1)) {
-                stream
-                    .filter(path -> path.toString().toLowerCase().endsWith(".jar"))
-                    .forEach(jarPath -> {
-                        try {
-                            pluginLocations.add(jarPath.toUri().toURL());
-                        } catch (MalformedURLException e) {
-                            logger.warn("Could not convert path to URL: {}", jarPath, e);
-                        }
-                    });
-            } catch (IOException e) {
-                logger.error("Error while scanning for indicator JARs.", e);
-            }
-        }
-
-        // 2. Add the 'classes' directory (for live-compiled indicators) to the classpath
         Optional<Path> classesDirOpt = AppDataManager.getClassesDirectory();
-        if (classesDirOpt.isPresent() && Files.exists(classesDirOpt.get())) {
-            try {
-                pluginLocations.add(classesDirOpt.get().toUri().toURL());
-                logger.info("Added compiled classes directory to plugin path: {}", classesDirOpt.get().toAbsolutePath());
-            } catch (MalformedURLException e) {
-                 logger.error("Could not add classes directory to plugin path", e);
-            }
-        }
-        
-        if (pluginLocations.isEmpty()) {
-            logger.info("No plugin JARs or custom classes found.");
-            // Ensure list is clear if nothing is found
+
+        if (classesDirOpt.isEmpty() || !Files.exists(classesDirOpt.get())) {
+            logger.info("Plugin classes directory not found. No custom indicators to load.");
             if (!loadedIndicators.isEmpty()) {
                 loadedIndicators.clear();
                 pcs.firePropertyChange("pluginListChanged", null, getLoadedIndicators());
@@ -107,7 +79,15 @@ public final class PluginManager {
             return;
         }
 
-        // Close the old classloader if it exists, to release resources
+        try {
+            pluginLocations.add(classesDirOpt.get().toUri().toURL());
+            logger.info("Added compiled classes directory to plugin path: {}", classesDirOpt.get().toAbsolutePath());
+        } catch (MalformedURLException e) {
+             logger.error("Could not add classes directory to plugin path", e);
+             return;
+        }
+
+        // Close the old classloader to release file locks and allow for reloading.
         if (pluginClassLoader != null) {
             try {
                 pluginClassLoader.close();
@@ -116,8 +96,8 @@ public final class PluginManager {
                 logger.error("Error closing old plugin classloader.", e);
             }
         }
-        
-        // 3. Create ONE new class loader for ALL plugin locations.
+
+        // Create a new class loader for the 'classes' directory.
         pluginClassLoader = new URLClassLoader(pluginLocations.toArray(new URL[0]), getClass().getClassLoader());
 
         try (ScanResult scanResult = new ClassGraph()
@@ -126,12 +106,12 @@ public final class PluginManager {
                 .scan()) {
 
             ClassInfoList controlClasses = scanResult.getClassesImplementing(CustomIndicator.class.getName()).getStandardClasses();
-            
-            loadedIndicators.clear(); // Clear previous results before scan
+
+            loadedIndicators.clear(); // Clear previous results before loading new ones.
             controlClasses.loadClasses(CustomIndicator.class)
                     .forEach(implClass -> {
                         try {
-                            CustomIndicator indicator = (CustomIndicator) implClass.getConstructor().newInstance();
+                            CustomIndicator indicator = implClass.getConstructor().newInstance();
                             loadedIndicators.add(indicator);
                             logger.info("Successfully loaded custom indicator: '{}' from {}", indicator.getName(), implClass.getSimpleName());
                         } catch (Exception e) {
@@ -145,9 +125,9 @@ public final class PluginManager {
 
     /**
      * Provides a public method to trigger a full rescan of all plugin sources.
-     * This is called by the JavaEditorDialog after a successful compilation.
+     * This is called by the JavaEditorDialog after a successful compilation and by the Marketplace.
      */
-    public void rescanPlugins() {
+    public synchronized void rescanPlugins() {
         logger.info("Manual plugin rescan triggered.");
         scanAndLoadPlugins();
     }
