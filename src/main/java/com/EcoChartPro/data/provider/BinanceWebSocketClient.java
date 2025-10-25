@@ -45,6 +45,7 @@ public class BinanceWebSocketClient implements I_ExchangeWebSocketClient {
     private Consumer<String> reconnectHandler;
     private volatile boolean wasUnintentionalDisconnect = false;
     private volatile Set<String> activeSubscriptions = Set.of();
+    private volatile boolean needsReconnectAfterUpdate = false; // [FIX] Flag to manage update-driven reconnects
 
     @Override
     public void setMessageHandler(Consumer<String> messageHandler) {
@@ -62,6 +63,7 @@ public class BinanceWebSocketClient implements I_ExchangeWebSocketClient {
         logger.info("Updating Binance subscriptions. New set has {} streams. Triggering reconnect.", streamNames.size());
         
         if (webSocketClient != null && webSocketClient.isOpen()) {
+            needsReconnectAfterUpdate = true; // [FIX] Signal that this close requires a reconnect
             state = ConnectionState.CLOSING; // Signal intent to close for subscription update
             webSocketClient.close();
         } else {
@@ -77,8 +79,9 @@ public class BinanceWebSocketClient implements I_ExchangeWebSocketClient {
             webSocketClient.close();
         }
         stopPingTimer();
-        pingScheduler.shutdownNow();
+        // Shutdown schedulers to prevent any further reconnect attempts
         reconnectScheduler.shutdownNow();
+        pingScheduler.shutdownNow();
         logger.info("Binance WebSocket client explicitly disconnected and scheduler shut down.");
     }
     
@@ -120,13 +123,25 @@ public class BinanceWebSocketClient implements I_ExchangeWebSocketClient {
                 @Override
                 public void onClose(int code, String reason, boolean remote) {
                     logger.warn("Binance WebSocket closed. Code: {}, Reason: {}, Remote: {}", code, reason, remote);
-                    boolean shouldReconnect = (state != ConnectionState.CLOSING);
+                    
+                    // [FIX] Updated reconnect logic
+                    boolean isUpdateClose = needsReconnectAfterUpdate;
+                    boolean isPermanentClose = (state == ConnectionState.CLOSING && !isUpdateClose);
+                    
                     state = ConnectionState.DISCONNECTED;
                     stopPingTimer();
 
-                    if (shouldReconnect) {
-                        wasUnintentionalDisconnect = true;
+                    if (isUpdateClose) {
+                        needsReconnectAfterUpdate = false; // Reset the flag
+                        logger.info("Reconnecting after subscription update.");
                         scheduleReconnect();
+                    } else if (!isPermanentClose) {
+                        // This handles unintentional disconnects
+                        wasUnintentionalDisconnect = true;
+                        logger.info("Reconnecting after unintentional disconnect.");
+                        scheduleReconnect();
+                    } else {
+                        logger.info("Intentional disconnect. No reconnect scheduled.");
                     }
                 }
 

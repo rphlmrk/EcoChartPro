@@ -49,6 +49,7 @@ public class OkxWebSocketClient implements I_ExchangeWebSocketClient {
     private final Gson gson = new Gson();
     private final PropertyChangeSupport pcs = new PropertyChangeSupport(this);
     private long pingSentTimeNs = 0;
+    private volatile boolean needsReconnectAfterUpdate = false; // [FIX] Flag to manage update-driven reconnects
 
     @Override
     public void setMessageHandler(Consumer<String> messageHandler) {
@@ -66,6 +67,7 @@ public class OkxWebSocketClient implements I_ExchangeWebSocketClient {
         logger.info("Updating OKX subscriptions. New set has {} streams. Triggering reconnect.", streamNames.size());
         
         if (webSocketClient != null && webSocketClient.isOpen()) {
+            needsReconnectAfterUpdate = true; // [FIX] Signal that this close requires a reconnect
             state = ConnectionState.CLOSING; // Signal intent to close for subscription update
             webSocketClient.close();
         } else {
@@ -80,6 +82,7 @@ public class OkxWebSocketClient implements I_ExchangeWebSocketClient {
             state = ConnectionState.CLOSING;
             webSocketClient.close();
         }
+        // Shutdown schedulers to prevent any further reconnect attempts
         reconnectScheduler.shutdownNow();
         pingScheduler.shutdownNow();
         logger.info("OKX WebSocket client explicitly disconnected and schedulers shut down.");
@@ -128,12 +131,24 @@ public class OkxWebSocketClient implements I_ExchangeWebSocketClient {
                 public void onClose(int code, String reason, boolean remote) {
                     logger.warn("OKX WebSocket closed. Code: {}, Reason: {}, Remote: {}", code, reason, remote);
                     stopPingTimer();
-                    boolean shouldReconnect = (state != ConnectionState.CLOSING);
-                    state = ConnectionState.DISCONNECTED;
 
-                    if (shouldReconnect) {
-                        wasUnintentionalDisconnect = true;
+                    // [FIX] Updated reconnect logic
+                    boolean isUpdateClose = needsReconnectAfterUpdate;
+                    boolean isPermanentClose = (state == ConnectionState.CLOSING && !isUpdateClose);
+                    
+                    state = ConnectionState.DISCONNECTED;
+                    
+                    if (isUpdateClose) {
+                        needsReconnectAfterUpdate = false; // Reset the flag
+                        logger.info("Reconnecting after subscription update.");
                         scheduleReconnect();
+                    } else if (!isPermanentClose) {
+                        // This handles unintentional disconnects
+                        wasUnintentionalDisconnect = true;
+                        logger.info("Reconnecting after unintentional disconnect.");
+                        scheduleReconnect();
+                    } else {
+                        logger.info("Intentional disconnect. No reconnect scheduled.");
                     }
                 }
 
