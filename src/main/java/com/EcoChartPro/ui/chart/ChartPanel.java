@@ -269,15 +269,24 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
         this.isPriceSelectionMode = true;
         this.priceSelectionCallback = callback;
         setCursor(Cursor.getPredefinedCursor(Cursor.CROSSHAIR_CURSOR));
+        if (priceAxisPanel != null) {
+            priceAxisPanel.enterPriceSelectionMode(this);
+        }
     }
+
     public void exitPriceSelectionMode() {
         this.isPriceSelectionMode = false;
         this.priceSelectionCallback = null;
         setCursor(Cursor.getDefaultCursor());
+        if (priceAxisPanel != null) {
+            priceAxisPanel.exitPriceSelectionMode();
+        }
     }
+
     public boolean isPriceSelectionMode() {
         return isPriceSelectionMode;
     }
+
     public Consumer<BigDecimal> getPriceSelectionCallback() {
         return priceSelectionCallback;
     }

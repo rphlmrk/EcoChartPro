@@ -20,6 +20,7 @@ import com.EcoChartPro.model.drawing.RectangleObject;
 import com.EcoChartPro.model.drawing.Trendline;
 import com.EcoChartPro.model.trading.Order;
 import com.EcoChartPro.model.trading.Position;
+import com.EcoChartPro.ui.MainWindow;
 import com.EcoChartPro.ui.chart.axis.ChartAxis;
 
 import javax.swing.*;
@@ -38,6 +39,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 /**
@@ -51,6 +53,8 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
     private DrawingObjectPoint crosshairPoint;
     private final ChartInteractionManager interactionManager;
     private javax.swing.Timer repaintTimer;
+    private boolean isPriceSelectionMode = false;
+    private ChartPanel priceSelectionController;
 
     /**
      * A record to hold all necessary information for rendering a price label.
@@ -77,6 +81,18 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
         CrosshairManager.getInstance().addPropertyChangeListener("crosshairMoved", this);
         
         startRepaintTimer();
+    }
+
+    public void enterPriceSelectionMode(ChartPanel controller) {
+        this.isPriceSelectionMode = true;
+        this.priceSelectionController = controller;
+        setCursor(Cursor.getPredefinedCursor(Cursor.CROSSHAIR_CURSOR));
+    }
+
+    public void exitPriceSelectionMode() {
+        this.isPriceSelectionMode = false;
+        this.priceSelectionController = null;
+        setCursor(Cursor.getDefaultCursor());
     }
     
     private void startRepaintTimer() {
@@ -132,6 +148,17 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
             MouseAdapter mouseHandler = new MouseAdapter() {
                 @Override
                 public void mousePressed(MouseEvent e) {
+                    if (isPriceSelectionMode) {
+                        BigDecimal price = yAxis.yToPrice(e.getY());
+                        Consumer<BigDecimal> callback = priceSelectionController.getPriceSelectionCallback();
+                        if (price != null && callback != null) {
+                            callback.accept(price);
+                        }
+                        priceSelectionController.exitPriceSelectionMode();
+                        e.consume();
+                        return;
+                    }
+
                     if (interactionManager != null && SwingUtilities.isLeftMouseButton(e)) {
                         interactionManager.setAutoScalingY(false);
                         lastMousePoint = e.getPoint();
@@ -152,6 +179,19 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
                         JMenuItem invertItem = new JMenuItem("Invert Scale");
                         invertItem.addActionListener(evt -> interactionManager.toggleInvertY());
                         popupMenu.add(invertItem);
+
+                        popupMenu.addSeparator();
+
+                        JMenuItem calculatorItem = new JMenuItem("Position Size Calculator...");
+                        calculatorItem.addActionListener(evt -> {
+                            Frame owner = (Frame) SwingUtilities.getWindowAncestor(PriceScaleDrawer.this);
+                            if (owner instanceof MainWindow mainWindow) {
+                                BigDecimal clickedPrice = yAxis.yToPrice(e.getY());
+                                mainWindow.getUiManager().openPositionSizeCalculator(clickedPrice);
+                            }
+                        });
+                        popupMenu.add(calculatorItem);
+
                         popupMenu.show(PriceScaleDrawer.this, e.getX(), e.getY());
                     }
                 }

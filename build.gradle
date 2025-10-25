@@ -8,7 +8,7 @@ plugins {
 }
 
 group = 'com.EcoChartPro'
-version = '25.9.17'
+version = '25.12.2'
 
 repositories {
     mavenCentral()

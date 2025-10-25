@@ -170,6 +170,7 @@ public final class SettingsManager {
     private boolean autoJournalOnTradeClose;
     private boolean sessionHighlightingEnabled;
     private List<TradingSession> preferredTradingSessions;
+    private List<String> favoriteSymbols;
 
 
     private SettingsManager() {
@@ -317,6 +318,13 @@ public final class SettingsManager {
         String timeframesStr = properties.getProperty("tradeReplay.availableTimeframes", "1m,5m,15m");
         this.tradeReplayAvailableTimeframes = new ArrayList<>(Arrays.asList(timeframesStr.split(",")));
 
+        // Load favorite symbols
+        String favStr = properties.getProperty("favorite.symbols", "");
+        this.favoriteSymbols = new ArrayList<>();
+        if (!favStr.isBlank()) {
+            this.favoriteSymbols.addAll(Arrays.asList(favStr.split(",")));
+        }
+
         for (TradingSession session : TradingSession.values()) {
             sessionEnabled.put(session, Boolean.parseBoolean(properties.getProperty("session." + session.name() + ".enabled", "true")));
         }
@@ -416,6 +424,9 @@ public final class SettingsManager {
 
                 // Save trade replay timeframes
                 properties.setProperty("tradeReplay.availableTimeframes", String.join(",", this.tradeReplayAvailableTimeframes));
+
+                // Save favorite symbols
+                properties.setProperty("favorite.symbols", String.join(",", this.favoriteSymbols));
 
                 for (TradingSession session : TradingSession.values()) {
                     properties.setProperty("session." + session.name() + ".enabled", String.valueOf(sessionEnabled.get(session)));
@@ -889,6 +900,27 @@ public final class SettingsManager {
             this.sessionHighlightingEnabled = enabled;
             saveSettings();
             pcs.firePropertyChange("sessionHighlightingChanged", oldVal, this.sessionHighlightingEnabled);
+        }
+    }
+
+    // --- NEW: Methods for managing favorite symbols ---
+    public List<String> getFavoriteSymbols() {
+        return Collections.unmodifiableList(favoriteSymbols);
+    }
+    public boolean isFavoriteSymbol(String symbol) {
+        return favoriteSymbols.contains(symbol);
+    }
+    public void addFavoriteSymbol(String symbol) {
+        if (!favoriteSymbols.contains(symbol)) {
+            favoriteSymbols.add(symbol);
+            saveSettings();
+            pcs.firePropertyChange("favoritesChanged", null, null);
+        }
+    }
+    public void removeFavoriteSymbol(String symbol) {
+        if (favoriteSymbols.remove(symbol)) {
+            saveSettings();
+            pcs.firePropertyChange("favoritesChanged", null, null);
         }
     }
 

@@ -8,6 +8,7 @@ import com.EcoChartPro.ui.dialogs.MarketplaceDialog;
 import com.EcoChartPro.ui.dialogs.PositionSizeCalculatorDialog;
 import com.EcoChartPro.ui.dialogs.SettingsDialog;
 import com.EcoChartPro.ui.editor.JavaEditorDialog;
+import java.math.BigDecimal;
 import javax.swing.*;
 
 /**
@@ -37,8 +38,15 @@ public class UIManager {
     }
 
     public void openPositionSizeCalculator() {
+        openPositionSizeCalculator(null);
+    }
+
+    public void openPositionSizeCalculator(BigDecimal initialPrice) {
         if (positionSizeCalculatorDialog == null || !positionSizeCalculatorDialog.isDisplayable()) {
             positionSizeCalculatorDialog = new PositionSizeCalculatorDialog(owner);
+        }
+        if (initialPrice != null) {
+            positionSizeCalculatorDialog.setEntryPrice(initialPrice);
         }
         positionSizeCalculatorDialog.setVisible(true);
         positionSizeCalculatorDialog.toFront();

@@ -1,5 +1,8 @@
 package com.EcoChartPro.ui.dialogs;
 
+import com.EcoChartPro.ui.MainWindow;
+import com.EcoChartPro.ui.chart.ChartPanel;
+
 import javax.swing.*;
 import javax.swing.border.TitledBorder;
 import javax.swing.event.DocumentEvent;
@@ -8,6 +11,7 @@ import java.awt.*;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.text.NumberFormat;
+import java.util.function.Consumer;
 
 /**
  * A dialog window that provides a tool for calculating position size
@@ -35,6 +39,7 @@ public class PositionSizeCalculatorDialog extends JDialog {
 
     public PositionSizeCalculatorDialog(Frame owner) {
         super(owner, "Position Size Calculator", true); // Modal dialog
+        final MainWindow mainWindow = (owner instanceof MainWindow) ? (MainWindow) owner : null;
 
         // --- UI Setup ---
         JPanel mainPanel = new JPanel(new GridBagLayout());
@@ -85,9 +90,31 @@ public class PositionSizeCalculatorDialog extends JDialog {
 
         entryPriceField.setColumns(12);
         stopLossPriceField.setColumns(12);
+
+        JButton selectEntryButton = new JButton("...");
+        selectEntryButton.setMargin(new Insets(1, 4, 1, 4));
+        selectEntryButton.setToolTipText("Select Entry Price from Chart");
+        JPanel entryPricePanel = new JPanel(new BorderLayout(4, 0));
+        entryPricePanel.add(entryPriceField, BorderLayout.CENTER);
+        entryPricePanel.add(selectEntryButton, BorderLayout.EAST);
+
+        JButton selectStopButton = new JButton("...");
+        selectStopButton.setMargin(new Insets(1, 4, 1, 4));
+        selectStopButton.setToolTipText("Select Stop-Loss Price from Chart");
+        JPanel stopLossPanel = new JPanel(new BorderLayout(4, 0));
+        stopLossPanel.add(stopLossPriceField, BorderLayout.CENTER);
+        stopLossPanel.add(selectStopButton, BorderLayout.EAST);
         
-        addLabelAndComponent(levelsPanel, new JLabel("Entry Price:"), entryPriceField, 0);
-        addLabelAndComponent(levelsPanel, new JLabel("Stop-Loss Price:"), stopLossPriceField, 1);
+        if (mainWindow != null) {
+            selectEntryButton.addActionListener(e -> selectPriceFromChart(mainWindow, entryPriceField));
+            selectStopButton.addActionListener(e -> selectPriceFromChart(mainWindow, stopLossPriceField));
+        } else {
+            selectEntryButton.setEnabled(false);
+            selectStopButton.setEnabled(false);
+        }
+
+        addLabelAndComponent(levelsPanel, new JLabel("Entry Price:"), entryPricePanel, 0);
+        addLabelAndComponent(levelsPanel, new JLabel("Stop-Loss Price:"), stopLossPanel, 1);
         
         gbc.gridy = 1;
         mainPanel.add(levelsPanel, gbc);
@@ -138,6 +165,42 @@ public class PositionSizeCalculatorDialog extends JDialog {
         pack();
         setLocationRelativeTo(owner);
         setResizable(false);
+    }
+
+    /**
+     * Public method to set the entry price field from an external source.
+     * @param price The price to set.
+     */
+    public void setEntryPrice(BigDecimal price) {
+        if (price != null) {
+            entryPriceField.setValue(price);
+        }
+    }
+    
+    /**
+     * Hides the dialog, enters price selection mode on the chart, and sets up a callback
+     * to populate the target field with the selected price.
+     * @param mainWindow The main application window to find the active chart.
+     * @param targetField The text field to update with the selected price.
+     */
+    private void selectPriceFromChart(MainWindow mainWindow, JFormattedTextField targetField) {
+        setVisible(false);
+        ChartPanel chartPanel = mainWindow.getActiveChartPanel();
+        if (chartPanel != null) {
+            chartPanel.enterPriceSelectionMode(price -> {
+                // This callback runs when a price is selected from the chart
+                SwingUtilities.invokeLater(() -> {
+                    targetField.setValue(price);
+                    setVisible(true);
+                    toFront();
+                    requestFocusInWindow();
+                });
+            });
+        } else {
+            // If no chart is available, show the dialog again with an error message.
+            setVisible(true);
+            JOptionPane.showMessageDialog(this, "No active chart to select a price from.", "Error", JOptionPane.ERROR_MESSAGE);
+        }
     }
     
     /**

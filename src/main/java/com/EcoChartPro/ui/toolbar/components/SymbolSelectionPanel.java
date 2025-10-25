@@ -1,5 +1,7 @@
 package com.EcoChartPro.ui.toolbar.components;
 
+import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.ui.dashboard.theme.UITheme;
 import com.EcoChartPro.utils.DataSourceManager.ChartDataSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -13,6 +15,8 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.beans.PropertyChangeEvent;
+import java.beans.PropertyChangeListener;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Vector;
@@ -23,18 +27,19 @@ import java.util.stream.Collectors;
  * For live charting, it provides a searchable and filterable list of all available data sources.
  * For replay mode, it shows local files with their backtesting progress.
  */
-public class SymbolSelectionPanel extends JPanel {
+public class SymbolSelectionPanel extends JPanel implements PropertyChangeListener {
 
     private static final Logger logger = LoggerFactory.getLogger(SymbolSelectionPanel.class);
     private final EventListenerList listenerList = new EventListenerList();
     private final List<SymbolProgressCache.SymbolProgressInfo> fullDataList;
     private final DefaultListModel<SymbolProgressCache.SymbolProgressInfo> listModel = new DefaultListModel<>();
+    private final JList<SymbolProgressCache.SymbolProgressInfo> suggestionsList;
     private final boolean isReplayMode;
     
     // UI components for filtering
     private final JTextField searchField;
-    // [FIX] Replaced JComboBox with a ButtonGroup to manage toggle buttons for a stable UI.
     private final ButtonGroup providerButtonGroup = new ButtonGroup();
+    private final JToggleButton favoritesToggle;
 
     public SymbolSelectionPanel(boolean isReplayMode) {
         this.isReplayMode = isReplayMode;
@@ -54,15 +59,24 @@ public class SymbolSelectionPanel extends JPanel {
 
         // 2. UI Components
         searchField = createSearchField();
-        JList<SymbolProgressCache.SymbolProgressInfo> suggestionsList = createSuggestionsList();
+        suggestionsList = createSuggestionsList();
 
-        JPanel topPanel = new JPanel(new BorderLayout());
+        JPanel topPanel = new JPanel(new BorderLayout(0, 5));
+        topPanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
         topPanel.add(searchField, BorderLayout.CENTER);
-        // Only show the provider filter when not in replay mode
-        if (!isReplayMode) {
-            JPanel providerFilterPanel = createProviderFilterPanel();
-            topPanel.add(providerFilterPanel, BorderLayout.NORTH);
-        }
+        
+        JPanel filterPanel = new JPanel(new BorderLayout());
+        JPanel providerFilterPanel = createProviderFilterPanel();
+        filterPanel.add(providerFilterPanel, BorderLayout.CENTER);
+
+        favoritesToggle = new JToggleButton("Favorites ★", false);
+        favoritesToggle.setMargin(new Insets(2, 5, 2, 5));
+        favoritesToggle.addActionListener(e -> filterList());
+        JPanel favoritesPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        favoritesPanel.add(favoritesToggle);
+        filterPanel.add(favoritesPanel, BorderLayout.WEST);
+
+        topPanel.add(filterPanel, BorderLayout.SOUTH);
 
         JScrollPane scrollPane = new JScrollPane(suggestionsList);
         scrollPane.setBorder(null);
@@ -70,16 +84,28 @@ public class SymbolSelectionPanel extends JPanel {
         add(topPanel, BorderLayout.NORTH);
         add(scrollPane, BorderLayout.CENTER);
         setPreferredSize(new Dimension(300, 350));
+        
+        SettingsManager.getInstance().addPropertyChangeListener("favoritesChanged", this);
     }
 
+    @Override
+    public void propertyChange(PropertyChangeEvent evt) {
+        if ("favoritesChanged".equals(evt.getPropertyName())) {
+            // Repaint the list to update the star icons
+            suggestionsList.repaint();
+            // If the favorites filter is on, we need to re-apply it
+            if (favoritesToggle.isSelected()) {
+                filterList();
+            }
+        }
+    }
+    
     /**
      * [NEW] Creates a panel with toggle buttons for filtering by exchange/provider.
      * This replaces the flickering JComboBox.
      */
     private JPanel createProviderFilterPanel() {
-        JPanel panel = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 2));
-        panel.setBorder(BorderFactory.createTitledBorder(
-            BorderFactory.createEmptyBorder(5, 5, 0, 5), "Exchange"));
+        JPanel panel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 2, 2));
 
         // Add the "All" button first and select it
         JToggleButton allButton = new JToggleButton("All", true);
@@ -112,7 +138,7 @@ public class SymbolSelectionPanel extends JPanel {
         field.setBackground(UIManager.getColor("TextField.background"));
         field.setForeground(UIManager.getColor("TextField.foreground"));
         field.setBorder(BorderFactory.createTitledBorder(
-            BorderFactory.createEmptyBorder(5, 5, 5, 5), "Search Symbol"));
+            BorderFactory.createEmptyBorder(0, 0, 0, 0), "Search Symbol"));
 
         field.getDocument().addDocumentListener(new DocumentListener() {
             @Override public void insertUpdate(DocumentEvent e) { filterList(); }
@@ -125,15 +151,17 @@ public class SymbolSelectionPanel extends JPanel {
     private void filterList() {
         String searchText = searchField.getText().toLowerCase().trim();
         
-        // [FIX] Get the selected provider from the button group's selection model.
         ButtonModel selectedModel = providerButtonGroup.getSelection();
         String selectedProvider = (selectedModel != null) ? selectedModel.getActionCommand() : "All";
+        boolean showOnlyFavorites = favoritesToggle.isSelected();
+        SettingsManager sm = SettingsManager.getInstance();
 
         List<SymbolProgressCache.SymbolProgressInfo> filtered = fullDataList.stream()
                 .filter(info -> {
+                    boolean matchesFavorites = !showOnlyFavorites || sm.isFavoriteSymbol(info.source().symbol());
                     boolean matchesProvider = "All".equals(selectedProvider) || selectedProvider.equals(info.source().providerName());
                     boolean matchesSearch = info.source().displayName().toLowerCase().contains(searchText);
-                    return matchesProvider && matchesSearch;
+                    return matchesFavorites && matchesProvider && matchesSearch;
                 })
                 .collect(Collectors.toList());
         
@@ -142,23 +170,42 @@ public class SymbolSelectionPanel extends JPanel {
     }
 
     private JList<SymbolProgressCache.SymbolProgressInfo> createSuggestionsList() {
-        JList<SymbolProgressCache.SymbolProgressInfo> suggestionsList = new JList<>(listModel);
-        suggestionsList.setCellRenderer(new SymbolProgressRenderer(this.isReplayMode));
-        suggestionsList.setBackground(UIManager.getColor("List.background"));
-        suggestionsList.setSelectionBackground(UIManager.getColor("List.selectionBackground"));
+        JList<SymbolProgressCache.SymbolProgressInfo> list = new JList<>(listModel);
+        list.setCellRenderer(new SymbolProgressRenderer(this.isReplayMode));
+        list.setBackground(UIManager.getColor("List.background"));
+        list.setSelectionBackground(UIManager.getColor("List.selectionBackground"));
 
-        suggestionsList.addMouseListener(new MouseAdapter() {
+        list.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
-                if (e.getClickCount() == 1) {
-                    SymbolProgressCache.SymbolProgressInfo selected = suggestionsList.getSelectedValue();
-                    if (selected != null) {
-                        fireActionPerformed(selected.source());
+                int index = list.locationToIndex(e.getPoint());
+                if (index == -1) return;
+
+                SymbolProgressCache.SymbolProgressInfo info = list.getModel().getElementAt(index);
+                if (info == null) return;
+                
+                // Define the clickable area for the star icon (at the start of the cell)
+                Rectangle starBounds = new Rectangle(5, 5, 24, 24);
+                Rectangle cellBounds = list.getCellBounds(index, index);
+                Point relativeClick = new Point(e.getX() - cellBounds.x, e.getY() - cellBounds.y);
+
+                // Check if the click was on the star
+                if (starBounds.contains(relativeClick)) {
+                    SettingsManager sm = SettingsManager.getInstance();
+                    String symbol = info.source().symbol();
+                    if (sm.isFavoriteSymbol(symbol)) {
+                        sm.removeFavoriteSymbol(symbol);
+                    } else {
+                        sm.addFavoriteSymbol(symbol);
                     }
+                    e.consume(); // Prevent the list selection from changing
+                } else {
+                    // Regular click on the item
+                    fireActionPerformed(info.source());
                 }
             }
         });
-        return suggestionsList;
+        return list;
     }
 
     public void addActionListener(ActionListener l) {
@@ -180,12 +227,16 @@ public class SymbolSelectionPanel extends JPanel {
     }
 
     /**
-     * Inner class for rendering the JList items with a progress bar.
+     * Inner class for rendering the JList items with a progress bar and favorite star.
      */
     private static class SymbolProgressRenderer extends JPanel implements ListCellRenderer<SymbolProgressCache.SymbolProgressInfo> {
         private final JLabel label = new JLabel();
+        private final JLabel starLabel = new JLabel();
         private final JProgressBar progressBar = new JProgressBar(0, 100);
         private final boolean isReplayMode;
+
+        private static final Icon STAR_FILLED = UITheme.getIcon(UITheme.Icons.STAR_FILLED, 16, 16, new Color(255, 193, 7));
+        private static final Icon STAR_EMPTY = UITheme.getIcon(UITheme.Icons.STAR_EMPTY, 16, 16, UIManager.getColor("Label.disabledForeground"));
 
         SymbolProgressRenderer(boolean isReplayMode) {
             this.isReplayMode = isReplayMode;
@@ -196,7 +247,10 @@ public class SymbolSelectionPanel extends JPanel {
             label.setFont(UIManager.getFont("List.font"));
             progressBar.setStringPainted(true);
             progressBar.setPreferredSize(new Dimension(80, progressBar.getPreferredSize().height));
+            
+            starLabel.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 5));
 
+            add(starLabel, BorderLayout.WEST);
             add(label, BorderLayout.CENTER);
             add(progressBar, BorderLayout.EAST);
         }
@@ -204,6 +258,10 @@ public class SymbolSelectionPanel extends JPanel {
         @Override
         public Component getListCellRendererComponent(JList<? extends SymbolProgressCache.SymbolProgressInfo> list, SymbolProgressCache.SymbolProgressInfo value, int index, boolean isSelected, boolean cellHasFocus) {
             label.setText(value.source().displayName());
+            
+            boolean isFavorite = SettingsManager.getInstance().isFavoriteSymbol(value.source().symbol());
+            starLabel.setIcon(isFavorite ? STAR_FILLED : STAR_EMPTY);
+            starLabel.setToolTipText(isFavorite ? "Remove from Favorites" : "Add to Favorites");
             
             if (isReplayMode) {
                 progressBar.setValue(value.progressPercent());

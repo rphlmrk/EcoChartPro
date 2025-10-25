@@ -26,8 +26,10 @@ public final class UITheme {
         public static final String SOL = "/icons/sol.svg";
         public static final String SEARCH = "/icons/search.svg";
         public static final String CHECKMARK = "/icons/checkmark.svg";
+        public static final String STAR_FILLED = "/icons/star-filled.svg"; 
+        public static final String STAR_EMPTY = "/icons/star-empty.svg"; 
         public static final String INFO = "/icons/info.svg";
-        public static final String INFO_CURSOR = "/icons/infocursor.svg"; // NEW ICON
+        public static final String INFO_CURSOR = "/icons/infocursor.svg"; 
         public static final String JUMP_TO = "/icons/jumpto.svg";
         public static final String INDICATORS = "/icons/function.svg";
         public static final String REFRESH = "/icons/refresh.svg";
@@ -49,7 +51,7 @@ public final class UITheme {
         public static final String PROTECTED_LEVEL = "/icons/protected-level.svg";
         public static final String FIB_RETRACEMENT = "/icons/fib-retracement.svg";
         public static final String FIB_EXTENSION = "/icons/fib-extension.svg";
-        public static final String TEMPLATE = "/icons/template.svg"; // New Icon
+        public static final String TEMPLATE = "/icons/template.svg";
 
         // --- Editor & API ---
         public static final String SCRIPT_JS = "/icons/js.svg";
@@ -59,7 +61,7 @@ public final class UITheme {
         public static final String API_FIELD = "/icons/field.svg";
         public static final String NEW_FILE = "/icons/new-file.svg";
         public static final String SAVE = "/icons/save.svg";
-        public static final String EXPORT = "/icons/export.svg"; // NEW ICON
+        public static final String EXPORT = "/icons/export.svg"; 
         public static final String DELETE = "/icons/delete.svg";
         public static final String APPLY = "/icons/checkmark.svg";
         public static final String FOLDER = "/icons/folder.svg";

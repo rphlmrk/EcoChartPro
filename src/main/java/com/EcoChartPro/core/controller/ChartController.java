@@ -68,7 +68,9 @@ public class ChartController {
 
                 if (view.isPriceSelectionMode()) {
                     BigDecimal price = view.getChartAxis().yToPrice(e.getY());
-                    if (price != null && view.getPriceSelectionCallback() != null) view.getPriceSelectionCallback().accept(price);
+                    if (price != null && view.getPriceSelectionCallback() != null) {
+                        view.getPriceSelectionCallback().accept(price);
+                    }
                     view.exitPriceSelectionMode();
                     e.consume();
                     return;

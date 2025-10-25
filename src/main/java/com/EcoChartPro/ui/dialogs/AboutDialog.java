@@ -81,7 +81,7 @@ public class AboutDialog extends JDialog {
 
         buttonsPanel.add(createLinkButton("Visit Website", "https://github.com/rphlmrk/EcoChartPro"));
         buttonsPanel.add(createLinkButton("View Release Notes", "https://github.com/rphlmrk/EcoChartPro/releases"));
-        buttonsPanel.add(createLinkButton("Check for Updates", e -> JOptionPane.showMessageDialog(this, "You are running the latest version: 25.9.17", "Update Check", JOptionPane.INFORMATION_MESSAGE)));
+        buttonsPanel.add(createLinkButton("Check for Updates", e -> JOptionPane.showMessageDialog(this, "You are running the latest version: 25.12.2", "Update Check", JOptionPane.INFORMATION_MESSAGE)));
 
         rightPanel.add(titleLabel);
         rightPanel.add(Box.createVerticalStrut(20));
@@ -106,7 +106,7 @@ public class AboutDialog extends JDialog {
         infoGbc.insets = new Insets(4, 0, 4, 10);
         infoGbc.anchor = GridBagConstraints.WEST;
 
-        String version = "25.9.17";
+        String version = "25.12.2";
 
         infoGbc.gridx = 0; infoGbc.gridy = 0; infoPanel.add(new JLabel("Version:"), infoGbc);
         infoGbc.gridx = 1; infoPanel.add(new JLabel(version), infoGbc);
