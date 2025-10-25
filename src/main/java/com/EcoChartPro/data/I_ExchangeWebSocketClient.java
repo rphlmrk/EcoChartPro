@@ -1,5 +1,6 @@
 package com.EcoChartPro.data;
 
+import java.beans.PropertyChangeListener;
 import java.util.Set;
 import java.util.function.Consumer;
 
@@ -28,4 +29,24 @@ public interface I_ExchangeWebSocketClient {
      * @param messageHandler A consumer that accepts the raw JSON string message.
      */
     void setMessageHandler(Consumer<String> messageHandler);
+
+    /**
+     * [NEW] Sets the handler that will be invoked when the client successfully reconnects
+     * after an unintentional disconnection.
+     *
+     * @param reconnectHandler A consumer that accepts the exchange name.
+     */
+    void setReconnectHandler(Consumer<String> reconnectHandler);
+
+    /**
+     * [NEW] Adds a property change listener to the client.
+     * @param listener The listener to add.
+     */
+    void addPropertyChangeListener(PropertyChangeListener listener);
+
+    /**
+     * [NEW] Removes a property change listener from the client.
+     * @param listener The listener to remove.
+     */
+    void removePropertyChangeListener(PropertyChangeListener listener);
 }

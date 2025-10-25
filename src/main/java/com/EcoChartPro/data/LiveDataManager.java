@@ -1,9 +1,7 @@
 package com.EcoChartPro.data;
 
-import com.EcoChartPro.data.provider.BinanceDataUtils;
-import com.EcoChartPro.data.provider.BinanceWebSocketClient;
-import com.EcoChartPro.data.provider.OkxDataUtils;
-import com.EcoChartPro.data.provider.OkxWebSocketClient;
+import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.data.provider.*;
 import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.utils.DataSourceManager;
 import com.google.gson.JsonArray;
@@ -13,8 +11,11 @@ import com.google.gson.JsonParser;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.beans.PropertyChangeListener;
+import java.beans.PropertyChangeSupport;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -32,11 +33,17 @@ import java.util.stream.Collectors;
 public class LiveDataManager {
     private static final Logger logger = LoggerFactory.getLogger(LiveDataManager.class);
     private static final LiveDataManager INSTANCE = new LiveDataManager();
+    private static final long RECONNECT_GAP_THRESHOLD_MS = 120_000; // 2 minutes
 
     private final Map<String, I_ExchangeWebSocketClient> exchangeClients = new ConcurrentHashMap<>();
     private final Map<String, String> symbolToExchangeMap = new ConcurrentHashMap<>();
     private final Set<String> activeSubscriptions = ConcurrentHashMap.newKeySet();
-    private final ConcurrentMap<String, List<Consumer<KLine>>> subscribers = new ConcurrentHashMap<>();
+
+    private record SubscriptionInfo(String symbol, String timeframe, Consumer<KLine> callback) {}
+    private final ConcurrentMap<String, List<SubscriptionInfo>> subscribers = new ConcurrentHashMap<>();
+    private final Map<String, Long> lastKLineTimestampPerStream = new ConcurrentHashMap<>();
+    private final PropertyChangeSupport pcs = new PropertyChangeSupport(this); // For latency events
+
 
     private LiveDataManager() {}
 
@@ -62,7 +69,8 @@ public class LiveDataManager {
         }
 
         String streamName = buildStreamName(symbol, timeframe, exchange);
-        subscribers.computeIfAbsent(streamName, k -> new CopyOnWriteArrayList<>()).add(onKLineUpdate);
+        SubscriptionInfo subInfo = new SubscriptionInfo(symbol, timeframe, onKLineUpdate);
+        subscribers.computeIfAbsent(streamName, k -> new CopyOnWriteArrayList<>()).add(subInfo);
 
         if (activeSubscriptions.add(streamName)) {
             logger.info("New subscription added: {}. Total active: {}. Updating {} client.", streamName, activeSubscriptions.size(), exchange);
@@ -78,12 +86,13 @@ public class LiveDataManager {
         }
         
         String streamName = buildStreamName(symbol, timeframe, exchange);
-        List<Consumer<KLine>> streamSubscribers = subscribers.get(streamName);
+        List<SubscriptionInfo> streamSubscribers = subscribers.get(streamName);
         
         if (streamSubscribers != null) {
-            streamSubscribers.remove(onKLineUpdate);
+            streamSubscribers.removeIf(subInfo -> subInfo.callback().equals(onKLineUpdate));
             if (streamSubscribers.isEmpty()) {
                 subscribers.remove(streamName);
+                lastKLineTimestampPerStream.remove(streamName);
                 if (activeSubscriptions.remove(streamName)) {
                     logger.info("Last subscriber for {} removed. Total active: {}. Updating {} client.", streamName, activeSubscriptions.size(), exchange);
                     updateClientSubscriptions(exchange);
@@ -109,14 +118,21 @@ public class LiveDataManager {
             case "Binance":
                 client = new BinanceWebSocketClient();
                 client.setMessageHandler(message -> this.handleStreamMessage(message, "Binance"));
+                client.setReconnectHandler(this::handleReconnect);
                 break;
             case "OKX":
                 client = new OkxWebSocketClient();
                 client.setMessageHandler(message -> this.handleStreamMessage(message, "OKX"));
+                client.setReconnectHandler(this::handleReconnect);
                 break;
             default:
                 throw new IllegalArgumentException("No WebSocket client implementation for exchange: " + exchange);
         }
+        client.addPropertyChangeListener(evt -> {
+            if ("latencyMeasured".equals(evt.getPropertyName())) {
+                pcs.firePropertyChange("realLatencyUpdated", null, evt.getNewValue());
+            }
+        });
         return client;
     }
     
@@ -143,7 +159,7 @@ public class LiveDataManager {
 
         if (!"kline".equals(eventType)) return;
 
-        List<Consumer<KLine>> streamSubscribers = subscribers.get(streamName);
+        List<SubscriptionInfo> streamSubscribers = subscribers.get(streamName);
         if (streamSubscribers == null || streamSubscribers.isEmpty()) return;
 
         JsonObject klineJson = data.getAsJsonObject("k");
@@ -155,9 +171,11 @@ public class LiveDataManager {
                 new BigDecimal(klineJson.get("c").getAsString()),
                 new BigDecimal(klineJson.get("v").getAsString())
         );
+        
+        lastKLineTimestampPerStream.put(streamName, kline.timestamp().toEpochMilli());
 
-        for (Consumer<KLine> consumer : streamSubscribers) {
-            consumer.accept(kline);
+        for (SubscriptionInfo subInfo : streamSubscribers) {
+            subInfo.callback().accept(kline);
         }
     }
     
@@ -173,14 +191,14 @@ public class LiveDataManager {
         String instId = arg.get("instId").getAsString();
         String streamName = String.format("%s:%s", channel, instId);
 
-        List<Consumer<KLine>> streamSubscribers = subscribers.get(streamName);
+        List<SubscriptionInfo> streamSubscribers = subscribers.get(streamName);
         if (streamSubscribers == null || streamSubscribers.isEmpty()) return;
 
         JsonArray dataArray = root.getAsJsonArray("data");
         for (JsonElement candleElement : dataArray) {
             JsonArray rawBar = candleElement.getAsJsonArray();
             KLine kline = new KLine(
-                Instant.ofEpochMilli(rawBar.get(0).getAsLong()),
+                Instant.ofEpochMilli(Long.parseLong(rawBar.get(0).getAsString())),
                 new BigDecimal(rawBar.get(1).getAsString()), 
                 new BigDecimal(rawBar.get(2).getAsString()), 
                 new BigDecimal(rawBar.get(3).getAsString()), 
@@ -188,8 +206,68 @@ public class LiveDataManager {
                 new BigDecimal(rawBar.get(5).getAsString())
             );
 
-            for (Consumer<KLine> consumer : streamSubscribers) {
-                consumer.accept(kline);
+            lastKLineTimestampPerStream.put(streamName, kline.timestamp().toEpochMilli());
+
+            for (SubscriptionInfo subInfo : streamSubscribers) {
+                subInfo.callback().accept(kline);
+            }
+        }
+    }
+    
+    private synchronized void handleReconnect(String exchange) {
+        logger.info("Reconnect detected for {}. Checking for data gaps to backfill...", exchange);
+
+        DataProvider provider;
+        switch (exchange) {
+            case "Binance": provider = new BinanceProvider(); break;
+            case "OKX": provider = new OkxProvider(); break;
+            default: logger.error("Cannot backfill for unknown exchange: {}", exchange); return;
+        }
+
+        Set<String> streamsToCheck = activeSubscriptions.stream()
+                .filter(stream -> getExchangeForStream(stream).equals(exchange))
+                .collect(Collectors.toSet());
+
+        for (String streamName : streamsToCheck) {
+            Long lastTimestamp = lastKLineTimestampPerStream.get(streamName);
+            List<SubscriptionInfo> subs = subscribers.get(streamName);
+
+            if (lastTimestamp != null && subs != null && !subs.isEmpty() && (Instant.now().toEpochMilli() - lastTimestamp > RECONNECT_GAP_THRESHOLD_MS)) {
+                SubscriptionInfo subInfo = subs.get(0);
+                String symbol = subInfo.symbol();
+                String timeframe = subInfo.timeframe();
+                
+                logger.info("Significant data gap detected for stream {}. Last data at {}. Attempting backfill.",
+                        streamName, Instant.ofEpochMilli(lastTimestamp));
+                
+                new Thread(() -> {
+                    try {
+                        List<KLine> backfilledData = new ArrayList<>();
+                        if (provider instanceof BinanceProvider bp) {
+                            backfilledData = bp.backfillHistoricalData(symbol, timeframe, lastTimestamp);
+                        } else if (provider instanceof OkxProvider op) {
+                            backfilledData = op.backfillHistoricalDataForward(symbol, timeframe, lastTimestamp);
+                        }
+                        
+                        if (!backfilledData.isEmpty()) {
+                            logger.info("Successfully backfilled {} candles for {}. Dispatching to subscribers.",
+                                    backfilledData.size(), streamName);
+                            List<SubscriptionInfo> currentSubscribers = subscribers.get(streamName);
+                            if (currentSubscribers != null) {
+                                for (KLine kline : backfilledData) {
+                                    lastKLineTimestampPerStream.put(streamName, kline.timestamp().toEpochMilli());
+                                    for (SubscriptionInfo s : currentSubscribers) {
+                                        s.callback().accept(kline);
+                                    }
+                                }
+                            }
+                        } else {
+                            logger.info("Backfill for {} returned no new data.", streamName);
+                        }
+                    } catch (Exception e) {
+                        logger.error("Error during backfill for stream {}", streamName, e);
+                    }
+                }, "Backfill-" + streamName).start();
             }
         }
     }
@@ -217,5 +295,13 @@ public class LiveDataManager {
             default:
                 throw new IllegalArgumentException("Cannot build stream name for unknown exchange: " + exchange);
         }
+    }
+
+    public void addPropertyChangeListener(String propertyName, PropertyChangeListener listener) {
+        pcs.addPropertyChangeListener(propertyName, listener);
+    }
+
+    public void removePropertyChangeListener(String propertyName, PropertyChangeListener listener) {
+        pcs.removePropertyChangeListener(propertyName, listener);
     }
 }

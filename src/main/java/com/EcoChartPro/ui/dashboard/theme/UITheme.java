@@ -35,6 +35,10 @@ public final class UITheme {
         public static final String REFRESH = "/icons/refresh.svg";
         public static final String HELP = "/icons/help.svg";
         public static final String ERROR_CIRCLE = "/icons/error-circle.svg";
+        // [NEW] Network status icons
+        public static final String WIFI_ON = "/icons/wifi-on.svg";
+        public static final String WIFI_OFF = "/icons/wifi-off.svg";
+
 
         // --- Drawing Tools ---
         public static final String TRENDLINE = "/icons/trendline.svg";

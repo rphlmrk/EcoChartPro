@@ -7,6 +7,8 @@ import org.java_websocket.handshake.ServerHandshake;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.beans.PropertyChangeListener;
+import java.beans.PropertyChangeSupport;
 import java.net.URI;
 import java.util.List;
 import java.util.Map;
@@ -23,7 +25,7 @@ import java.util.stream.Collectors;
 public class OkxWebSocketClient implements I_ExchangeWebSocketClient {
     private static final Logger logger = LoggerFactory.getLogger(OkxWebSocketClient.class);
 
-    private static final String WEBSOCKET_URL = "wss://ws.okx.com:8443/ws/v5/public";
+    private static final String WEBSOCKET_URL = "wss://ws.okx.com:8443/ws/v5/business";
     private static final long PING_INTERVAL_SECONDS = 25;
     private static final long INITIAL_RECONNECT_DELAY_MS = 1000;
     private static final long MAX_RECONNECT_DELAY_MS = 30000;
@@ -38,12 +40,21 @@ public class OkxWebSocketClient implements I_ExchangeWebSocketClient {
 
     private final AtomicLong reconnectDelayMs = new AtomicLong(INITIAL_RECONNECT_DELAY_MS);
     private Consumer<String> messageHandler;
+    private Consumer<String> reconnectHandler;
+    private volatile boolean wasUnintentionalDisconnect = false;
     private volatile Set<String> activeSubscriptions = Set.of();
     private final Gson gson = new Gson();
+    private final PropertyChangeSupport pcs = new PropertyChangeSupport(this);
+    private long pingSentTimeNs = 0;
 
     @Override
     public void setMessageHandler(Consumer<String> messageHandler) {
         this.messageHandler = messageHandler;
+    }
+
+    @Override
+    public void setReconnectHandler(Consumer<String> reconnectHandler) {
+        this.reconnectHandler = reconnectHandler;
     }
 
     @Override
@@ -94,12 +105,23 @@ public class OkxWebSocketClient implements I_ExchangeWebSocketClient {
                     reconnectDelayMs.set(INITIAL_RECONNECT_DELAY_MS);
                     sendSubscriptionRequest();
                     startPingTimer();
+                    if (wasUnintentionalDisconnect && reconnectHandler != null) {
+                        logger.info("Detected reconnect after unintentional disconnect. Triggering handler.");
+                        reconnectHandler.accept("OKX");
+                    }
+                    wasUnintentionalDisconnect = false; // Reset flag
                 }
 
                 @Override
                 public void onMessage(String msg) {
                     if ("pong".equals(msg)) {
                         logger.trace("OKX WebSocket pong received.");
+                        if (pingSentTimeNs > 0) {
+                            long durationNs = System.nanoTime() - pingSentTimeNs;
+                            long latencyMs = TimeUnit.NANOSECONDS.toMillis(durationNs);
+                            pcs.firePropertyChange("latencyMeasured", null, latencyMs);
+                            pingSentTimeNs = 0; // Reset after measurement
+                        }
                         return;
                     }
                     if (messageHandler != null) {
@@ -110,9 +132,12 @@ public class OkxWebSocketClient implements I_ExchangeWebSocketClient {
                 @Override
                 public void onClose(int code, String reason, boolean remote) {
                     logger.warn("OKX WebSocket closed. Code: {}, Reason: {}, Remote: {}", code, reason, remote);
+                    boolean shouldReconnect = (state != ConnectionState.CLOSING);
                     state = ConnectionState.DISCONNECTED;
                     stopPingTimer();
-                    if (state != ConnectionState.CLOSING) {
+                    
+                    if (shouldReconnect) {
+                        wasUnintentionalDisconnect = true;
                         scheduleReconnect();
                     }
                 }
@@ -148,6 +173,7 @@ public class OkxWebSocketClient implements I_ExchangeWebSocketClient {
         }
         pingTask = pingScheduler.scheduleAtFixedRate(() -> {
             if (webSocketClient != null && webSocketClient.isOpen()) {
+                pingSentTimeNs = System.nanoTime(); // Record time before sending
                 webSocketClient.send("ping");
                 logger.trace("Sent OKX WebSocket ping.");
             }
@@ -173,5 +199,15 @@ public class OkxWebSocketClient implements I_ExchangeWebSocketClient {
         } catch (RejectedExecutionException e) {
             logger.warn("OKX reconnect scheduling failed. Scheduler may be shutting down.");
         }
+    }
+
+    @Override
+    public void addPropertyChangeListener(PropertyChangeListener listener) {
+        pcs.addPropertyChangeListener(listener);
+    }
+
+    @Override
+    public void removePropertyChangeListener(PropertyChangeListener listener) {
+        pcs.removePropertyChangeListener(listener);
     }
 }

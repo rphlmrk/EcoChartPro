@@ -18,7 +18,7 @@ public class MenuBarManager {
     private final MainWindow owner;
     private final boolean isReplayMode;
 
-    public record MenuBarResult(JComponent menu, JMenuItem undoMenuItem, JMenuItem redoMenuItem) {}
+    public record MenuBarResult(JComponent menu, JMenuItem undoMenuItem, JMenuItem redoMenuItem, JLabel connectivityStatusLabel, JLabel latencyLabel) {}
 
     public MenuBarManager(MainWindow owner, boolean isReplayMode) {
         this.owner = owner;
@@ -37,7 +37,21 @@ public class MenuBarManager {
         menuBar.add(createProgressionMenuItem());
         menuBar.add(createHelpMenu());
 
-        return new MenuBarResult(menuBar, editMenuResult.undoMenuItem(), editMenuResult.redoMenuItem());
+        // --- NEW: Add status components to the right ---
+        menuBar.add(Box.createHorizontalGlue());
+
+        JLabel connectivityStatusLabel = new JLabel();
+        connectivityStatusLabel.setToolTipText("Internet Connection Status");
+        connectivityStatusLabel.setBorder(BorderFactory.createEmptyBorder(0, 5, 0, 5));
+        menuBar.add(connectivityStatusLabel);
+
+        JLabel latencyLabel = new JLabel("-- ms");
+        latencyLabel.setToolTipText("Data Latency");
+        latencyLabel.setBorder(BorderFactory.createEmptyBorder(0, 5, 0, 10));
+        menuBar.add(latencyLabel);
+        // --- END NEW ---
+
+        return new MenuBarResult(menuBar, editMenuResult.undoMenuItem(), editMenuResult.redoMenuItem(), connectivityStatusLabel, latencyLabel);
     }
 
     private JMenu createFileMenu() {
@@ -84,7 +98,7 @@ public class MenuBarManager {
         redoMenuItem.addActionListener(e -> UndoManager.getInstance().redo());
         editMenu.add(redoMenuItem);
 
-        return new MenuBarResult(editMenu, undoMenuItem, redoMenuItem);
+        return new MenuBarResult(editMenu, undoMenuItem, redoMenuItem, null, null); // Keep this return for backward compatibility inside this class
     }
 
     private JMenu createToolsMenu() {
@@ -93,7 +107,6 @@ public class MenuBarManager {
         javaEditorItem.addActionListener(e -> owner.getUiManager().openJavaEditor());
         toolsMenu.add(javaEditorItem);
 
-        // [NEW] Add Marketplace menu item
         JMenuItem marketplaceItem = new JMenuItem("Community Marketplace...");
         marketplaceItem.addActionListener(e -> owner.getUiManager().openMarketplaceDialog());
         toolsMenu.add(marketplaceItem);

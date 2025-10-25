@@ -158,7 +158,6 @@ public class PaperTradingService implements TradingService {
             allSymbolStates.put(symbol, symbolState);
         }
         
-        // [FIX] Ensure the activeSymbol from ReplaySessionManager is used, as it's the source of truth
         String lastActiveSymbol = (activeSessionType == SessionType.REPLAY) ? rsm.getActiveSymbol() : context.activeSymbol;
 
         return new ReplaySessionState(
@@ -272,7 +271,7 @@ public class PaperTradingService implements TradingService {
             }
 
             if (newStopLoss != null) {
-                modifyOrder(position.id(), null, newStopLoss, position.takeProfit(), position.trailingStopDistance());
+                modifyOrderInternal(position.id(), null, newStopLoss, position.takeProfit(), position.trailingStopDistance());
                 logger.info("Position {} SL for symbol {} trailed to {}", position.id(), symbol, newStopLoss.toPlainString());
             }
         });
@@ -316,6 +315,10 @@ public class PaperTradingService implements TradingService {
 
     @Override
     public void placeOrder(Order order, KLine currentBar) {
+        placeOrderInternal(order, currentBar);
+    }
+
+    private synchronized void placeOrderInternal(Order order, KLine currentBar) {
         String symbol = order.symbol().name();
         
         if (order.type() == OrderType.MARKET) {
@@ -402,6 +405,10 @@ public class PaperTradingService implements TradingService {
 
     @Override
     public void modifyOrder(UUID orderId, BigDecimal newPrice, BigDecimal newStopLoss, BigDecimal newTakeProfit, BigDecimal newTrailingStopDistance) {
+        modifyOrderInternal(orderId, newPrice, newStopLoss, newTakeProfit, newTrailingStopDistance);
+    }
+
+    private synchronized void modifyOrderInternal(UUID orderId, BigDecimal newPrice, BigDecimal newStopLoss, BigDecimal newTakeProfit, BigDecimal newTrailingStopDistance) {
         // Find which symbol the order/position belongs to
         Optional<String> symbolOpt = findSymbolForTradable(orderId);
         if (symbolOpt.isEmpty()) {
@@ -489,6 +496,10 @@ public class PaperTradingService implements TradingService {
 
     @Override
     public void cancelOrder(UUID orderId) {
+        cancelOrderInternal(orderId);
+    }
+
+    private synchronized void cancelOrderInternal(UUID orderId) {
         findSymbolForTradable(orderId).ifPresent(symbol -> {
             if (getActiveContext().pendingOrdersBySymbol.get(symbol).remove(orderId) != null) {
                 logger.info("Cancelled pending order {} for symbol {}", orderId, symbol);
@@ -499,6 +510,10 @@ public class PaperTradingService implements TradingService {
 
     @Override
     public void closePosition(UUID positionId, KLine closingBar) {
+        closePositionInternal(positionId, closingBar);
+    }
+
+    private synchronized void closePositionInternal(UUID positionId, KLine closingBar) {
         Optional<Position> positionOpt = findPositionById(positionId);
         if (positionOpt.isEmpty()) return;
         

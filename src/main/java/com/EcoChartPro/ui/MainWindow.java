@@ -10,9 +10,11 @@ import com.EcoChartPro.core.indicator.Indicator;
 import com.EcoChartPro.core.manager.DrawingManager;
 import com.EcoChartPro.core.manager.UndoManager;
 import com.EcoChartPro.core.model.ChartDataModel;
+import com.EcoChartPro.core.service.InternetConnectivityService;
 import com.EcoChartPro.core.settings.SettingsManager;
 import com.EcoChartPro.core.state.ReplaySessionState;
 import com.EcoChartPro.core.trading.PaperTradingService;
+import com.EcoChartPro.data.LiveDataManager;
 import com.EcoChartPro.model.Timeframe;
 import com.EcoChartPro.model.Trade;
 import com.EcoChartPro.model.TradeDirection;
@@ -25,6 +27,7 @@ import com.EcoChartPro.ui.chart.ChartPanel;
 import com.EcoChartPro.ui.components.CustomColorChooserPanel;
 import com.EcoChartPro.ui.components.OnFireStreakWidget;
 import com.EcoChartPro.ui.components.StopTradingNudgeWidget;
+import com.EcoChartPro.ui.dashboard.theme.UITheme;
 import com.EcoChartPro.ui.sidebar.TradingSidebarPanel;
 import com.EcoChartPro.ui.toolbar.ChartToolbarPanel;
 import com.EcoChartPro.ui.toolbar.FloatingDrawingToolbar;
@@ -71,6 +74,9 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
     private JMenuItem undoMenuItem;
     private JMenuItem redoMenuItem;
     private final boolean isReplayMode;
+    // [NEW] Menu bar status labels
+    private final JLabel connectivityStatusLabel;
+    private final JLabel latencyLabel;
 
     public MainWindow(boolean isReplayMode) {
         super("Eco Chart Pro");
@@ -97,6 +103,8 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
         setJMenuBar((JMenuBar) menuResult.menu());
         this.undoMenuItem = menuResult.undoMenuItem();
         this.redoMenuItem = menuResult.redoMenuItem();
+        this.connectivityStatusLabel = menuResult.connectivityStatusLabel();
+        this.latencyLabel = menuResult.latencyLabel();
 
         // --- Add trading buttons to the top panel for Live Mode ---
         JPanel northPanel = new JPanel(new BorderLayout());
@@ -146,6 +154,7 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
         
         setupPropertiesToolbarActions();
         updateUndoRedoState();
+        updateConnectivityStatus(InternetConnectivityService.getInstance().isConnected());
         
         this.keyboardShortcutManager = new KeyboardShortcutManager(rootPanel, this);
         this.keyboardShortcutManager.setup();
@@ -205,6 +214,8 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
         
         LiveSessionTrackerService.getInstance().addPropertyChangeListener(this);
         PaperTradingService.getInstance().addPropertyChangeListener(this);
+        InternetConnectivityService.getInstance().addPropertyChangeListener(this);
+        LiveDataManager.getInstance().addPropertyChangeListener("realLatencyUpdated", this);
     }
 
     private void cleanupResources() {
@@ -221,6 +232,8 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
         UndoManager.getInstance().removePropertyChangeListener(this);
         LiveSessionTrackerService.getInstance().removePropertyChangeListener(this);
         PaperTradingService.getInstance().removePropertyChangeListener(this);
+        InternetConnectivityService.getInstance().removePropertyChangeListener(this);
+        LiveDataManager.getInstance().removePropertyChangeListener("realLatencyUpdated", this);
 
         uiManager.disposeDialogs();
         titleBarManager.dispose();
@@ -282,8 +295,34 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
                         launchJournalDialogForTrade(closedTrade);
                     }
                     break;
+                case "connectivityChanged":
+                    updateConnectivityStatus((boolean) evt.getNewValue());
+                    break;
+                case "realLatencyUpdated":
+                    if (evt.getNewValue() instanceof Long newLatency) {
+                        latencyLabel.setText(newLatency + " ms");
+                        if (newLatency < 100) {
+                            latencyLabel.setForeground(javax.swing.UIManager.getColor("app.color.positive"));
+                        } else if (newLatency < 300) {
+                            latencyLabel.setForeground(javax.swing.UIManager.getColor("app.trading.pending")); // Amber/Orange
+                        } else {
+                            latencyLabel.setForeground(javax.swing.UIManager.getColor("app.color.negative"));
+                        }
+                    }
+                    break;
             }
         });
+    }
+
+    private void updateConnectivityStatus(boolean isConnected) {
+        if (isConnected) {
+            connectivityStatusLabel.setIcon(UITheme.getIcon(UITheme.Icons.WIFI_ON, 16, 16, javax.swing.UIManager.getColor("app.color.positive")));
+        } else {
+            connectivityStatusLabel.setIcon(UITheme.getIcon(UITheme.Icons.WIFI_OFF, 16, 16, javax.swing.UIManager.getColor("app.color.negative")));
+            // Reset latency display on disconnect
+            latencyLabel.setText("-- ms");
+            latencyLabel.setForeground(javax.swing.UIManager.getColor("Label.foreground"));
+        }
     }
 
     private void launchJournalDialogForTrade(Trade trade) {
@@ -429,11 +468,6 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
     public TitleBarManager getTitleBarManager() { return titleBarManager; }
     public DatabaseManager getActiveDbManager() { return activeDbManager; }
 
-    /**
-     * [NEW] Provides the currently selected data source from the main toolbar.
-     * This is used by WorkspaceManager to initialize new chart panels.
-     * @return The currently selected ChartDataSource, or null.
-     */
     public ChartDataSource getCurrentSource() {
         return topToolbarPanel.getSelectedDataSource();
     }

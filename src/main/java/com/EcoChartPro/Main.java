@@ -2,6 +2,7 @@ package com.EcoChartPro;
 
 import com.EcoChartPro.core.gamification.AchievementService;
 import com.EcoChartPro.core.plugin.PluginManager;
+import com.EcoChartPro.core.service.InternetConnectivityService;
 import com.EcoChartPro.core.settings.SettingsManager;
 import com.EcoChartPro.core.theme.ThemeManager;
 import com.EcoChartPro.data.LiveDataManager;
@@ -26,14 +27,11 @@ import javax.swing.SwingWorker;
 
 public class Main {
 
-    // [MODIFIED] Delay logger initialization
     private static Logger logger;
-    // [NEW] Flag to prevent multiple initializations.
     private static final AtomicBoolean hasInitialized = new AtomicBoolean(false);
 
 
     public static void main(String[] args) {
-        // [NEW] Ensure this block runs only once.
         if (hasInitialized.getAndSet(true)) {
             System.out.println("Application already initialized. Ignoring subsequent main() call.");
             return;
@@ -45,7 +43,6 @@ public class Main {
             System.out.println("Set ecochartpro.log.dir to: " + path.toAbsolutePath());
         });
 
-        // [MODIFIED] Initialize logger AFTER setting the property.
         logger = LoggerFactory.getLogger(Main.class);
 
         logger.info("Application is running with Java from: {}", System.getProperty("java.home"));
@@ -64,6 +61,7 @@ public class Main {
                 com.EcoChartPro.core.gamification.GamificationService.getInstance().saveState();
                 AchievementService.getInstance().saveState();
                 com.EcoChartPro.core.controller.ReplaySessionManager.getInstance().shutdown();
+                InternetConnectivityService.getInstance().stop(); // [NEW] Stop the service on shutdown
             }
         }));
 
@@ -85,6 +83,9 @@ public class Main {
         ThemeManager.applyTheme(SettingsManager.getInstance().getCurrentTheme());
 
         PluginManager.getInstance();
+
+        // [NEW] Start the internet connectivity checker
+        InternetConnectivityService.getInstance().start();
 
         try {
             DataSourceManager.getInstance().scanDataDirectory();
