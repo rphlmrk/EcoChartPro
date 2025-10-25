@@ -61,12 +61,11 @@ public class ReplayViewPanel extends JPanel {
         return reportView;
     }
     
-    public void updateReportWithSession(ReplaySessionState state) {
+    public void updateData(ReplaySessionState state) {
         if (state == null || state.symbolStates() == null || state.symbolStates().isEmpty()) {
             return;
         }
 
-        // [FIXED] Consolidate all trades from all symbols in the session
         List<Trade> allTradesInSession = state.symbolStates().values().stream()
             .flatMap(symbolState -> {
                 if (symbolState.tradeHistory() != null) {
@@ -222,8 +221,7 @@ public class ReplayViewPanel extends JPanel {
                     dialog.getLeverage()
                 );
             } else { // LIVE_PAPER_TRADING
-                // This branch is now unlikely to be hit due to the context-aware dialog
-                SessionController.getInstance().startLiveSession(
+                SessionController.getInstance().startNewLiveSession(
                     dialog.getSelectedDataSource(),
                     dialog.getStartingBalance(),
                     dialog.getLeverage()

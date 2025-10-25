@@ -46,6 +46,7 @@ import java.util.Optional;
 import java.util.Random;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 public class ComprehensiveReportPanel extends JPanel implements Scrollable, PropertyChangeListener {
     private static final Logger logger = LoggerFactory.getLogger(ComprehensiveReportPanel.class);

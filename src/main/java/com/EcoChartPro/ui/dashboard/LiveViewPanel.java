@@ -1,17 +1,25 @@
 package com.EcoChartPro.ui.dashboard;
 
 import com.EcoChartPro.core.controller.SessionController;
+import com.EcoChartPro.core.state.ReplaySessionState;
 import com.EcoChartPro.ui.dashboard.components.FloatingToolbarPanel;
 import com.EcoChartPro.ui.dialogs.SessionDialog;
+import com.EcoChartPro.utils.SessionManager;
 
 import javax.swing.*;
 import java.awt.*;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.io.File;
+import java.io.IOException;
 
 public class LiveViewPanel extends JPanel {
 
     private final ComprehensiveReportPanel reportPanel;
+    private JButton resumeLiveButton;
+    private JButton newLiveButton;
 
     public LiveViewPanel() {
         setOpaque(false);
@@ -30,10 +38,24 @@ public class LiveViewPanel extends JPanel {
         add(scrollPane, BorderLayout.CENTER);
 
         add(createBottomToolbar(), BorderLayout.SOUTH);
+
+        // Add a component listener to update button states when the panel is shown
+        addComponentListener(new ComponentAdapter() {
+            @Override
+            public void componentShown(ComponentEvent e) {
+                updateButtonStates();
+            }
+        });
     }
 
     public ComprehensiveReportPanel getReportPanel() {
         return reportPanel;
+    }
+
+    private void updateButtonStates() {
+        boolean liveSessionExists = SessionManager.getInstance().getLiveAutoSaveFilePath().map(File::exists).orElse(false);
+        resumeLiveButton.setEnabled(liveSessionExists);
+        resumeLiveButton.setToolTipText(liveSessionExists ? "Resume your last live paper trading session" : "No live session found to resume");
     }
 
     private JPanel createHeaderPanel() {
@@ -52,18 +74,18 @@ public class LiveViewPanel extends JPanel {
         buttonPanel.setOpaque(false);
         buttonPanel.setBorder(BorderFactory.createEmptyBorder(8, 15, 8, 15));
 
-        JButton launchLiveButton = new JButton("Launch Live Charting");
-        styleToolbarButton(launchLiveButton);
-        launchLiveButton.addActionListener(e -> handleLaunchLive());
-        buttonPanel.add(launchLiveButton);
+        resumeLiveButton = new JButton("Resume Last Session");
+        styleToolbarButton(resumeLiveButton);
+        resumeLiveButton.addActionListener(e -> handleResumeLive());
+        buttonPanel.add(resumeLiveButton);
 
         buttonPanel.add(createToolbarSeparator());
 
-        JButton recoverButton = new JButton("Recover Session");
-        styleToolbarButton(recoverButton);
-        recoverButton.setToolTipText("Recover a live session after an unexpected shutdown (Not Yet Implemented)");
-        recoverButton.setEnabled(false);
-        buttonPanel.add(recoverButton);
+        newLiveButton = new JButton("New Forward Test...");
+        styleToolbarButton(newLiveButton);
+        newLiveButton.setToolTipText("Start a fresh live paper trading session and clear any previous one");
+        newLiveButton.addActionListener(e -> handleNewLive());
+        buttonPanel.add(newLiveButton);
 
         FloatingToolbarPanel floatingPanel = new FloatingToolbarPanel(50, 50);
         floatingPanel.setLayout(new BorderLayout());
@@ -73,18 +95,27 @@ public class LiveViewPanel extends JPanel {
         wrapper.setOpaque(false);
         wrapper.setBorder(BorderFactory.createEmptyBorder(0, 0, 15, 0));
         wrapper.add(floatingPanel);
+
+        updateButtonStates(); // Set initial state
         return wrapper;
     }
 
-    private void handleLaunchLive() {
+    private void handleResumeLive() {
+        try {
+            ReplaySessionState state = SessionManager.getInstance().loadLiveSession();
+            SessionController.getInstance().startLiveSession(state);
+        } catch (IOException e) {
+            JOptionPane.showMessageDialog(this, "Failed to load live session: " + e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private void handleNewLive() {
         Frame parentFrame = (Frame) SwingUtilities.getWindowAncestor(this);
-        // Pass the LIVE mode, making the dialog context-aware
         SessionDialog dialog = new SessionDialog(parentFrame, SessionDialog.SessionMode.LIVE_PAPER_TRADING);
         dialog.setVisible(true);
 
         if (dialog.isLaunched()) {
-            // The dialog now ensures it is a LIVE session. No need to check the mode again.
-            SessionController.getInstance().startLiveSession(
+            SessionController.getInstance().startNewLiveSession(
                 dialog.getSelectedDataSource(),
                 dialog.getStartingBalance(),
                 dialog.getLeverage()

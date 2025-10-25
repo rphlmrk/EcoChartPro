@@ -52,39 +52,31 @@ public final class SessionManager {
     private static final String SESSIONS_DIR_NAME = "sessions";
     private static final String LAST_SESSION_PATH_KEY = "lastSessionPath";
     private static final String LAST_REVIEWED_MONTH_KEY = "lastReviewedMonth";
+    private static final String LIVE_AUTO_SAVE_FILE_NAME = "live_autosave.json";
+
 
     private SessionManager() {
         this.objectMapper = new ObjectMapper();
 
-        // [FIX] Increase the maximum number length limit to prevent StreamConstraintsException
-        // on very high precision BigDecimal values saved in session files.
         this.objectMapper.getFactory().setStreamReadConstraints(
             StreamReadConstraints.builder().maxNumberLength(Integer.MAX_VALUE).build()
         );
 
-        // Configure for pretty printing JSON output
         this.objectMapper.enable(SerializationFeature.INDENT_OUTPUT);
-        // Don't fail on unknown properties during deserialization
         this.objectMapper.disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
-        // Register module for Java 8 Time types (e.g., Instant)
         this.objectMapper.registerModule(new JavaTimeModule());
 
-        // Create a new module that includes our custom key deserializer for Timeframe
         SimpleModule ecoChartProModule = createAwtModule();
         ecoChartProModule.addKeyDeserializer(Timeframe.class, new TimeframeKeyDeserializer());
         
-        // Register our custom module for serializing/deserializing AWT types AND the Timeframe key
         this.objectMapper.registerModule(ecoChartProModule);
     }
     
-    // [NEW] Custom Key Deserializer for the Timeframe record
     private static class TimeframeKeyDeserializer extends KeyDeserializer {
         @Override
         public Object deserializeKey(String key, DeserializationContext ctxt) throws IOException {
-            // Use our existing static method to parse the string key
             Timeframe tf = Timeframe.fromString(key);
             if (tf == null) {
-                // Let Jackson know that the key is invalid
                 throw ctxt.weirdKeyException(Timeframe.class, key, "Not a valid Timeframe representation");
             }
             return tf;
@@ -148,19 +140,14 @@ public final class SessionManager {
         }
     }
 
-    /**
-     * [MODIFIED] Loads a session state from a JSON file, with backward compatibility for old formats.
-     */
     public ReplaySessionState loadSession(File file) throws IOException {
         try {
             JsonNode rootNode = objectMapper.readTree(file);
 
-            // Check for a key unique to the old format
             if (rootNode.has("dataSourceSymbol")) {
                 logger.info("Detected old session file format. Converting to new multi-symbol format...");
                 return convertOldStateToNew(rootNode);
             } else {
-                // It's a new format file, deserialize directly
                 ReplaySessionState state = objectMapper.treeToValue(rootNode, ReplaySessionState.class);
                 if (!file.getName().equals("autosave.json")) {
                     logger.info("Replay session successfully loaded from: {}", file.getAbsolutePath());
@@ -173,22 +160,17 @@ public final class SessionManager {
         }
     }
 
-    /**
-     * [NEW] Converts a JsonNode representing an old session state into the new ReplaySessionState format.
-     */
     private ReplaySessionState convertOldStateToNew(JsonNode oldNode) throws IOException {
         String symbol = oldNode.path("dataSourceSymbol").asText();
         int headIndex = oldNode.path("replayHeadIndex").asInt();
         BigDecimal balance = new BigDecimal(oldNode.path("accountBalance").asText("0"));
         Instant lastTimestamp = objectMapper.treeToValue(oldNode.path("lastTimestamp"), Instant.class);
 
-        // Deserialize lists from the old format
         List<Position> openPositions = objectMapper.convertValue(oldNode.path("openPositions"), new TypeReference<>() {});
         List<Order> pendingOrders = objectMapper.convertValue(oldNode.path("pendingOrders"), new TypeReference<>() {});
         List<Trade> tradeHistory = objectMapper.convertValue(oldNode.path("tradeHistory"), new TypeReference<>() {});
         List<DrawingObject> drawings = objectMapper.convertValue(oldNode.path("drawings"), new TypeReference<>() {});
         
-        // Create the new SymbolSessionState
         SymbolSessionState symbolState = new SymbolSessionState(
             headIndex,
             openPositions != null ? openPositions : Collections.emptyList(),
@@ -198,7 +180,6 @@ public final class SessionManager {
             lastTimestamp
         );
 
-        // Wrap it in the new ReplaySessionState container
         Map<String, SymbolSessionState> symbolStatesMap = new HashMap<>();
         symbolStatesMap.put(symbol, symbolState);
 
@@ -301,6 +282,45 @@ public final class SessionManager {
         });
     }
 
+    public Optional<File> getLiveAutoSaveFilePath() {
+        try {
+            return Optional.of(getSessionsDirectory().resolve(LIVE_AUTO_SAVE_FILE_NAME).toFile());
+        } catch (IOException e) {
+            logger.error("Could not get live auto-save file path", e);
+            return Optional.empty();
+        }
+    }
+
+    public void saveLiveSession(ReplaySessionState state) throws IOException {
+        Optional<File> liveSaveFile = getLiveAutoSaveFilePath();
+        if (liveSaveFile.isPresent()) {
+            objectMapper.writeValue(liveSaveFile.get(), state);
+        } else {
+            throw new IOException("Could not determine path for live session auto-save.");
+        }
+    }
+
+    public ReplaySessionState loadLiveSession() throws IOException {
+        Optional<File> liveSaveFile = getLiveAutoSaveFilePath();
+        if (liveSaveFile.isPresent() && liveSaveFile.get().exists()) {
+            return objectMapper.readValue(liveSaveFile.get(), ReplaySessionState.class);
+        } else {
+            throw new IOException("No live session file found to load.");
+        }
+    }
+
+    public void deleteLiveAutoSaveFile() {
+        getLiveAutoSaveFilePath().ifPresent(file -> {
+            if (file.exists()) {
+                if (file.delete()) {
+                    logger.info("Live auto-save session file deleted successfully.");
+                } else {
+                    logger.error("Failed to delete live auto-save session file.");
+                }
+            }
+        });
+    }
+
     private SimpleModule createAwtModule() {
         SimpleModule module = new SimpleModule("AwtModule");
         module.addSerializer(Color.class, new ColorSerializer());
@@ -312,7 +332,6 @@ public final class SessionManager {
         return module;
     }
 
-    // --- Custom Serializer/Deserializer Implementations ---
     public static class ColorSerializer extends JsonSerializer<Color> {
         @Override
         public void serialize(Color value, JsonGenerator gen, SerializerProvider sp) throws IOException {

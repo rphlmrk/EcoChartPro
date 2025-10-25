@@ -24,7 +24,6 @@ public class MainContentPanel extends JPanel {
     private final ReplayViewPanel replayViewPanel;
     private final LiveViewPanel liveViewPanel;
 
-    // [MODIFIED] Constructor now accepts the DashboardViewPanel
     public MainContentPanel(DashboardViewPanel dashboardViewPanel) {
         setOpaque(false);
         setLayout(cardLayout);
@@ -34,7 +33,7 @@ public class MainContentPanel extends JPanel {
 
         refreshWithLastSession();
 
-        add(dashboardViewPanel, "DASHBOARD"); // Add the passed-in instance
+        add(dashboardViewPanel, "DASHBOARD");
         add(this.replayViewPanel, "REPLAY");
         add(this.liveViewPanel, "LIVE");
     }
@@ -52,31 +51,35 @@ public class MainContentPanel extends JPanel {
     }
 
     public void refreshWithLastSession() {
-        // [MODIFIED] Now uses the refactored getLatestSessionState()
-        Optional<ReplaySessionState> lastSessionStateOpt = SessionManager.getInstance().getLatestSessionState();
-        if (lastSessionStateOpt.isPresent()) {
-            ReplaySessionState lastLoadedState = lastSessionStateOpt.get();
-
+        // Load REPLAY session data
+        Optional<ReplaySessionState> lastReplayStateOpt = SessionManager.getInstance().getLatestSessionState();
+        if (lastReplayStateOpt.isPresent()) {
+            ReplaySessionState lastLoadedState = lastReplayStateOpt.get();
             if (lastLoadedState != null && lastLoadedState.symbolStates() != null && !lastLoadedState.symbolStates().isEmpty()) {
-                // Collect all trades from all symbols to check if there's any history
                 List<Trade> allTradesInSession = new ArrayList<>();
                 lastLoadedState.symbolStates().values().forEach(s -> {
-                    if (s.tradeHistory() != null) {
-                        allTradesInSession.addAll(s.tradeHistory());
-                    }
+                    if (s.tradeHistory() != null) allTradesInSession.addAll(s.tradeHistory());
                 });
 
                 if (!allTradesInSession.isEmpty()) {
-                    logger.info("Auto-loading last session data into views.");
-                    // The report panel now knows how to handle the full state object
-                    replayViewPanel.updateReportWithSession(lastLoadedState);
-                    // Gamification service needs the full trade list
+                    logger.info("Auto-loading last replay session data into views.");
+                    replayViewPanel.updateData(lastLoadedState);
                     GamificationService.getInstance().updateProgression(allTradesInSession);
                     firePropertyChange("gamificationUpdated", null, null);
                 }
             }
         } else {
-            logger.info("No last session found to auto-load.");
+            logger.info("No last replay session found to auto-load.");
+        }
+
+        // Load LIVE session data
+        try {
+            ReplaySessionState liveState = SessionManager.getInstance().loadLiveSession();
+            logger.info("Auto-loading last live session data into views.");
+            liveViewPanel.getReportPanel().updateData(liveState);
+        } catch (IOException e) {
+            logger.info("No last live session found to auto-load.");
+            liveViewPanel.getReportPanel().updateData(null); // Clear the panel
         }
     }
     

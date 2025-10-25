@@ -61,9 +61,7 @@ public class SessionController {
 
     public void startNewSession(DataSourceManager.ChartDataSource source, int startIndex, BigDecimal startingBalance, BigDecimal leverage) {
         SwingUtilities.invokeLater(() -> {
-            // Hide the dashboard instead of closing it
             findAndSetDashboardVisible(false);
-            // Set services to REPLAY mode for this new session
             PaperTradingService.getInstance().setActiveSessionType(SessionType.REPLAY);
             LiveSessionTrackerService.getInstance().setActiveSessionType(SessionType.REPLAY);
             PaperTradingService.getInstance().resetSession(startingBalance, leverage);
@@ -71,30 +69,40 @@ public class SessionController {
             mainWindow.startReplaySession(source, startIndex);
         });
     }
-    
-    public void startLiveSession(DataSourceManager.ChartDataSource source, BigDecimal startingBalance, BigDecimal leverage) {
+
+    public void startNewLiveSession(DataSourceManager.ChartDataSource source, BigDecimal startingBalance, BigDecimal leverage) {
         SwingUtilities.invokeLater(() -> {
+            // Explicitly clear any old live session
+            SessionManager.getInstance().deleteLiveAutoSaveFile();
+            
             findAndSetDashboardVisible(false);
-            // Set services to LIVE mode for this new session
             PaperTradingService.getInstance().setActiveSessionType(SessionType.LIVE);
             LiveSessionTrackerService.getInstance().setActiveSessionType(SessionType.LIVE);
             PaperTradingService.getInstance().resetSession(startingBalance, leverage);
             
-            // Create a MainWindow configured for LIVE mode (isReplayMode = false)
             MainWindow mainWindow = new MainWindow(false);
             mainWindow.startLiveSession(source);
         });
     }
 
+    public void startLiveSession(ReplaySessionState state) {
+        SwingUtilities.invokeLater(() -> {
+            findAndSetDashboardVisible(false);
+            PaperTradingService.getInstance().setActiveSessionType(SessionType.LIVE);
+            LiveSessionTrackerService.getInstance().setActiveSessionType(SessionType.LIVE);
+            PaperTradingService.getInstance().restoreState(state);
+            
+            MainWindow mainWindow = new MainWindow(false);
+            // We load the session state into the existing MainWindow instance
+            mainWindow.loadReplaySession(state);
+        });
+    }
+
     public void loadSession(ReplaySessionState state, Frame parentFrame) {
-        // Set services to REPLAY mode before loading state
         PaperTradingService.getInstance().setActiveSessionType(SessionType.REPLAY);
         LiveSessionTrackerService.getInstance().setActiveSessionType(SessionType.REPLAY);
 
-        // Immediately update the cache with the state we are about to load.
-        // This ensures the progress is correct if the user closes the session and returns to the dashboard.
         if (state.symbolStates() != null) {
-            // [FIXED] Use an explicit lambda to match the BiConsumer signature
             state.symbolStates().forEach((symbol, symbolState) -> 
                 SymbolProgressCache.getInstance().updateProgressForSymbol(symbol, symbolState)
             );
@@ -104,7 +112,6 @@ public class SessionController {
             if (parentFrame instanceof DashboardFrame) {
                 ((DashboardFrame) parentFrame).getReportPanel().activateLiveMode(LiveSessionTrackerService.getInstance());
             }
-            // Hide the dashboard instead of closing it
             findAndSetDashboardVisible(false);
             MainWindow mainWindow = new MainWindow(true);
             mainWindow.loadReplaySession(state);
@@ -112,39 +119,40 @@ public class SessionController {
     }
 
     public void handleWindowClose(MainWindow window, boolean isReplayMode) {
-        boolean hasAnyTrades = PaperTradingService.getInstance().hasAnyTradesOrPositions();
+        PaperTradingService pts = PaperTradingService.getInstance();
+        boolean hasAnyTrades = pts.hasAnyTradesOrPositions();
         
         if (!hasAnyTrades) {
             endSessionAndShowDashboard(window);
             return;
         }
 
-        String sessionTypeName = isReplayMode ? "replay" : "live paper trading";
-        int choice = JOptionPane.showConfirmDialog(
-                window,
-                "Do you want to save the current " + sessionTypeName + " session before closing?",
-                "Save Session",
-                JOptionPane.YES_NO_CANCEL_OPTION,
-                JOptionPane.QUESTION_MESSAGE
-        );
-
-        if (choice == JOptionPane.CANCEL_OPTION) {
-            return; // User cancelled, do not close the window
+        if (isReplayMode) {
+            int choice = JOptionPane.showConfirmDialog(
+                    window,
+                    "Do you want to save the current replay session before closing?",
+                    "Save Session",
+                    JOptionPane.YES_NO_CANCEL_OPTION,
+                    JOptionPane.QUESTION_MESSAGE
+            );
+            if (choice == JOptionPane.CANCEL_OPTION) return;
+            if (choice == JOptionPane.YES_OPTION) saveSessionWithUI(window, true);
+        } else { // Live mode
+            try {
+                ReplaySessionState state = pts.getCurrentSessionState();
+                SessionManager.getInstance().saveLiveSession(state);
+                logger.info("Live session state automatically saved on close.");
+            } catch (IOException e) {
+                logger.error("Failed to auto-save live session state on close.", e);
+                JOptionPane.showMessageDialog(window, "Could not save live session progress: " + e.getMessage(), "Save Error", JOptionPane.ERROR_MESSAGE);
+            }
         }
-
-        if (choice == JOptionPane.YES_OPTION) {
-            saveSessionWithUI(window, isReplayMode);
-        }
-
+        
         endSessionAndShowDashboard(window);
     }
 
-    /**
-     * Cleans up session artifacts, disposes the window, and makes the dashboard visible again.
-     * @param window The MainWindow that is being closed or ended.
-     */
     public void endSessionAndShowDashboard(Window window) {
-        SessionManager.getInstance().deleteAutoSaveFile();
+        SessionManager.getInstance().deleteAutoSaveFile(); // This is for replay mode's tick-by-tick auto-save
         window.dispose();
         findAndSetDashboardVisible(true);
     }
@@ -314,22 +322,16 @@ public class SessionController {
         return s;
     }
 
-    /**
-     * Finds the first available DashboardFrame and sets its visibility.
-     * @param visible true to show the dashboard, false to hide it.
-     */
     private void findAndSetDashboardVisible(boolean visible) {
         for (Frame frame : Frame.getFrames()) {
             if (frame instanceof DashboardFrame) {
                 if (visible) {
-                    // When showing, also bring it to the front and request focus.
                     frame.setVisible(true);
                     frame.toFront();
                     frame.requestFocus();
                 } else {
                     frame.setVisible(false);
                 }
-                // Assuming only one dashboard frame exists, we can break after finding it.
                 break; 
             }
         }
