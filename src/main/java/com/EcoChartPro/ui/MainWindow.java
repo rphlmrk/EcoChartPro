@@ -79,7 +79,7 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
     private final JLabel latencyLabel;
 
     public MainWindow(boolean isReplayMode) {
-        super("Eco Chart Pro");
+        super(); // *** FIX: Removed title from here ***
         this.isReplayMode = isReplayMode;
         setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
         setSize(1280, 720);
@@ -491,7 +491,7 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
             return;
         }
         DrawingManager.getInstance().setActiveSymbol(source.symbol());
-        titleBarManager.setStaticTitle(getTitle() + " (Synced)");
+        titleBarManager.setStaticTitle("(Synced)");
         setDbManagerForSource(source);
         workspaceManager.applyLayout(WorkspaceManager.LayoutType.ONE);
         if (!workspaceManager.getChartPanels().isEmpty()) {
@@ -630,7 +630,6 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
                         Timeframe currentTf = panel.getDataModel().getCurrentDisplayTimeframe();
                         panel.getDataModel().loadDataset(newSource, currentTf);
                     }
-                    titleBarManager.setStaticTitle(newSource.displayName());
                 }
             } 
             // --- 2. Handle Timeframe Change ---
@@ -693,7 +692,6 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
             panel.getDataModel().setDisplayTimeframe(newTimeframe, true); // Force reload
         }
         
-        titleBarManager.setStaticTitle(newSource.displayName() + " (" + newTimeframe.displayName() + ")");
     }
 
     private void loadChartForSource(DataSourceManager.ChartDataSource source) {
@@ -718,12 +716,10 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
             for (ChartPanel panel : workspaceManager.getChartPanels()) {
                  panel.getDataModel().loadDataset(source, initialTimeframe);
             }
-            titleBarManager.setStaticTitle(source.displayName() + " (" + initialTimeframe.displayName() + ")");
         } else {
              if (!workspaceManager.getChartPanels().isEmpty()) {
                 workspaceManager.getChartPanels().get(0).getDataModel().clearData();
              }
-             titleBarManager.setStaticTitle(source.displayName() + " (No data available)");
         }
     }
 }

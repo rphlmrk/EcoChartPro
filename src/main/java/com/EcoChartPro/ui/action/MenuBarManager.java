@@ -9,6 +9,7 @@ import java.awt.*;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.net.URI;
+import java.util.List;
 
 /**
  * Manages the creation and assembly of the main application menu bar.
@@ -17,6 +18,7 @@ public class MenuBarManager {
 
     private final MainWindow owner;
     private final boolean isReplayMode;
+    private int currentShortcutIndex = 0;
 
     public record MenuBarResult(JComponent menu, JMenuItem undoMenuItem, JMenuItem redoMenuItem, JLabel connectivityStatusLabel, JLabel latencyLabel) {}
 
@@ -28,18 +30,43 @@ public class MenuBarManager {
     public MenuBarResult createMenuBar() {
         JMenuBar menuBar = new JMenuBar();
 
+        // --- 1. LEFT GROUP: Menus ---
         menuBar.add(createFileMenu());
         MenuBarResult editMenuResult = createEditMenu();
         menuBar.add(editMenuResult.menu());
         menuBar.add(createToolsMenu());
-        
-        menuBar.add(createInsightsMenuItem());
-        menuBar.add(createProgressionMenuItem());
+        menuBar.add(createInsightsMenu());
+        menuBar.add(createProgressionMenu());
         menuBar.add(createHelpMenu());
 
-        // --- NEW: Add status components to the right ---
+        // --- First Spacer ---
         menuBar.add(Box.createHorizontalGlue());
 
+        // --- 2. CENTER GROUP: Rotating Shortcuts ---
+        boolean isMac = System.getProperty("os.name").toLowerCase().contains("mac");
+        String undoShortcut = isMac ? "Cmd+Z: Undo" : "Ctrl+Z: Undo";
+        String redoShortcut = isMac ? "Cmd+Shift+Z: Redo" : "Ctrl+Y: Redo";
+        final List<String> idleShortcuts = List.of(
+            "Alt+T: Trendline",
+            "Alt+R: Rectangle",
+            "On Chart: Type Timeframe (e.g., 5m, 1h) + Enter",
+            undoShortcut,
+            redoShortcut
+        );
+        
+        JLabel shortcutsLabel = new JLabel(idleShortcuts.get(0), JLabel.CENTER);
+        shortcutsLabel.setForeground(UIManager.getColor("Label.disabledForeground"));
+        menuBar.add(shortcutsLabel);
+
+        new Timer(3000, e -> {
+            currentShortcutIndex = (currentShortcutIndex + 1) % idleShortcuts.size();
+            shortcutsLabel.setText(idleShortcuts.get(currentShortcutIndex));
+        }).start();
+
+        // --- Second Spacer ---
+        menuBar.add(Box.createHorizontalGlue());
+
+        // --- 3. RIGHT GROUP: Status Icons ---
         JLabel connectivityStatusLabel = new JLabel();
         connectivityStatusLabel.setToolTipText("Internet Connection Status");
         connectivityStatusLabel.setBorder(BorderFactory.createEmptyBorder(0, 5, 0, 5));
@@ -49,7 +76,6 @@ public class MenuBarManager {
         latencyLabel.setToolTipText("Data Latency");
         latencyLabel.setBorder(BorderFactory.createEmptyBorder(0, 5, 0, 10));
         menuBar.add(latencyLabel);
-        // --- END NEW ---
 
         return new MenuBarResult(menuBar, editMenuResult.undoMenuItem(), editMenuResult.redoMenuItem(), connectivityStatusLabel, latencyLabel);
     }
@@ -98,7 +124,7 @@ public class MenuBarManager {
         redoMenuItem.addActionListener(e -> UndoManager.getInstance().redo());
         editMenu.add(redoMenuItem);
 
-        return new MenuBarResult(editMenu, undoMenuItem, redoMenuItem, null, null); // Keep this return for backward compatibility inside this class
+        return new MenuBarResult(editMenu, undoMenuItem, redoMenuItem, null, null);
     }
 
     private JMenu createToolsMenu() {
@@ -131,17 +157,21 @@ public class MenuBarManager {
         return toolsMenu;
     }
 
-    private JMenuItem createInsightsMenuItem() {
-        JMenuItem insightsMenuItem = new JMenuItem("Insights");
-        insightsMenuItem.setEnabled(isReplayMode);
-        insightsMenuItem.addActionListener(e -> owner.getUiManager().openInsightsDialog());
-        return insightsMenuItem;
+    private JMenu createInsightsMenu() {
+        JMenu insightsMenu = new JMenu("Insights");
+        insightsMenu.setEnabled(isReplayMode);
+        JMenuItem showInsightsItem = new JMenuItem("Show Insights Dialog...");
+        showInsightsItem.addActionListener(e -> owner.getUiManager().openInsightsDialog());
+        insightsMenu.add(showInsightsItem);
+        return insightsMenu;
     }
     
-    private JMenuItem createProgressionMenuItem() {
-        JMenuItem progressionMenuItem = new JMenuItem("Progression");
-        progressionMenuItem.addActionListener(e -> owner.getUiManager().openAchievementsDialog());
-        return progressionMenuItem;
+    private JMenu createProgressionMenu() {
+        JMenu progressionMenu = new JMenu("Progression");
+        JMenuItem showAchievementsItem = new JMenuItem("Show Achievements...");
+        showAchievementsItem.addActionListener(e -> owner.getUiManager().openAchievementsDialog());
+        progressionMenu.add(showAchievementsItem);
+        return progressionMenu;
     }
 
     private JMenu createHelpMenu() {

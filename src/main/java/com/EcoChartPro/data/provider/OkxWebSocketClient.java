@@ -3,6 +3,8 @@ package com.EcoChartPro.data.provider;
 import com.EcoChartPro.data.I_ExchangeWebSocketClient;
 import com.google.gson.Gson;
 import org.java_websocket.client.WebSocketClient;
+import org.java_websocket.drafts.Draft_6455;
+import org.java_websocket.extensions.permessage_deflate.PerMessageDeflateExtension;
 import org.java_websocket.handshake.ServerHandshake;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -10,6 +12,7 @@ import org.slf4j.LoggerFactory;
 import java.beans.PropertyChangeListener;
 import java.beans.PropertyChangeSupport;
 import java.net.URI;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -18,9 +21,9 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class OkxWebSocketClient implements I_ExchangeWebSocketClient {
     private static final Logger logger = LoggerFactory.getLogger(OkxWebSocketClient.class);
@@ -61,11 +64,12 @@ public class OkxWebSocketClient implements I_ExchangeWebSocketClient {
     public synchronized void updateSubscriptions(Set<String> streamNames) {
         this.activeSubscriptions = streamNames;
         logger.info("Updating OKX subscriptions. New set has {} streams. Triggering reconnect.", streamNames.size());
-
+        
         if (webSocketClient != null && webSocketClient.isOpen()) {
-            state = ConnectionState.CLOSING;
+            state = ConnectionState.CLOSING; // Signal intent to close for subscription update
             webSocketClient.close();
         } else {
+            // No active connection, so just schedule a new one
             scheduleReconnect();
         }
     }
@@ -76,66 +80,57 @@ public class OkxWebSocketClient implements I_ExchangeWebSocketClient {
             state = ConnectionState.CLOSING;
             webSocketClient.close();
         }
-        if (pingTask != null) {
-            pingTask.cancel(true);
-        }
-        pingScheduler.shutdownNow();
         reconnectScheduler.shutdownNow();
+        pingScheduler.shutdownNow();
         logger.info("OKX WebSocket client explicitly disconnected and schedulers shut down.");
     }
 
     private synchronized void connect() {
         if (state == ConnectionState.CONNECTED || state == ConnectionState.CONNECTING) return;
-        if (activeSubscriptions.isEmpty()) {
-            logger.info("No active OKX subscriptions. WebSocket connection not required.");
-            state = ConnectionState.DISCONNECTED;
-            return;
-        }
-
         state = ConnectionState.CONNECTING;
+
         try {
             URI serverUri = new URI(WEBSOCKET_URL);
             logger.info("OKX client connecting to: {}", serverUri);
 
-            webSocketClient = new WebSocketClient(serverUri) {
+            webSocketClient = new WebSocketClient(serverUri, new Draft_6455(Collections.singletonList(new PerMessageDeflateExtension()))) {
                 @Override
                 public void onOpen(ServerHandshake h) {
                     logger.info("OKX WebSocket connection established.");
                     state = ConnectionState.CONNECTED;
                     reconnectDelayMs.set(INITIAL_RECONNECT_DELAY_MS);
-                    sendSubscriptionRequest();
-                    startPingTimer();
                     if (wasUnintentionalDisconnect && reconnectHandler != null) {
                         logger.info("Detected reconnect after unintentional disconnect. Triggering handler.");
                         reconnectHandler.accept("OKX");
                     }
                     wasUnintentionalDisconnect = false; // Reset flag
+                    startPingTimer();
+                    sendSubscriptionRequest();
                 }
 
                 @Override
                 public void onMessage(String msg) {
-                    if ("pong".equals(msg)) {
-                        logger.trace("OKX WebSocket pong received.");
+                    if (msg.equals("pong")) {
                         if (pingSentTimeNs > 0) {
-                            long durationNs = System.nanoTime() - pingSentTimeNs;
-                            long latencyMs = TimeUnit.NANOSECONDS.toMillis(durationNs);
+                            long latencyMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - pingSentTimeNs);
+                            logger.trace("Received OKX pong. Latency: {} ms", latencyMs);
                             pcs.firePropertyChange("latencyMeasured", null, latencyMs);
-                            pingSentTimeNs = 0; // Reset after measurement
+                            pingSentTimeNs = 0; // Reset
                         }
-                        return;
-                    }
-                    if (messageHandler != null) {
-                        messageHandler.accept(msg);
+                    } else {
+                        if (messageHandler != null) {
+                            messageHandler.accept(msg);
+                        }
                     }
                 }
 
                 @Override
                 public void onClose(int code, String reason, boolean remote) {
                     logger.warn("OKX WebSocket closed. Code: {}, Reason: {}, Remote: {}", code, reason, remote);
+                    stopPingTimer();
                     boolean shouldReconnect = (state != ConnectionState.CLOSING);
                     state = ConnectionState.DISCONNECTED;
-                    stopPingTimer();
-                    
+
                     if (shouldReconnect) {
                         wasUnintentionalDisconnect = true;
                         scheduleReconnect();
@@ -153,7 +148,7 @@ public class OkxWebSocketClient implements I_ExchangeWebSocketClient {
             state = ConnectionState.DISCONNECTED;
         }
     }
-    
+
     private void sendSubscriptionRequest() {
         List<Map<String, String>> args = activeSubscriptions.stream().map(stream -> {
             String[] parts = stream.split(":", 2);
