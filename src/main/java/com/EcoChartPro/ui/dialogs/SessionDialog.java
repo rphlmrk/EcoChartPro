@@ -1,6 +1,7 @@
 package com.EcoChartPro.ui.dialogs;
 
 import com.EcoChartPro.model.Symbol;
+import com.EcoChartPro.ui.components.CalendarPanel;
 import com.EcoChartPro.utils.DatabaseManager;
 import com.EcoChartPro.utils.DataSourceManager;
 import com.EcoChartPro.utils.DataSourceManager.ChartDataSource;
@@ -9,10 +10,14 @@ import javax.swing.*;
 import java.awt.*;
 import java.math.BigDecimal;
 import java.text.NumberFormat;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.Vector;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * [MODIFIED] A modal dialog for configuring and launching a new chart window.
@@ -23,13 +28,11 @@ public class SessionDialog extends JDialog {
 
     public enum SessionMode { REPLAY, LIVE_PAPER_TRADING }
 
-    // [NEW] Provider filter ComboBox
     private final JComboBox<String> providerComboBox;
     private final JComboBox<ChartDataSource> symbolComboBox;
     private final JRadioButton standardModeRadioButton;
     private final JRadioButton replayModeRadioButton;
-    private final JSlider replayStartSlider;
-    private final JLabel replaySliderValueLabel;
+    private final CalendarPanel calendarPanel;
     private final JButton launchButton;
     private final JButton cancelButton;
     private final JSpinner startingBalanceSpinner;
@@ -46,8 +49,7 @@ public class SessionDialog extends JDialog {
     public SessionDialog(Frame owner, SessionMode mode) {
         super(owner, "Launch Chart Options", true);
         this.sessionMode = mode;
-        // Adjusted size to accommodate the new filter
-        setSize(500, 350);
+        setSize(500, 650);
         setLocationRelativeTo(owner);
         setLayout(new GridBagLayout());
         setResizable(false);
@@ -56,7 +58,7 @@ public class SessionDialog extends JDialog {
         gbc.insets = new Insets(5, 10, 5, 10);
         gbc.fill = GridBagConstraints.HORIZONTAL;
 
-        // --- [NEW] Provider/Exchange Selection ---
+        // --- Provider/Exchange Selection ---
         gbc.gridx = 0; gbc.gridy = 0;
         gbc.anchor = GridBagConstraints.EAST;
         add(new JLabel("Exchange:"), gbc);
@@ -100,23 +102,28 @@ public class SessionDialog extends JDialog {
         modePanel.add(standardModeRadioButton);
         modePanel.add(replayModeRadioButton);
         add(modePanel, gbc);
+        
+        // --- Initialize buttons BEFORE calendar ---
+        launchButton = new JButton("Launch");
+        cancelButton = new JButton("Cancel");
 
-        // --- Replay Start Slider ---
-        gbc.gridy++; gbc.gridx = 0; gbc.gridwidth = 1;
+        // --- Replay Start Label (full width) ---
+        gbc.gridy++; gbc.gridx = 0; gbc.gridwidth = 3;
+        gbc.weighty = 0.0; gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.anchor = GridBagConstraints.WEST;
         replayStartLabel = new JLabel("Replay Start:");
         add(replayStartLabel, gbc);
-        gbc.gridx = 1; gbc.gridwidth = 1;
-        replayStartSlider = new JSlider(0, 100, 0);
-        add(replayStartSlider, gbc);
-        gbc.gridx = 2; gbc.weightx = 0.2;
-        replaySliderValueLabel = new JLabel("Bar 0");
-        add(replaySliderValueLabel, gbc);
+
+        // --- Replay Start Calendar ---
+        gbc.gridy++; gbc.gridx = 0; gbc.gridwidth = 3;
+        gbc.weighty = 1.0; gbc.fill = GridBagConstraints.BOTH;
+        gbc.anchor = GridBagConstraints.CENTER;
+        calendarPanel = new CalendarPanel(selectedDate -> launchButton.setEnabled(true));
+        add(calendarPanel, gbc);
 
         // --- Action Buttons ---
         gbc.gridy++; gbc.gridx = 0; gbc.gridwidth = 3;
-        gbc.fill = GridBagConstraints.NONE; gbc.anchor = GridBagConstraints.CENTER;
-        launchButton = new JButton("Launch");
-        cancelButton = new JButton("Cancel");
+        gbc.weighty = 0.0; gbc.fill = GridBagConstraints.NONE; gbc.anchor = GridBagConstraints.CENTER;
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         buttonPanel.add(cancelButton);
         buttonPanel.add(launchButton);
@@ -124,7 +131,6 @@ public class SessionDialog extends JDialog {
 
         addListeners();
         populateProviderComboBox();
-        // populateSymbolComboBox is now called by the providerComboBox listener
         configureForMode(mode);
     }
 
@@ -142,29 +148,36 @@ public class SessionDialog extends JDialog {
             standardModeRadioButton.setVisible(false);
             updateReplayControlsState();
             replayStartLabel.setVisible(false);
-            replayStartSlider.setVisible(false);
-            replaySliderValueLabel.setVisible(false);
+            calendarPanel.setVisible(false);
+            // Adjust size for the simpler live view
+            setSize(500, 320);
         }
     }
 
     private void addListeners() {
-        // [NEW] When provider changes, filter the symbol list
         providerComboBox.addActionListener(e -> populateSymbolComboBox());
-
-        symbolComboBox.addActionListener(e -> updateReplaySliderRange());
+        symbolComboBox.addActionListener(e -> updateCalendarRange());
         standardModeRadioButton.addActionListener(e -> updateReplayControlsState());
         replayModeRadioButton.addActionListener(e -> updateReplayControlsState());
-
-        replayStartSlider.addChangeListener(e -> {
-            NumberFormat formatter = NumberFormat.getInstance(Locale.US);
-            replaySliderValueLabel.setText("Bar " + formatter.format(replayStartSlider.getValue()));
-        });
 
         launchButton.addActionListener(e -> {
             this.launched = true;
             this.selectedDataSource = (ChartDataSource) symbolComboBox.getSelectedItem();
             this.sessionMode = replayModeRadioButton.isSelected() ? SessionMode.REPLAY : SessionMode.LIVE_PAPER_TRADING;
-            this.replayStartIndex = replayStartSlider.getValue();
+            
+            if (this.sessionMode == SessionMode.REPLAY) {
+                LocalDate selectedDate = calendarPanel.getSelectedDate();
+                if (selectedDate != null) {
+                    try (DatabaseManager db = new DatabaseManager("jdbc:sqlite:" + selectedDataSource.dbPath().toAbsolutePath())) {
+                        this.replayStartIndex = db.findClosestTimestampIndex(
+                            new Symbol(selectedDataSource.symbol()), "1m", selectedDate.atStartOfDay(ZoneId.of("UTC")).toInstant()
+                        );
+                    }
+                } else {
+                    this.replayStartIndex = 0;
+                }
+            }
+            
             this.startingBalance = BigDecimal.valueOf((Double) startingBalanceSpinner.getValue());
             this.leverage = BigDecimal.valueOf((Double) leverageSpinner.getValue());
             dispose();
@@ -174,7 +187,18 @@ public class SessionDialog extends JDialog {
     }
 
     private void populateProviderComboBox() {
-        List<String> providers = DataSourceManager.getInstance().getAvailableSources().stream()
+        providerComboBox.removeAllItems();
+
+        List<ChartDataSource> sources = DataSourceManager.getInstance().getAvailableSources();
+        Stream<ChartDataSource> sourceStream;
+
+        if (sessionMode == SessionMode.REPLAY) {
+            sourceStream = sources.stream().filter(s -> s.dbPath() != null);
+        } else { // LIVE
+            sourceStream = sources.stream().filter(s -> s.dbPath() == null);
+        }
+
+        List<String> providers = sourceStream
                 .map(ChartDataSource::providerName)
                 .distinct()
                 .sorted()
@@ -190,13 +214,20 @@ public class SessionDialog extends JDialog {
         String selectedProvider = (String) providerComboBox.getSelectedItem();
         List<ChartDataSource> allSources = DataSourceManager.getInstance().getAvailableSources();
         
-        List<ChartDataSource> filteredSources;
-        if (selectedProvider == null || "All".equals(selectedProvider)) {
-            filteredSources = allSources;
+        Stream<ChartDataSource> sourceStream;
+        if (sessionMode == SessionMode.REPLAY) {
+            sourceStream = allSources.stream().filter(s -> s.dbPath() != null);
         } else {
-            filteredSources = allSources.stream()
+            sourceStream = allSources.stream().filter(s -> s.dbPath() == null);
+        }
+
+        List<ChartDataSource> filteredSources;
+        if (selectedProvider != null && !"All".equals(selectedProvider)) {
+            filteredSources = sourceStream
                 .filter(source -> selectedProvider.equals(source.providerName()))
                 .collect(Collectors.toList());
+        } else {
+            filteredSources = sourceStream.collect(Collectors.toList());
         }
 
         symbolComboBox.setModel(new DefaultComboBoxModel<>(new Vector<>(filteredSources)));
@@ -204,33 +235,42 @@ public class SessionDialog extends JDialog {
         if (filteredSources.isEmpty()) {
             launchButton.setEnabled(false);
         } else {
-            launchButton.setEnabled(true);
+            launchButton.setEnabled(sessionMode == SessionMode.LIVE_PAPER_TRADING);
             symbolComboBox.setSelectedIndex(0);
         }
     }
 
     private void updateReplayControlsState() {
         boolean replayEnabled = replayModeRadioButton.isSelected();
-        replayStartSlider.setEnabled(replayEnabled);
-        replaySliderValueLabel.setEnabled(replayEnabled);
+        calendarPanel.setEnabled(replayEnabled);
         replayStartLabel.setEnabled(replayEnabled);
+        launchButton.setEnabled(!replayEnabled);
     }
 
-    private void updateReplaySliderRange() {
+    private void updateCalendarRange() {
         ChartDataSource source = (ChartDataSource) symbolComboBox.getSelectedItem();
+        calendarPanel.clearSelection();
+        launchButton.setEnabled(sessionMode != SessionMode.REPLAY);
+
         if (source == null || source.dbPath() == null) {
-            replayStartSlider.setMaximum(0);
+            calendarPanel.setDataRange(null, null);
             return;
         }
 
         try (DatabaseManager tempDbManager = new DatabaseManager("jdbc:sqlite:" + source.dbPath().toAbsolutePath())) {
-            int count = tempDbManager.getTotalKLineCount(new Symbol(source.symbol()), "1m");
-            replayStartSlider.setMinimum(0);
-            replayStartSlider.setMaximum(Math.max(0, count - 1));
-            replayStartSlider.setValue(0);
+            Optional<DatabaseManager.DataRange> rangeOpt = tempDbManager.getDataRange(new Symbol(source.symbol()), "1m");
+            if (rangeOpt.isPresent()) {
+                DatabaseManager.DataRange range = rangeOpt.get();
+                LocalDate minDate = range.start().atZone(ZoneId.of("UTC")).toLocalDate();
+                LocalDate maxDate = range.end().atZone(ZoneId.of("UTC")).toLocalDate();
+                calendarPanel.setDataRange(minDate, maxDate);
+                calendarPanel.jumpToDate(minDate);
+            } else {
+                calendarPanel.setDataRange(null, null);
+            }
         } catch (Exception e) {
-            System.err.println("Could not get 1m kline count for slider: " + e.getMessage());
-            replayStartSlider.setMaximum(0);
+            System.err.println("Could not get data range for calendar: " + e.getMessage());
+            calendarPanel.setDataRange(null, null);
         }
     }
 

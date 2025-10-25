@@ -72,13 +72,9 @@ public class CalendarPanel extends JPanel {
         updateView();
     }
     
-    /**
-     * [NEW] Clears the current date selection visually and internally.
-     */
     public void clearSelection() {
         this.selectedDate = null;
         dayButtonsGroup.clearSelection();
-        // Repaint the month view if it's the current one to remove visual selection
         if (currentViewMode == ViewMode.MONTH) {
             rebuildMonthView();
         }
@@ -117,7 +113,6 @@ public class CalendarPanel extends JPanel {
         headerLabel.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
-                // "Zoom out" navigation
                 if (currentViewMode == ViewMode.MONTH) {
                     currentViewMode = ViewMode.YEAR;
                     updateView();
@@ -249,7 +244,6 @@ public class CalendarPanel extends JPanel {
             JButton monthButton = new JButton(month.getDisplayName(TextStyle.FULL, Locale.US));
             styleYearButton(monthButton); // Re-use styling
 
-            // Check if any day in this month is within the valid date range
             YearMonth ym = YearMonth.of(currentYearMonth.getYear(), month);
             boolean isEnabled = (minDate == null || !ym.atEndOfMonth().isBefore(minDate)) &&
                                 (maxDate == null || !ym.atDay(1).isAfter(maxDate));
@@ -340,14 +334,12 @@ public class CalendarPanel extends JPanel {
             setHorizontalAlignment(SwingConstants.CENTER);
             setVerticalAlignment(SwingConstants.CENTER);
             addActionListener(e -> {
-                // [FIX] Allow selection as long as the button is enabled, regardless of hasData.
                 if (isEnabled()) {
                     selectedDate = this.date;
                     if (onDateSelectCallback != null) {
                         onDateSelectCallback.accept(selectedDate);
                     }
                 } else {
-                    // If the button is not enabled, ensure it cannot be selected.
                     setSelected(false);
                 }
             });
