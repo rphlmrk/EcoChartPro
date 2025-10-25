@@ -1,6 +1,7 @@
 package com.EcoChartPro.ui.sidebar.journal;
 
 import com.EcoChartPro.core.journal.JournalAnalysisService;
+import com.EcoChartPro.ui.dashboard.theme.UITheme;
 
 import javax.swing.*;
 import java.awt.*;
@@ -9,6 +10,7 @@ import java.awt.event.MouseEvent;
 import java.math.BigDecimal;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
+import java.time.Month;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
 import java.time.format.TextStyle;
@@ -18,18 +20,21 @@ import java.util.Map;
 
 public class SidebarCalendarPanel extends JPanel {
 
-    private static final DateTimeFormatter MONTH_YEAR_FORMATTER = DateTimeFormatter.ofPattern("MMMM yyyy");
+    private enum ViewMode { MONTH, YEAR, DECADE }
 
+    private static final DateTimeFormatter MONTH_YEAR_FORMATTER = DateTimeFormatter.ofPattern("MMMM yyyy");
+    private static final int YEARS_PER_VIEW = 12;
+
+    private ViewMode currentViewMode = ViewMode.MONTH;
     private LocalDate selectedDate;
-    private boolean isMonthView = true;
 
     private final CardLayout cardLayout;
     private final JPanel cardPanel;
     private final JLabel headerLabel;
-    private final JPanel monthViewGrid;
+    private final JPanel monthViewContainer;
     private final JPanel yearViewGrid;
-    
-    // Store daily stats to render indicators
+    private final JPanel decadeViewGrid;
+
     private Map<LocalDate, JournalAnalysisService.DailyStats> dailyStatsMap = Collections.emptyMap();
 
     public SidebarCalendarPanel() {
@@ -38,7 +43,6 @@ public class SidebarCalendarPanel extends JPanel {
         setLayout(new BorderLayout(0, 10));
         setBorder(BorderFactory.createEmptyBorder(10, 15, 10, 15));
         
-        // Adjust size to fit within the new 280px sidebar
         Dimension calendarSize = new Dimension(280, 250);
         setPreferredSize(calendarSize);
         setMaximumSize(calendarSize);
@@ -50,20 +54,21 @@ public class SidebarCalendarPanel extends JPanel {
         cardPanel = new JPanel(cardLayout);
         cardPanel.setOpaque(false);
 
-        monthViewGrid = createMonthViewPanel();
-        yearViewGrid = createYearViewPanel();
+        monthViewContainer = createMonthViewPanel();
+        yearViewGrid = createGridView(4, 3);
+        decadeViewGrid = createGridView(4, 3);
 
-        cardPanel.add(monthViewGrid, "MONTH_VIEW");
-        cardPanel.add(yearViewGrid, "YEAR_VIEW");
+        cardPanel.add(monthViewContainer, ViewMode.MONTH.name());
+        cardPanel.add(yearViewGrid, ViewMode.YEAR.name());
+        cardPanel.add(decadeViewGrid, ViewMode.DECADE.name());
         add(cardPanel, BorderLayout.CENTER);
 
-        updateViews();
+        updateView();
     }
-    
-    // method to receive stats from the parent panel.
+
     public void setDailyStats(Map<LocalDate, JournalAnalysisService.DailyStats> stats) {
         this.dailyStatsMap = (stats != null) ? stats : Collections.emptyMap();
-        updateMonthView(); // Trigger a repaint of the days
+        updateView();
     }
 
     private JPanel createHeaderPanel(JLabel titleLabel) {
@@ -87,9 +92,12 @@ public class SidebarCalendarPanel extends JPanel {
         label.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
-                isMonthView = !isMonthView;
-                cardLayout.show(cardPanel, isMonthView ? "MONTH_VIEW" : "YEAR_VIEW");
-                updateHeaderLabel();
+                if (currentViewMode == ViewMode.MONTH) {
+                    currentViewMode = ViewMode.YEAR;
+                } else if (currentViewMode == ViewMode.YEAR) {
+                    currentViewMode = ViewMode.DECADE;
+                }
+                updateView();
             }
         });
         return label;
@@ -108,45 +116,68 @@ public class SidebarCalendarPanel extends JPanel {
             dayNamesPanel.add(dayLabel);
         }
         panel.add(dayNamesPanel, BorderLayout.NORTH);
-        JPanel grid = new JPanel(new GridLayout(0, 7, 5, 5));
-        grid.setOpaque(false);
+        JPanel grid = createGridView(0, 7);
         panel.add(grid, BorderLayout.CENTER);
         return panel;
     }
 
-    private JPanel createYearViewPanel() {
-        JPanel panel = new JPanel(new GridLayout(4, 3, 10, 10));
+    private JPanel createGridView(int rows, int cols) {
+        JPanel panel = new JPanel(new GridLayout(rows, cols, 5, 5));
         panel.setOpaque(false);
         return panel;
     }
 
     private void navigate(int amount) {
-        if (isMonthView) {
-            selectedDate = selectedDate.plusMonths(amount);
-        } else {
-            selectedDate = selectedDate.plusYears(amount * 12L);
+        switch (currentViewMode) {
+            case MONTH:
+                selectedDate = selectedDate.plusMonths(amount);
+                break;
+            case YEAR:
+                selectedDate = selectedDate.plusYears(amount);
+                break;
+            case DECADE:
+                selectedDate = selectedDate.plusYears((long) amount * YEARS_PER_VIEW);
+                break;
         }
-        updateViews();
+        updateView();
     }
 
-    private void updateViews() {
+    private void updateView() {
         updateHeaderLabel();
-        updateMonthView();
-        updateYearView();
+        switch (currentViewMode) {
+            case MONTH:
+                rebuildMonthView();
+                cardLayout.show(cardPanel, ViewMode.MONTH.name());
+                break;
+            case YEAR:
+                rebuildYearView();
+                cardLayout.show(cardPanel, ViewMode.YEAR.name());
+                break;
+            case DECADE:
+                rebuildDecadeView();
+                cardLayout.show(cardPanel, ViewMode.DECADE.name());
+                break;
+        }
     }
 
     private void updateHeaderLabel() {
-        if (isMonthView) {
-            headerLabel.setText(selectedDate.format(MONTH_YEAR_FORMATTER));
-        } else {
-            int year = selectedDate.getYear();
-            int startYear = year - (year % 12);
-            headerLabel.setText(startYear + " - " + (startYear + 11));
+        switch (currentViewMode) {
+            case MONTH:
+                headerLabel.setText(selectedDate.format(MONTH_YEAR_FORMATTER));
+                break;
+            case YEAR:
+                headerLabel.setText(String.valueOf(selectedDate.getYear()));
+                break;
+            case DECADE:
+                int year = selectedDate.getYear();
+                int startYear = year - (year % YEARS_PER_VIEW);
+                headerLabel.setText(startYear + " - " + (startYear + 11));
+                break;
         }
     }
 
-    private void updateMonthView() {
-        JPanel grid = (JPanel) ((BorderLayout) monthViewGrid.getLayout()).getLayoutComponent(BorderLayout.CENTER);
+    private void rebuildMonthView() {
+        JPanel grid = (JPanel) ((BorderLayout) monthViewContainer.getLayout()).getLayoutComponent(BorderLayout.CENTER);
         grid.removeAll();
         YearMonth yearMonth = YearMonth.from(selectedDate);
         LocalDate firstOfMonth = selectedDate.withDayOfMonth(1);
@@ -161,11 +192,10 @@ public class SidebarCalendarPanel extends JPanel {
                 LocalDate oldDate = this.selectedDate;
                 this.selectedDate = date;
                 firePropertyChange("date", oldDate, this.selectedDate);
-                updateMonthView();
+                rebuildMonthView(); // Just repaint this view
             });
             if (date.equals(selectedDate)) {
                 dayButton.setBorder(BorderFactory.createLineBorder(UIManager.getColor("Component.focusedBorderColor"), 2));
-                dayButton.setForeground(UIManager.getColor("Label.foreground"));
             }
             grid.add(dayButton);
         }
@@ -173,26 +203,43 @@ public class SidebarCalendarPanel extends JPanel {
         grid.repaint();
     }
 
-    private void updateYearView() {
+    private void rebuildYearView() {
         yearViewGrid.removeAll();
+        for (Month month : Month.values()) {
+            JButton monthButton = createDayButton(month.getDisplayName(TextStyle.SHORT, Locale.ENGLISH));
+            monthButton.addActionListener(e -> {
+                this.selectedDate = this.selectedDate.withMonth(month.getValue());
+                this.currentViewMode = ViewMode.MONTH;
+                updateView();
+            });
+            if (month.equals(selectedDate.getMonth())) {
+                monthButton.setBorder(BorderFactory.createLineBorder(UIManager.getColor("Component.focusedBorderColor"), 2));
+            }
+            yearViewGrid.add(monthButton);
+        }
+        yearViewGrid.revalidate();
+        yearViewGrid.repaint();
+    }
+
+    private void rebuildDecadeView() {
+        decadeViewGrid.removeAll();
         int currentYear = selectedDate.getYear();
-        int startYear = currentYear - (currentYear % 12);
+        int startYear = currentYear - (currentYear % YEARS_PER_VIEW);
         for (int i = 0; i < 12; i++) {
             int year = startYear + i;
             JButton yearButton = createDayButton(String.valueOf(year));
             yearButton.addActionListener(e -> {
                 this.selectedDate = this.selectedDate.withYear(year);
-                this.isMonthView = true;
-                cardLayout.show(cardPanel, "MONTH_VIEW");
-                updateViews();
+                this.currentViewMode = ViewMode.YEAR; // This is the fix
+                updateView();
             });
             if (year == currentYear) {
                 yearButton.setBorder(BorderFactory.createLineBorder(UIManager.getColor("Component.focusedBorderColor"), 2));
             }
-            yearViewGrid.add(yearButton);
+            decadeViewGrid.add(yearButton);
         }
-        yearViewGrid.revalidate();
-        yearViewGrid.repaint();
+        decadeViewGrid.revalidate();
+        decadeViewGrid.repaint();
     }
 
     private JButton createNavButton(String text) {
@@ -219,7 +266,6 @@ public class SidebarCalendarPanel extends JPanel {
         return button;
     }
     
-    // inner class for custom painting of the indicator dot.
     private static class DayButton extends JButton {
         private final JournalAnalysisService.DailyStats stats;
 
@@ -262,6 +308,6 @@ public class SidebarCalendarPanel extends JPanel {
 
     public void setSelectedDate(LocalDate newDate) {
         this.selectedDate = newDate;
-        updateViews();
+        updateView();
     }
 }
