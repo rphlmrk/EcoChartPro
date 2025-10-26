@@ -10,6 +10,7 @@ public enum ChartType {
     LINE("Line"),
     LINE_WITH_MARKERS("Line with Markers"),
     AREA("Area"),
+    VOLUME_CANDLES("Volume Candles"),
     HEIKIN_ASHI("Heikin Ashi");
     // Other types like RENKO, KAGI, etc., will be added in later phases.
 

@@ -133,6 +133,7 @@ public final class SettingsManager {
     private Color crosshairLabelBackgroundColor, crosshairLabelForegroundColor;
     private ZoneId displayZoneId;
     private boolean daySeparatorsEnabled;
+    private boolean volumeProfileVisible; // New field for Volume Profile
     private ToolbarPosition drawingToolbarPosition;
     private int drawingToolbarWidth, drawingToolbarHeight;
     private int snapRadius;
@@ -249,6 +250,7 @@ public final class SettingsManager {
         // Load other settings
         this.displayZoneId = ZoneId.of(properties.getProperty("chart.zoneId", ZoneId.systemDefault().getId()));
         this.daySeparatorsEnabled = Boolean.parseBoolean(properties.getProperty("chart.daySeparators", "true"));
+        this.volumeProfileVisible = Boolean.parseBoolean(properties.getProperty("chart.volumeProfileVisible", "false"));
         this.drawingToolbarPosition = ToolbarPosition.valueOf(properties.getProperty("toolbar.position", "LEFT"));
         this.drawingToolbarWidth = Integer.parseInt(properties.getProperty("toolbar.width", "35"));
         this.drawingToolbarHeight = Integer.parseInt(properties.getProperty("toolbar.height", "300"));
@@ -378,6 +380,7 @@ public final class SettingsManager {
                 properties.setProperty("crosshair.label.foregroundColor", formatColor(crosshairLabelForegroundColor));
                 properties.setProperty("chart.zoneId", displayZoneId.getId());
                 properties.setProperty("chart.daySeparators", String.valueOf(daySeparatorsEnabled));
+                properties.setProperty("chart.volumeProfileVisible", String.valueOf(volumeProfileVisible)); // Save new property
                 properties.setProperty("toolbar.position", drawingToolbarPosition.name());
                 properties.setProperty("toolbar.width", String.valueOf(drawingToolbarWidth));
                 properties.setProperty("toolbar.height", String.valueOf(drawingToolbarHeight));
@@ -578,6 +581,16 @@ public final class SettingsManager {
         pcs.firePropertyChange("daySeparatorsEnabledChanged", oldVal, this.daySeparatorsEnabled);
     }
     
+    public boolean isVolumeProfileVisible() { return volumeProfileVisible; }
+    public void setVolumeProfileVisible(boolean visible) {
+        if (this.volumeProfileVisible != visible) {
+            boolean oldVal = this.volumeProfileVisible;
+            this.volumeProfileVisible = visible;
+            saveSettings();
+            pcs.firePropertyChange("volumeProfileVisibilityChanged", oldVal, this.volumeProfileVisible);
+        }
+    }
+
     public ToolbarPosition getDrawingToolbarPosition() { return drawingToolbarPosition; }
     public void setDrawingToolbarPosition(ToolbarPosition pos) {
         ToolbarPosition oldVal = this.drawingToolbarPosition;

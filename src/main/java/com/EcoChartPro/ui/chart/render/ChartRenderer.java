@@ -21,6 +21,7 @@ public class ChartRenderer {
         renderers.put(ChartType.LINE, new LineRenderer(false));
         renderers.put(ChartType.LINE_WITH_MARKERS, new LineRenderer(true));
         renderers.put(ChartType.AREA, new AreaRenderer());
+        renderers.put(ChartType.VOLUME_CANDLES, new VolumeCandleRenderer());
         renderers.put(ChartType.HEIKIN_ASHI, new HeikinAshiRenderer());
     }
 

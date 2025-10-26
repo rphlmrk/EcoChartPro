@@ -34,6 +34,7 @@ import com.EcoChartPro.ui.chart.render.ChartRenderer;
 import com.EcoChartPro.ui.chart.render.DaySeparatorRenderer;
 import com.EcoChartPro.ui.chart.render.IndicatorDrawableRenderer;
 import com.EcoChartPro.ui.chart.render.PeakHoursRenderer;
+import com.EcoChartPro.ui.chart.render.VisibleRangeVolumeProfileRenderer;
 import com.EcoChartPro.ui.chart.render.drawing.DrawingRenderer;
 import com.EcoChartPro.ui.chart.render.trading.OrderRenderer;
 import com.EcoChartPro.ui.chart.render.trading.TradeSignalRenderer;
@@ -74,6 +75,7 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
     private final IndicatorDrawableRenderer indicatorDrawableRenderer;
     private final DaySeparatorRenderer daySeparatorRenderer;
     private final PeakHoursRenderer peakHoursRenderer;
+    private final VisibleRangeVolumeProfileRenderer volumeProfileRenderer;
     private final DrawingController drawingController;
     private final ChartInteractionManager interactionManager;
     private final ChartAxis chartAxis;
@@ -118,6 +120,7 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
         this.indicatorDrawableRenderer = new IndicatorDrawableRenderer();
         this.daySeparatorRenderer = new DaySeparatorRenderer();
         this.peakHoursRenderer = new PeakHoursRenderer();
+        this.volumeProfileRenderer = new VisibleRangeVolumeProfileRenderer();
         this.drawingController = new DrawingController(this, onToolStateChange);
         this.infoPanel = new InfoPanel();
         
@@ -316,7 +319,7 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
     public void propertyChange(PropertyChangeEvent evt) {
         String propName = evt.getPropertyName();
 
-        if ("chartColorsChanged".equals(propName) || "chartTypeChanged".equals(propName) || "peakHoursLinesVisibilityChanged".equals(propName) || "peakHoursOverrideChanged".equals(propName) || "peakHoursSettingsChanged".equals(propName)) {
+        if ("chartColorsChanged".equals(propName) || "chartTypeChanged".equals(propName) || "volumeProfileVisibilityChanged".equals(propName) || "peakHoursLinesVisibilityChanged".equals(propName) || "peakHoursOverrideChanged".equals(propName) || "peakHoursSettingsChanged".equals(propName)) {
             SettingsManager settings = SettingsManager.getInstance();
             setBackground(settings.getChartBackground());
             if (getBorder() != INACTIVE_BORDER) {
@@ -477,6 +480,10 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
             Instant endTime = klinesToRender.get(klinesToRender.size() - 1).timestamp();
             TimeRange timeRange = new TimeRange(startTime, endTime);
             PriceRange priceRange = new PriceRange(dataModel.getMinPrice(), dataModel.getMaxPrice());
+
+            if (settings.isVolumeProfileVisible()) {
+                volumeProfileRenderer.draw(g2d, chartAxis, klinesToRender);
+            }
 
             if (showIndicators) {
                 List<DrawableObject> allIndicatorDrawables = new ArrayList<>();
