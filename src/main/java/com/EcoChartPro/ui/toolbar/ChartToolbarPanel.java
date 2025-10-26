@@ -192,7 +192,7 @@ public class ChartToolbarPanel extends JPanel implements PropertyChangeListener 
             default -> UITheme.Icons.CANDLESTICK;
         };
         chartTypeButton.setIcon(UITheme.getIcon(iconPath, 18, 18));
-        chartTypeButton.setToolTipText("Chart Type: " + type.getDisplayName());
+        chartTypeButton.setToolTipText("Chart Type & Display Settings");
     }
 
     private JPopupMenu createPopupMenu(JPanel contentPanel) {
@@ -211,11 +211,11 @@ public class ChartToolbarPanel extends JPanel implements PropertyChangeListener 
             });
         } else if (contentPanel instanceof LayoutSelectionPanel panel) {
             panel.addActionListener(e -> {
-                // The action command is now already in the correct format (e.g., "layoutChanged:TWO_VERTICAL")
                 fireActionEvent(e.getActionCommand());
                 popupMenu.setVisible(false);
             });
         } else if (contentPanel instanceof ChartTypeSelectionPanel panel) {
+            // Chart type buttons will hide the menu, but checkboxes will not.
             panel.addActionListener(e -> fireActionEvent(e.getActionCommand()));
         }
         popupMenu.add(contentPanel);

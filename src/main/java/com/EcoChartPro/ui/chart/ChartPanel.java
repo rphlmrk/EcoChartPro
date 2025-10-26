@@ -34,6 +34,7 @@ import com.EcoChartPro.ui.chart.render.ChartRenderer;
 import com.EcoChartPro.ui.chart.render.DaySeparatorRenderer;
 import com.EcoChartPro.ui.chart.render.IndicatorDrawableRenderer;
 import com.EcoChartPro.ui.chart.render.PeakHoursRenderer;
+import com.EcoChartPro.ui.chart.render.SessionVolumeProfileRenderer;
 import com.EcoChartPro.ui.chart.render.VisibleRangeVolumeProfileRenderer;
 import com.EcoChartPro.ui.chart.render.drawing.DrawingRenderer;
 import com.EcoChartPro.ui.chart.render.trading.OrderRenderer;
@@ -75,7 +76,8 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
     private final IndicatorDrawableRenderer indicatorDrawableRenderer;
     private final DaySeparatorRenderer daySeparatorRenderer;
     private final PeakHoursRenderer peakHoursRenderer;
-    private final VisibleRangeVolumeProfileRenderer volumeProfileRenderer;
+    private final VisibleRangeVolumeProfileRenderer vrvpRenderer;
+    private final SessionVolumeProfileRenderer svpRenderer;
     private final DrawingController drawingController;
     private final ChartInteractionManager interactionManager;
     private final ChartAxis chartAxis;
@@ -96,7 +98,7 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
     private boolean isReplayPlaying = false;
 
     private DrawingObjectPoint crosshairPoint;
-    private DrawingObjectPoint previousCrosshairPoint; 
+    private DrawingObjectPoint previousCrosshairPoint;
 
     private boolean isLoading = false;
     private String loadingMessage = "";
@@ -120,16 +122,17 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
         this.indicatorDrawableRenderer = new IndicatorDrawableRenderer();
         this.daySeparatorRenderer = new DaySeparatorRenderer();
         this.peakHoursRenderer = new PeakHoursRenderer();
-        this.volumeProfileRenderer = new VisibleRangeVolumeProfileRenderer();
+        this.vrvpRenderer = new VisibleRangeVolumeProfileRenderer();
+        this.svpRenderer = new SessionVolumeProfileRenderer();
         this.drawingController = new DrawingController(this, onToolStateChange);
         this.infoPanel = new InfoPanel();
-        
+
         SettingsManager settings = SettingsManager.getInstance();
         setBackground(settings.getChartBackground());
         setBorder(INACTIVE_BORDER);
         setLayout(null);
         setFocusable(true);
-        
+
         this.jumpToLiveEdgeButton = createOverlayButton(UITheme.Icons.FAST_FORWARD, "Jump to Live Edge");
         this.jumpToLiveEdgeButton.addActionListener(e -> interactionManager.jumpToLiveEdge());
         this.increaseMarginButton = createOverlayButton(UITheme.Icons.CHEVRON_DOUBLE_RIGHT, "Increase Right Margin");
@@ -159,7 +162,7 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
             }
         });
     }
-    
+
     public DrawingObjectPoint getSnappingPoint(MouseEvent e) {
         if (!getChartAxis().isConfigured()) return null;
 
@@ -197,7 +200,7 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
                 bestPrice = entry.getKey();
             }
         }
-        
+
         if (bestPrice != null && minDistance < SettingsManager.getInstance().getSnapRadius()) {
             return new DrawingObjectPoint(rawPoint.timestamp(), bestPrice);
         } else {
@@ -239,7 +242,7 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
         });
         return button;
     }
-    
+
     private void positionOverlayButtons() {
         int panelWidth = getWidth();
         int panelHeight = getHeight();
@@ -258,14 +261,14 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
     private void updateOverlayButtonsVisibility() {
         boolean isAtLiveEdge = interactionManager.isViewingLiveEdge();
         jumpToLiveEdgeButton.setVisible(!isAtLiveEdge);
-    
+
         boolean showMarginControls;
         if (dataModel.isInReplayMode()) {
             showMarginControls = isAtLiveEdge && isReplayPlaying;
         } else { // Live mode
             showMarginControls = isAtLiveEdge;
         }
-        
+
         increaseMarginButton.setVisible(showMarginControls);
         decreaseMarginButton.setVisible(showMarginControls);
     }
@@ -360,7 +363,7 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
         List<KLine> visibleKLines = dataModel.getVisibleKLines();
         int x = chartAxis.timeToX(point.timestamp(), visibleKLines, dataModel.getCurrentDisplayTimeframe());
         int y = chartAxis.priceToY(point.price());
-        
+
         if (x >= 0) {
             repaint(x - 1, 0, 3, getHeight());
         }
@@ -435,7 +438,7 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
              currentSource = ReplaySessionManager.getInstance().getCurrentSource();
         }
         Timeframe currentTimeframe = dataModel.getCurrentDisplayTimeframe();
-        
+
         if (currentSource != null) {
             g2d.setFont(SYMBOL_FONT);
             g2d.setColor(settings.getAxisTextColor());
@@ -481,8 +484,12 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
             TimeRange timeRange = new TimeRange(startTime, endTime);
             PriceRange priceRange = new PriceRange(dataModel.getMinPrice(), dataModel.getMaxPrice());
 
-            if (settings.isVolumeProfileVisible()) {
-                volumeProfileRenderer.draw(g2d, chartAxis, klinesToRender);
+            if (settings.isVrvpVisible()) {
+                vrvpRenderer.draw(g2d, chartAxis, klinesToRender);
+            }
+
+            if (settings.isSvpVisible()) {
+                svpRenderer.draw(g2d, chartAxis, dataModel);
             }
 
             if (showIndicators) {
@@ -517,7 +524,7 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
         if (orderPreview != null) {
             drawOrderPreview(g2d, orderPreview);
         }
-        
+
         drawCrosshair(g2d, klinesToRender);
 
         drawInfoPanel(g2d, rawVisibleKLines); // Info panel should always show raw data
@@ -529,7 +536,7 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
                 int y = chartAxis.priceToY(lastClose);
                 boolean isBullish = lastKline.close().compareTo(lastKline.open()) >= 0;
                 Color backgroundColor = isBullish ? settings.getBullColor() : settings.getBearColor();
-                
+
                 int lastGlobalIndex;
                 if (dataModel.getCurrentMode() == ChartDataModel.ChartMode.LIVE) {
                     // For live, the forming candle is at the next logical index
@@ -538,7 +545,7 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
                     // For replay, it's the last available index
                     lastGlobalIndex = dataModel.getTotalCandleCount() - 1;
                 }
-                
+
                 int slot = lastGlobalIndex - interactionManager.getStartIndex();
                 int startX = chartAxis.slotToX(slot);
                 Stroke dashed = new BasicStroke(1, BasicStroke.CAP_BUTT, BasicStroke.JOIN_BEVEL, 0, new float[]{5}, 0);
@@ -547,7 +554,7 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
                 g2d.drawLine(startX, y, getWidth(), y);
             }
         }
-        
+
         if (isLoading) {
             drawLoadingOverlay(g2d);
         }
@@ -557,7 +564,7 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
         priceAxisPanel.repaint();
         timeAxisPanel.repaint();
     }
-    
+
     private void drawInfoPanel(Graphics2D g, List<KLine> visibleKLines) {
         DrawingTool activeTool = drawingController.getActiveTool();
         if (!(activeTool instanceof InfoTool infoTool)) {
@@ -596,16 +603,16 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
         if (y + panelHeight > getHeight()) {
             y = screenPoint.y - panelHeight - padding;
         }
-        
+
         x = Math.max(5, x);
         y = Math.max(5, y);
 
         SwingUtilities.paintComponent(g, infoPanel, this, x, y, panelWidth, panelHeight);
     }
-    
+
     private void drawCrosshair(Graphics2D g2d, List<KLine> visibleKLines) {
         if (crosshairPoint == null || !chartAxis.isConfigured()) return;
-        
+
         int x = chartAxis.timeToX(crosshairPoint.timestamp(), visibleKLines, dataModel.getCurrentDisplayTimeframe());
         int y = chartAxis.priceToY(crosshairPoint.price());
 
