@@ -133,9 +133,16 @@ public final class SettingsManager {
     private Color crosshairLabelBackgroundColor, crosshairLabelForegroundColor;
     private ZoneId displayZoneId;
     private boolean daySeparatorsEnabled;
-    private boolean vrvpVisible; // Renamed from volumeProfileVisible
-    private boolean svpVisible; // New field for Session Volume Profile
+    private boolean vrvpVisible;
+    private boolean svpVisible;
     private ToolbarPosition drawingToolbarPosition;
+    private Color vrvpUpVolumeColor;
+    private Color vrvpDownVolumeColor;
+    private Color vrvpPocColor;
+    private Color vrvpValueAreaUpColor;
+    private Color vrvpValueAreaDownColor;
+    private int vrvpRowHeight;
+    private BasicStroke vrvpPocLineStroke;
     private int drawingToolbarWidth, drawingToolbarHeight;
     private int snapRadius;
     private int drawingHitThreshold;
@@ -225,17 +232,11 @@ public final class SettingsManager {
             }
         }
 
-        // Load UI Scale first as it's a general app setting
         this.uiScale = Float.parseFloat(properties.getProperty("app.uiScale", "1.0f"));
-
-        // Load theme and update chart colors based on it BEFORE loading custom colors
         this.currentTheme = Theme.valueOf(properties.getProperty("app.theme", "DARK"));
-        updateChartColorsForTheme(this.currentTheme, false); // Load defaults for the theme
+        updateChartColorsForTheme(this.currentTheme, false);
 
-        // New: Load Chart Type
         this.currentChartType = ChartType.valueOf(properties.getProperty("chart.type", "CANDLES"));
-
-        // Now load custom colors, which will override the theme defaults if present
         this.bullColor = parseColor(properties.getProperty("chart.bullColor"), this.bullColor);
         this.bearColor = parseColor(properties.getProperty("chart.bearColor"), this.bearColor);
         this.gridColor = parseColor(properties.getProperty("chart.gridColor"), this.gridColor);
@@ -248,14 +249,21 @@ public final class SettingsManager {
         this.crosshairLabelBackgroundColor = parseColor(properties.getProperty("crosshair.label.backgroundColor"), this.crosshairLabelBackgroundColor);
         this.crosshairLabelForegroundColor = parseColor(properties.getProperty("crosshair.label.foregroundColor"), this.crosshairLabelForegroundColor);
         
-        // Load other settings
         this.displayZoneId = ZoneId.of(properties.getProperty("chart.zoneId", ZoneId.systemDefault().getId()));
         this.daySeparatorsEnabled = Boolean.parseBoolean(properties.getProperty("chart.daySeparators", "true"));
-
-        // For backward compatibility, check for the old key first.
+        
         String vrvpProp = properties.getProperty("chart.vrvpVisible", properties.getProperty("chart.volumeProfileVisible", "false"));
         this.vrvpVisible = Boolean.parseBoolean(vrvpProp);
         this.svpVisible = Boolean.parseBoolean(properties.getProperty("chart.svpVisible", "false"));
+
+        this.vrvpUpVolumeColor = parseColor(properties.getProperty("vrvp.color.upVolume"), this.vrvpUpVolumeColor);
+        this.vrvpDownVolumeColor = parseColor(properties.getProperty("vrvp.color.downVolume"), this.vrvpDownVolumeColor);
+        this.vrvpPocColor = parseColor(properties.getProperty("vrvp.color.poc"), this.vrvpPocColor);
+        this.vrvpValueAreaUpColor = parseColor(properties.getProperty("vrvp.color.valueAreaUp"), this.vrvpValueAreaUpColor);
+        this.vrvpValueAreaDownColor = parseColor(properties.getProperty("vrvp.color.valueAreaDown"), this.vrvpValueAreaDownColor);
+        this.vrvpRowHeight = Integer.parseInt(properties.getProperty("vrvp.rowHeight", "1"));
+        float pocLineWidth = Float.parseFloat(properties.getProperty("vrvp.pocLineWidth", "2.0"));
+        this.vrvpPocLineStroke = new BasicStroke(pocLineWidth);
 
         this.drawingToolbarPosition = ToolbarPosition.valueOf(properties.getProperty("toolbar.position", "LEFT"));
         this.drawingToolbarWidth = Integer.parseInt(properties.getProperty("toolbar.width", "35"));
@@ -303,7 +311,6 @@ public final class SettingsManager {
             }
         }
 
-        // --- NEW: Load preferred trading sessions ---
         String preferredSessionsStr = properties.getProperty("discipline.preferredTradingSessions", "LONDON,NEW_YORK");
         this.preferredTradingSessions = new ArrayList<>();
         if (!preferredSessionsStr.isBlank()) {
@@ -319,19 +326,12 @@ public final class SettingsManager {
             }
         }
 
-        // Load simulation settings
         this.commissionPerTrade = new BigDecimal(properties.getProperty("simulation.commissionPerTrade", "0.0"));
         this.simulatedSpreadPoints = new BigDecimal(properties.getProperty("simulation.simulatedSpreadPoints", "0.0"));
         this.autoJournalOnTradeClose = Boolean.parseBoolean(properties.getProperty("simulation.autoJournalOnTradeClose", "true"));
-
-        // Load session highlighting setting
         this.sessionHighlightingEnabled = Boolean.parseBoolean(properties.getProperty("chart.sessionHighlighting.enabled", "true"));
-
-        // Load trade replay timeframes
         String timeframesStr = properties.getProperty("tradeReplay.availableTimeframes", "1m,5m,15m");
         this.tradeReplayAvailableTimeframes = new ArrayList<>(Arrays.asList(timeframesStr.split(",")));
-
-        // Load favorite symbols
         String favStr = properties.getProperty("favorite.symbols", "");
         this.favoriteSymbols = new ArrayList<>();
         if (!favStr.isBlank()) {
@@ -342,7 +342,6 @@ public final class SettingsManager {
             sessionEnabled.put(session, Boolean.parseBoolean(properties.getProperty("session." + session.name() + ".enabled", "true")));
         }
         
-        // --- Load Tool Templates ---
         String templatesJson = properties.getProperty("tool.templates.v2.json");
         if (templatesJson != null && !templatesJson.isBlank()) {
             try {
@@ -371,8 +370,8 @@ public final class SettingsManager {
         if (configPathOpt.isPresent()) {
             try (FileOutputStream out = new FileOutputStream(configPathOpt.get().toFile())) {
                 properties.setProperty("app.theme", currentTheme.name());
-                properties.setProperty("app.uiScale", String.valueOf(this.uiScale)); // MODIFICATION
-                properties.setProperty("chart.type", currentChartType.name()); // New property
+                properties.setProperty("app.uiScale", String.valueOf(this.uiScale));
+                properties.setProperty("chart.type", currentChartType.name());
                 properties.setProperty("chart.bullColor", formatColor(bullColor));
                 properties.setProperty("chart.bearColor", formatColor(bearColor));
                 properties.setProperty("chart.gridColor", formatColor(gridColor));
@@ -388,6 +387,15 @@ public final class SettingsManager {
                 properties.setProperty("chart.daySeparators", String.valueOf(daySeparatorsEnabled));
                 properties.setProperty("chart.vrvpVisible", String.valueOf(vrvpVisible));
                 properties.setProperty("chart.svpVisible", String.valueOf(svpVisible));
+                
+                properties.setProperty("vrvp.color.upVolume", formatColor(vrvpUpVolumeColor));
+                properties.setProperty("vrvp.color.downVolume", formatColor(vrvpDownVolumeColor));
+                properties.setProperty("vrvp.color.poc", formatColor(vrvpPocColor));
+                properties.setProperty("vrvp.color.valueAreaUp", formatColor(vrvpValueAreaUpColor));
+                properties.setProperty("vrvp.color.valueAreaDown", formatColor(vrvpValueAreaDownColor));
+                properties.setProperty("vrvp.rowHeight", String.valueOf(vrvpRowHeight));
+                properties.setProperty("vrvp.pocLineWidth", String.valueOf(vrvpPocLineStroke.getLineWidth()));
+
                 properties.setProperty("toolbar.position", drawingToolbarPosition.name());
                 properties.setProperty("toolbar.width", String.valueOf(drawingToolbarWidth));
                 properties.setProperty("toolbar.height", String.valueOf(drawingToolbarHeight));
@@ -424,31 +432,22 @@ public final class SettingsManager {
                     .collect(Collectors.joining(","));
                 properties.setProperty("discipline.peakHoursOverride", overrideHoursStr);
 
-                // --- NEW: Save preferred trading sessions ---
                 String preferredSessionsStr = this.preferredTradingSessions.stream()
                     .map(Enum::name)
                     .collect(Collectors.joining(","));
                 properties.setProperty("discipline.preferredTradingSessions", preferredSessionsStr);
 
-                // Save simulation settings
                 properties.setProperty("simulation.commissionPerTrade", commissionPerTrade.toPlainString());
                 properties.setProperty("simulation.simulatedSpreadPoints", simulatedSpreadPoints.toPlainString());
                 properties.setProperty("simulation.autoJournalOnTradeClose", String.valueOf(autoJournalOnTradeClose));
-
-                // Save session highlighting setting
                 properties.setProperty("chart.sessionHighlighting.enabled", String.valueOf(sessionHighlightingEnabled));
-
-                // Save trade replay timeframes
                 properties.setProperty("tradeReplay.availableTimeframes", String.join(",", this.tradeReplayAvailableTimeframes));
-
-                // Save favorite symbols
                 properties.setProperty("favorite.symbols", String.join(",", this.favoriteSymbols));
 
                 for (TradingSession session : TradingSession.values()) {
                     properties.setProperty("session." + session.name() + ".enabled", String.valueOf(sessionEnabled.get(session)));
                 }
 
-                // --- Save Tool Templates ---
                 try {
                     String templatesJson = jsonMapper.writeValueAsString(toolTemplates);
                     properties.setProperty("tool.templates.v2.json", templatesJson);
@@ -493,12 +492,11 @@ public final class SettingsManager {
             this.currentTheme = newTheme;
             ThemeManager.applyTheme(newTheme);
             updateChartColorsForTheme(newTheme, true);
-            saveSettings(); // Save the change
+            saveSettings();
             pcs.firePropertyChange("themeChanged", oldVal, newTheme);
         }
     }
 
-    // Add getter and setter for UI scale
     public float getUiScale() {
         return uiScale;
     }
@@ -523,17 +521,30 @@ public final class SettingsManager {
             this.livePriceLabelBearTextColor = Color.WHITE;
             this.crosshairLabelBackgroundColor = new Color(242, 242, 242);
             this.crosshairLabelForegroundColor = Color.BLACK;
+
+            this.vrvpUpVolumeColor = new Color(0, 150, 136, 50);
+            this.vrvpDownVolumeColor = new Color(211, 47, 47, 50);
+            this.vrvpPocColor = new Color(0, 105, 217, 180);
+            this.vrvpValueAreaUpColor = new Color(0, 150, 136, 30);
+            this.vrvpValueAreaDownColor = new Color(211, 47, 47, 30);
+
         } else { // DARK theme
             this.bullColor = new Color(255, 140, 40);
             this.bearColor = Color.WHITE;
-            this.gridColor = new Color(40, 42, 45); // Darker grid for the darker theme
-            this.chartBackground = new Color(0x181A1B); // Darker background
+            this.gridColor = new Color(40, 42, 45);
+            this.chartBackground = new Color(0x181A1B);
             this.crosshairColor = Color.LIGHT_GRAY;
             this.axisTextColor = new Color(224, 224, 224);
             this.livePriceLabelBullTextColor = Color.BLACK;
             this.livePriceLabelBearTextColor = Color.BLACK;
             this.crosshairLabelBackgroundColor = new Color(60, 63, 65);
             this.crosshairLabelForegroundColor = Color.WHITE;
+            
+            this.vrvpUpVolumeColor = new Color(255, 140, 40, 60);
+            this.vrvpDownVolumeColor = new Color(200, 200, 200, 60);
+            this.vrvpPocColor = new Color(255, 255, 255, 100);
+            this.vrvpValueAreaUpColor = new Color(255, 140, 40, 30);
+            this.vrvpValueAreaDownColor = new Color(200, 200, 200, 30);
         }
         if (fireEvent) {
             pcs.firePropertyChange("chartColorsChanged", null, null);
@@ -608,6 +619,39 @@ public final class SettingsManager {
             this.svpVisible = visible;
             saveSettings();
             pcs.firePropertyChange("volumeProfileVisibilityChanged", !visible, visible);
+        }
+    }
+    
+    public Color getVrvpUpVolumeColor() { return vrvpUpVolumeColor; }
+    public void setVrvpUpVolumeColor(Color c) { this.vrvpUpVolumeColor = c; saveSettings(); pcs.firePropertyChange("chartColorsChanged", null, null); }
+
+    public Color getVrvpDownVolumeColor() { return vrvpDownVolumeColor; }
+    public void setVrvpDownVolumeColor(Color c) { this.vrvpDownVolumeColor = c; saveSettings(); pcs.firePropertyChange("chartColorsChanged", null, null); }
+
+    public Color getVrvpPocColor() { return vrvpPocColor; }
+    public void setVrvpPocColor(Color c) { this.vrvpPocColor = c; saveSettings(); pcs.firePropertyChange("chartColorsChanged", null, null); }
+
+    public Color getVrvpValueAreaUpColor() { return vrvpValueAreaUpColor; }
+    public void setVrvpValueAreaUpColor(Color c) { this.vrvpValueAreaUpColor = c; saveSettings(); pcs.firePropertyChange("chartColorsChanged", null, null); }
+    
+    public Color getVrvpValueAreaDownColor() { return vrvpValueAreaDownColor; }
+    public void setVrvpValueAreaDownColor(Color c) { this.vrvpValueAreaDownColor = c; saveSettings(); pcs.firePropertyChange("chartColorsChanged", null, null); }
+
+    public int getVrvpRowHeight() { return vrvpRowHeight; }
+    public void setVrvpRowHeight(int height) {
+        if (this.vrvpRowHeight != height) {
+            this.vrvpRowHeight = height;
+            saveSettings();
+            pcs.firePropertyChange("volumeProfileVisibilityChanged", null, null);
+        }
+    }
+    
+    public BasicStroke getVrvpPocLineStroke() { return vrvpPocLineStroke; }
+    public void setVrvpPocLineStroke(BasicStroke stroke) {
+        if (!this.vrvpPocLineStroke.equals(stroke)) {
+            this.vrvpPocLineStroke = stroke;
+            saveSettings();
+            pcs.firePropertyChange("volumeProfileVisibilityChanged", null, null);
         }
     }
 
@@ -899,7 +943,6 @@ public final class SettingsManager {
         }
     }
 
-    // --- NEW: Getter and Setter for preferred trading sessions ---
     public List<TradingSession> getPreferredTradingSessions() {
         return preferredTradingSessions;
     }
@@ -955,7 +998,6 @@ public final class SettingsManager {
         }
     }
 
-    // --- NEW: Methods for managing favorite symbols ---
     public List<String> getFavoriteSymbols() {
         return Collections.unmodifiableList(favoriteSymbols);
     }
@@ -991,8 +1033,6 @@ public final class SettingsManager {
         }
     }
     
-    // --- START: New Template Management Methods ---
-
     public List<DrawingToolTemplate> getTemplatesForTool(String toolName) {
         return toolTemplates.getOrDefault(toolName, Collections.emptyList());
     }
@@ -1007,7 +1047,6 @@ public final class SettingsManager {
 
         if (templates != null && !templates.isEmpty()) {
             if (activeTemplateId != null) {
-                // Find the active template by its ID
                 Optional<DrawingToolTemplate> activeTemplate = templates.stream()
                         .filter(t -> t.id().equals(activeTemplateId))
                         .findFirst();
@@ -1015,11 +1054,9 @@ public final class SettingsManager {
                     return activeTemplate.get();
                 }
             }
-            // If active ID is not set or not found, fall back to the first template
             return templates.get(0);
         }
         
-        // If no templates exist for this tool, create and return a hardcoded default
         return createDefaultTemplateForTool(toolName);
     }
 
@@ -1044,7 +1081,7 @@ public final class SettingsManager {
         if (templates != null) {
             templates.removeIf(t -> t.id().equals(templateId));
             if (templateId.equals(activeToolTemplates.get(toolName))) {
-                activeToolTemplates.remove(toolName); // It will default to the first in the list on next get
+                activeToolTemplates.remove(toolName);
             }
             saveSettings();
             pcs.firePropertyChange("toolDefaultsChanged", null, toolName);
@@ -1058,7 +1095,6 @@ public final class SettingsManager {
     }
 
     private DrawingToolTemplate createDefaultTemplateForTool(String toolName) {
-        // This method provides hardcoded defaults if no templates are saved
         Color color;
         BasicStroke stroke;
         boolean showPriceLabel = true;
@@ -1127,10 +1163,6 @@ public final class SettingsManager {
         return new DrawingToolTemplate(UUID.randomUUID(), "Default", color, stroke, showPriceLabel, specificProps);
     }
     
-    // --- END: New Template Management Methods ---
-
-
-    // --- START: Refactored Legacy Accessors ---
     public Color getToolDefaultColor(String toolName, Color fallback) {
         return getActiveTemplateForTool(toolName).color();
     }
@@ -1157,7 +1189,6 @@ public final class SettingsManager {
 
     public Font getToolDefaultFont(String toolName, Font fallback) {
         DrawingToolTemplate template = getActiveTemplateForTool(toolName);
-        // Deserialization from JSON might turn this into a Map, so we handle that case.
         Object fontProp = template.specificProps().get("font");
         if (fontProp instanceof Font) {
             return (Font) fontProp;
@@ -1184,7 +1215,6 @@ public final class SettingsManager {
             return (TextProperties) props;
         } else if (props instanceof Map) {
              try {
-                // Manually deserialize from map if Jackson couldn't infer the type
                 return jsonMapper.convertValue(props, TextProperties.class);
             } catch (Exception e) {
                  logger.warn("Could not deserialize TextProperties from map for tool {}", toolName);
@@ -1201,8 +1231,6 @@ public final class SettingsManager {
     public void setFibExtensionDefaultLevels(Map<Double, FibLevelProperties> levels) { /* Obsolete - Handled by template manager */ }
     public void setToolDefaultFont(String toolName, Font font) { /* Obsolete */ }
     public void setToolDefaultTextProperties(String toolName, TextProperties textProps) { /* Obsolete */ }
-
-    // --- END: Refactored Legacy Accessors ---
     
     private Map<Double, FibLevelProperties> createDefaultFibRetracementLevels() {
         Map<Double, FibLevelProperties> levels = new TreeMap<>();

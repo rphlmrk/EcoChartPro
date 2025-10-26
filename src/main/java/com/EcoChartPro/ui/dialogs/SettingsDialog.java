@@ -847,7 +847,7 @@ public class SettingsDialog extends JDialog {
         return panel;
     }
 
-    private JPanel createAppearanceSettingsPanel() {
+    private JComponent createAppearanceSettingsPanel() {
         JPanel panel = new JPanel();
         panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
         panel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
@@ -919,15 +919,76 @@ public class SettingsDialog extends JDialog {
         colorsPanel.add(new JLabel(), gbc); // Glue
         colorsPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, colorsPanel.getPreferredSize().height));
         panel.add(colorsPanel);
+        panel.add(Box.createVerticalStrut(10));
+        
+        panel.add(createVolumeProfileSettingsPanel());
 
         panel.add(Box.createVerticalGlue());
-        return panel;
+        
+        JScrollPane scrollPane = new JScrollPane(panel);
+        scrollPane.setBorder(null);
+        return scrollPane;
+    }
+    
+    private JPanel createVolumeProfileSettingsPanel() {
+        JPanel vpPanel = new JPanel(new GridBagLayout());
+        vpPanel.setBorder(BorderFactory.createTitledBorder("Visible Range Volume Profile (VRVP)"));
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.insets = new Insets(5, 10, 5, 10);
+        gbc.anchor = GridBagConstraints.WEST;
+
+        int row = 0;
+        
+        vpPanel.add(new JLabel("Up Volume Color:"), gbc(0, row));
+        vpPanel.add(createColorPickerButton("Select color for bullish volume", settingsManager.getVrvpUpVolumeColor(), settingsManager::setVrvpUpVolumeColor), gbc(1, row++));
+
+        vpPanel.add(new JLabel("Down Volume Color:"), gbc(0, row));
+        vpPanel.add(createColorPickerButton("Select color for bearish volume", settingsManager.getVrvpDownVolumeColor(), settingsManager::setVrvpDownVolumeColor), gbc(1, row++));
+
+        vpPanel.add(new JLabel("Point of Control (POC) Color:"), gbc(0, row));
+        vpPanel.add(createColorPickerButton("Select color for the POC line", settingsManager.getVrvpPocColor(), settingsManager::setVrvpPocColor), gbc(1, row++));
+        
+        vpPanel.add(new JLabel("Value Area Up (Not Implemented):"), gbc(0, row));
+        vpPanel.add(createColorPickerButton("Select color for value area up", settingsManager.getVrvpValueAreaUpColor(), settingsManager::setVrvpValueAreaUpColor), gbc(1, row++));
+
+        vpPanel.add(new JLabel("Value Area Down (Not Implemented):"), gbc(0, row));
+        vpPanel.add(createColorPickerButton("Select color for value area down", settingsManager.getVrvpValueAreaDownColor(), settingsManager::setVrvpValueAreaDownColor), gbc(1, row++));
+
+        gbc.gridy = row++;
+        vpPanel.add(new JSeparator(), gbc(0, row, 2, 1));
+        gbc.gridy = row++;
+        
+        vpPanel.add(new JLabel("Row Height (pixels):"), gbc(0, row));
+        JSpinner rowHeightSpinner = new JSpinner(new SpinnerNumberModel(settingsManager.getVrvpRowHeight(), 1, 10, 1));
+        rowHeightSpinner.addChangeListener(e -> settingsManager.setVrvpRowHeight((Integer) rowHeightSpinner.getValue()));
+        vpPanel.add(rowHeightSpinner, gbc(1, row++));
+        
+        vpPanel.add(new JLabel("POC Line Width (pixels):"), gbc(0, row));
+        JSpinner pocWidthSpinner = new JSpinner(new SpinnerNumberModel(settingsManager.getVrvpPocLineStroke().getLineWidth(), 1.0f, 5.0f, 0.5f));
+        pocWidthSpinner.addChangeListener(e -> {
+            float width = ((Number) pocWidthSpinner.getValue()).floatValue();
+            settingsManager.setVrvpPocLineStroke(new BasicStroke(width));
+        });
+        vpPanel.add(pocWidthSpinner, gbc(1, row++));
+
+        gbc.gridx = 2; gbc.weightx = 1.0;
+        vpPanel.add(new JLabel(), gbc);
+        vpPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, vpPanel.getPreferredSize().height));
+        
+        return vpPanel;
+    }
+    
+    private GridBagConstraints gbc(int x, int y, int width, int height) {
+        GridBagConstraints gbc = gbc(x,y);
+        gbc.gridwidth = width;
+        gbc.gridheight = height;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        return gbc;
     }
     
     private JComponent createDrawingToolsSettingsPanel() {
         JTabbedPane tabbedPane = new JTabbedPane();
 
-        // The display name and the tool's class name (used as a key in SettingsManager)
         Map<String, String> tools = new LinkedHashMap<>();
         tools.put("Trendline", "Trendline");
         tools.put("Ray", "RayObject");
