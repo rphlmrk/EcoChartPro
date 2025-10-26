@@ -104,9 +104,6 @@ public record Trendline(
     
     @Override
     public boolean isVisible(TimeRange timeRange, PriceRange priceRange) {
-        boolean p1Visible = timeRange.contains(start.timestamp()) && priceRange.contains(start.price());
-        boolean p2Visible = timeRange.contains(end.timestamp()) && priceRange.contains(end.price());
-        if (p1Visible || p2Visible) return true;
         Instant minTime = start.timestamp().isBefore(end.timestamp()) ? start.timestamp() : end.timestamp();
         Instant maxTime = start.timestamp().isAfter(end.timestamp()) ? start.timestamp() : end.timestamp();
         BigDecimal minPrice = start.price().min(end.price());

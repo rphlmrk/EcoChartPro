@@ -152,7 +152,20 @@ public record FibonacciExtensionObject(
     
     @Override
     public boolean isVisible(TimeRange timeRange, PriceRange priceRange) {
-        return timeRange.contains(p0.timestamp()) || priceRange.contains(p0.price());
+        // Check if the bounding box of the three defining points intersects the view.
+        Instant minTime = p0.timestamp().isBefore(p1.timestamp()) ? p0.timestamp() : p1.timestamp();
+        minTime = minTime.isBefore(p2.timestamp()) ? minTime : p2.timestamp();
+
+        Instant maxTime = p0.timestamp().isAfter(p1.timestamp()) ? p0.timestamp() : p1.timestamp();
+        maxTime = maxTime.isAfter(p2.timestamp()) ? maxTime : p2.timestamp();
+
+        BigDecimal minPrice = p0.price().min(p1.price()).min(p2.price());
+        BigDecimal maxPrice = p0.price().max(p1.price()).max(p2.price());
+
+        boolean timeOverlap = !maxTime.isBefore(timeRange.start()) && !minTime.isAfter(timeRange.end());
+        boolean priceOverlap = maxPrice.compareTo(priceRange.min()) >= 0 && minPrice.compareTo(priceRange.max()) <= 0;
+
+        return timeOverlap && priceOverlap;
     }
 
     @Override

@@ -112,7 +112,17 @@ public record RayObject(
     
     @Override
     public boolean isVisible(TimeRange timeRange, PriceRange priceRange) {
-        return timeRange.contains(start.timestamp()) || priceRange.contains(start.price());
+        // Check if the bounding box of the ray's defining segment intersects the view.
+        // This correctly handles cases where the start point is off-screen but the ray enters the view.
+        Instant minTime = start.timestamp().isBefore(end.timestamp()) ? start.timestamp() : end.timestamp();
+        Instant maxTime = start.timestamp().isAfter(end.timestamp()) ? start.timestamp() : end.timestamp();
+        BigDecimal minPrice = start.price().min(end.price());
+        BigDecimal maxPrice = start.price().max(end.price());
+
+        boolean timeOverlap = !maxTime.isBefore(timeRange.start()) && !minTime.isAfter(timeRange.end());
+        boolean priceOverlap = maxPrice.compareTo(priceRange.min()) >= 0 && minPrice.compareTo(priceRange.max()) <= 0;
+
+        return timeOverlap && priceOverlap;
     }
 
     @Override
