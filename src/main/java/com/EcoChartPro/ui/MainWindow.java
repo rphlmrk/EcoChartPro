@@ -18,6 +18,7 @@ import com.EcoChartPro.data.LiveDataManager;
 import com.EcoChartPro.model.Timeframe;
 import com.EcoChartPro.model.Trade;
 import com.EcoChartPro.model.TradeDirection;
+import com.EcoChartPro.model.chart.ChartType;
 import com.EcoChartPro.model.drawing.DrawingObject;
 import com.EcoChartPro.model.drawing.TextObject;
 import com.EcoChartPro.ui.action.KeyboardShortcutManager;
@@ -662,7 +663,17 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
                     System.err.println("Invalid layout type received: " + command);
                 }
             } 
-            // --- 4. Handle Trading Actions ---
+            // --- 4. Handle Chart Type Change ---
+            else if (command.startsWith("chartTypeChanged:")) {
+                try {
+                    String typeName = command.substring("chartTypeChanged:".length());
+                    ChartType type = ChartType.valueOf(typeName);
+                    SettingsManager.getInstance().setCurrentChartType(type);
+                } catch (IllegalArgumentException ex) {
+                    System.err.println("Invalid chart type received: " + command);
+                }
+            }
+            // --- 5. Handle Trading Actions ---
             else if ("placeLongOrder".equals(command) || "placeShortOrder".equals(command)) {
                 handleTradeAction(command);
             }

@@ -100,6 +100,9 @@ public final class UITheme {
         public static final String LAYOUT_GRID = "/icons/layout-grid.svg";
         public static final String CLOCK = "/icons/clock.svg";
         public static final String CROSSHAIR = "/icons/crosshairs.svg";
+        public static final String CANDLESTICK = "/icons/candlestick.svg";
+        public static final String BAR_CHART = "/icons/bar-chart.svg";
+        public static final String LINE_CHART = "/icons/line-chart.svg";
         public static final String LAYOUT_1 = "/icons/layout-1.svg";
         public static final String LAYOUT_2_H = "/icons/layout-2-h.svg";
         public static final String LAYOUT_3_L = "/icons/layout-3-l.svg";

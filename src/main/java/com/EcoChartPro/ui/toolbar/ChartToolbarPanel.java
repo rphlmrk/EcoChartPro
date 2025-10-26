@@ -2,35 +2,43 @@ package com.EcoChartPro.ui.toolbar;
 
 import com.EcoChartPro.core.manager.CrosshairManager;
 import com.EcoChartPro.core.manager.UndoManager;
+import com.EcoChartPro.core.settings.SettingsManager;
 import com.EcoChartPro.model.Timeframe;
+import com.EcoChartPro.model.chart.ChartType;
 import com.EcoChartPro.ui.MainWindow;
 import com.EcoChartPro.ui.chart.ChartPanel;
 import com.EcoChartPro.ui.dashboard.theme.UITheme;
 import com.EcoChartPro.ui.dialogs.IndicatorDialog;
+import com.EcoChartPro.ui.toolbar.components.ChartTypeSelectionPanel;
 import com.EcoChartPro.ui.toolbar.components.LayoutSelectionPanel;
 import com.EcoChartPro.ui.toolbar.components.SymbolSelectionPanel;
 import com.EcoChartPro.ui.toolbar.components.TimeframeSelectionPanel;
 import com.EcoChartPro.utils.DataSourceManager.ChartDataSource;
 import com.EcoChartPro.utils.DataSourceManager;
+
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.beans.PropertyChangeEvent;
+import java.beans.PropertyChangeListener;
 import java.util.List;
 
-public class ChartToolbarPanel extends JPanel {
+public class ChartToolbarPanel extends JPanel implements PropertyChangeListener {
 
     private final JButton symbolSelectorButton;
     private ChartDataSource selectedDataSource;
 
     private final JButton timeframeButton;
+    private final JButton chartTypeButton;
     private final JButton layoutButton;
     private final JToggleButton crosshairSyncButton;
     
     private final JPopupMenu symbolPopup;
     private final JPopupMenu timeframePopup;
+    private final JPopupMenu chartTypePopup;
     private final JPopupMenu layoutPopup;
 
     private final boolean isReplayMode;
@@ -73,6 +81,11 @@ public class ChartToolbarPanel extends JPanel {
         timeframeButton.setToolTipText("Select Chart Timeframe");
         timeframeButton.setIcon(UITheme.getIcon(UITheme.Icons.CLOCK, 16, 16));
         leftPanel.add(timeframeButton);
+
+        chartTypeButton = new JButton();
+        styleToolbarButton(chartTypeButton);
+        updateChartTypeButton(SettingsManager.getInstance().getCurrentChartType()); // Set initial icon
+        leftPanel.add(chartTypeButton);
 
         layoutButton = new JButton(UITheme.getIcon(UITheme.Icons.LAYOUT_GRID, 18, 18));
         styleToolbarButton(layoutButton);
@@ -142,6 +155,7 @@ public class ChartToolbarPanel extends JPanel {
         }
         
         this.timeframePopup = createPopupMenu(new TimeframeSelectionPanel());
+        this.chartTypePopup = createPopupMenu(new ChartTypeSelectionPanel());
         this.layoutPopup = createPopupMenu(new LayoutSelectionPanel());
         this.symbolPopup = new JPopupMenu();
         this.symbolPopup.setBorder(BorderFactory.createLineBorder(UIManager.getColor("Component.borderColor")));
@@ -158,7 +172,27 @@ public class ChartToolbarPanel extends JPanel {
 
         setupHoverPopup(symbolSelectorButton, symbolPopup);
         setupHoverPopup(timeframeButton, timeframePopup);
+        setupHoverPopup(chartTypeButton, chartTypePopup);
         setupHoverPopup(layoutButton, layoutPopup);
+        
+        SettingsManager.getInstance().addPropertyChangeListener("chartTypeChanged", this);
+    }
+
+    @Override
+    public void propertyChange(PropertyChangeEvent evt) {
+        if ("chartTypeChanged".equals(evt.getPropertyName()) && evt.getNewValue() instanceof ChartType) {
+            updateChartTypeButton((ChartType) evt.getNewValue());
+        }
+    }
+
+    private void updateChartTypeButton(ChartType type) {
+        String iconPath = switch (type) {
+            case BARS -> UITheme.Icons.BAR_CHART;
+            case LINE, LINE_WITH_MARKERS, AREA -> UITheme.Icons.LINE_CHART;
+            default -> UITheme.Icons.CANDLESTICK;
+        };
+        chartTypeButton.setIcon(UITheme.getIcon(iconPath, 18, 18));
+        chartTypeButton.setToolTipText("Chart Type: " + type.getDisplayName());
     }
 
     private JPopupMenu createPopupMenu(JPanel contentPanel) {
@@ -181,6 +215,8 @@ public class ChartToolbarPanel extends JPanel {
                 fireActionEvent(e.getActionCommand());
                 popupMenu.setVisible(false);
             });
+        } else if (contentPanel instanceof ChartTypeSelectionPanel panel) {
+            panel.addActionListener(e -> fireActionEvent(e.getActionCommand()));
         }
         popupMenu.add(contentPanel);
         return popupMenu;

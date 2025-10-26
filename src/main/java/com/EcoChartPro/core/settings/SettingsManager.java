@@ -2,6 +2,7 @@ package com.EcoChartPro.core.settings;
 
 import com.EcoChartPro.core.theme.ThemeManager;
 import com.EcoChartPro.core.theme.ThemeManager.Theme;
+import com.EcoChartPro.model.chart.ChartType;
 import com.EcoChartPro.model.drawing.FibonacciRetracementObject.FibLevelProperties;
 import com.EcoChartPro.model.drawing.TextProperties;
 import com.EcoChartPro.utils.AppDataManager;
@@ -123,6 +124,7 @@ public final class SettingsManager {
 
 
     // --- Settings Fields ---
+    private ChartType currentChartType;
     private Theme currentTheme;
     private float uiScale;
     private Color bullColor, bearColor, gridColor, chartBackground, crosshairColor, axisTextColor;
@@ -227,6 +229,9 @@ public final class SettingsManager {
         // Load theme and update chart colors based on it BEFORE loading custom colors
         this.currentTheme = Theme.valueOf(properties.getProperty("app.theme", "DARK"));
         updateChartColorsForTheme(this.currentTheme, false); // Load defaults for the theme
+
+        // New: Load Chart Type
+        this.currentChartType = ChartType.valueOf(properties.getProperty("chart.type", "CANDLES"));
 
         // Now load custom colors, which will override the theme defaults if present
         this.bullColor = parseColor(properties.getProperty("chart.bullColor"), this.bullColor);
@@ -359,6 +364,7 @@ public final class SettingsManager {
             try (FileOutputStream out = new FileOutputStream(configPathOpt.get().toFile())) {
                 properties.setProperty("app.theme", currentTheme.name());
                 properties.setProperty("app.uiScale", String.valueOf(this.uiScale)); // MODIFICATION
+                properties.setProperty("chart.type", currentChartType.name()); // New property
                 properties.setProperty("chart.bullColor", formatColor(bullColor));
                 properties.setProperty("chart.bearColor", formatColor(bearColor));
                 properties.setProperty("chart.gridColor", formatColor(gridColor));
@@ -453,6 +459,19 @@ public final class SettingsManager {
     public void addPropertyChangeListener(PropertyChangeListener listener) { pcs.addPropertyChangeListener(listener); }
     public void addPropertyChangeListener(String propertyName, PropertyChangeListener listener) { pcs.addPropertyChangeListener(propertyName, listener); }
     public void removePropertyChangeListener(PropertyChangeListener listener) { pcs.removePropertyChangeListener(listener); }
+
+    public ChartType getCurrentChartType() {
+        return currentChartType;
+    }
+
+    public void setCurrentChartType(ChartType type) {
+        if (this.currentChartType != type) {
+            ChartType oldVal = this.currentChartType;
+            this.currentChartType = type;
+            saveSettings();
+            pcs.firePropertyChange("chartTypeChanged", oldVal, type);
+        }
+    }
 
     public Theme getCurrentTheme() {
         return currentTheme;

@@ -1,29 +1,48 @@
 package com.EcoChartPro.ui.chart.render;
 
 import com.EcoChartPro.model.KLine;
-import com.EcoChartPro.model.Timeframe;
+import com.EcoChartPro.model.chart.ChartType;
 import com.EcoChartPro.ui.chart.axis.ChartAxis;
-import java.awt.Graphics2D;
+
+import java.awt.*;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class ChartRenderer {
 
-    private final AxisRenderer axisRenderer;
-    private final CandlestickRenderer candlestickRenderer;
+    private final Map<ChartType, AbstractChartTypeRenderer> renderers = new HashMap<>();
 
     public ChartRenderer() {
-        this.axisRenderer = new AxisRenderer();
-        this.candlestickRenderer = new CandlestickRenderer();
+        // Instantiate and register all available renderers
+        renderers.put(ChartType.CANDLES, new CandleRenderer());
+        renderers.put(ChartType.BARS, new BarRenderer());
+        renderers.put(ChartType.HOLLOW_CANDLES, new HollowCandleRenderer());
+        renderers.put(ChartType.LINE, new LineRenderer(false));
+        renderers.put(ChartType.LINE_WITH_MARKERS, new LineRenderer(true));
+        renderers.put(ChartType.AREA, new AreaRenderer());
+        renderers.put(ChartType.HEIKIN_ASHI, new HeikinAshiRenderer());
     }
 
     /**
-     * Signature changed to accept a list of K-lines and timeframe directly.
+     * Draws the main chart series by delegating to the appropriate renderer based on the selected ChartType.
+     *
+     * @param g2d The graphics context.
+     * @param chartType The type of chart to render.
+     * @param axis The configured chart axis.
+     * @param visibleKlines The list of visible data points.
+     * @param startIndex The absolute start index of the visible data.
      */
-    public void draw(Graphics2D g2d, ChartAxis axis, List<KLine> visibleKlines, int startIndex, Timeframe tf) {
-        // Draw background grid lines first
-        axisRenderer.draw(g2d, axis, visibleKlines, tf);
+    public void draw(Graphics2D g2d, ChartType chartType, ChartAxis axis, List<KLine> visibleKlines, int startIndex) {
+        AbstractChartTypeRenderer renderer = renderers.get(chartType);
 
-        // Draw candlesticks on top
-        candlestickRenderer.draw(g2d, axis, visibleKlines, startIndex);
+        if (renderer != null) {
+            renderer.draw(g2d, axis, visibleKlines, startIndex);
+        } else {
+            // Fallback for unimplemented chart types
+            String message = chartType.getDisplayName() + " chart type not yet implemented.";
+            g2d.setColor(Color.GRAY);
+            g2d.drawString(message, 50, 100);
+        }
     }
 }
