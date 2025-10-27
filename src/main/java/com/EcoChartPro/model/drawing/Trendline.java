@@ -4,9 +4,9 @@ import com.EcoChartPro.core.manager.DrawingManager;
 import com.EcoChartPro.core.manager.PriceRange;
 import com.EcoChartPro.core.manager.TimeRange;
 import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.Timeframe;
-import com.EcoChartPro.model.chart.AbstractChartData;
-import com.EcoChartPro.ui.chart.axis.IChartAxis;
+import com.EcoChartPro.ui.chart.axis.ChartAxis;
 
 import java.awt.BasicStroke;
 import java.awt.Color;
@@ -76,10 +76,10 @@ public record Trendline(
     }
 
     @Override
-    public void render(Graphics2D g, IChartAxis axis, List<? extends AbstractChartData> data, Timeframe tf) {
-        int x1 = axis.timeToX(this.start().timestamp(), data, tf);
+    public void render(Graphics2D g, ChartAxis axis, List<KLine> klines, Timeframe tf) {
+        int x1 = axis.timeToX(this.start().timestamp(), klines, tf);
         int y1 = axis.priceToY(this.start().price());
-        int x2 = axis.timeToX(this.end().timestamp(), data, tf);
+        int x2 = axis.timeToX(this.end().timestamp(), klines, tf);
         int y2 = axis.priceToY(this.end().price());
 
         UUID selectedId = DrawingManager.getInstance().getSelectedDrawingId();
@@ -91,14 +91,14 @@ public record Trendline(
         g.setStroke(originalStroke);
 
         if (isSelected && !isLocked) {
-            getHandles(axis, data, tf).forEach(h -> drawHandle(g, h.position()));
+            getHandles(axis, klines, tf).forEach(h -> drawHandle(g, h.position()));
         }
     }
 
     @Override
-    public boolean isHit(Point screenPoint, IChartAxis axis, List<? extends AbstractChartData> data, Timeframe tf) {
-        Point p1 = new Point(axis.timeToX(this.start.timestamp(), data, tf), axis.priceToY(this.start.price()));
-        Point p2 = new Point(axis.timeToX(this.end.timestamp(), data, tf), axis.priceToY(this.end.price()));
+    public boolean isHit(Point screenPoint, ChartAxis axis, List<KLine> klines, Timeframe tf) {
+        Point p1 = new Point(axis.timeToX(this.start.timestamp(), klines, tf), axis.priceToY(this.start.price()));
+        Point p2 = new Point(axis.timeToX(this.end.timestamp(), klines, tf), axis.priceToY(this.end.price()));
         return distanceToLineSegment(screenPoint.x, screenPoint.y, p1.x, p1.y, p2.x, p2.y) < SettingsManager.getInstance().getDrawingHitThreshold();
     }
     
@@ -114,12 +114,12 @@ public record Trendline(
     }
 
     @Override
-    public List<DrawingHandle> getHandles(IChartAxis axis, List<? extends AbstractChartData> data, Timeframe tf) {
+    public List<DrawingHandle> getHandles(ChartAxis axis, List<KLine> klines, Timeframe tf) {
         if (isLocked || !axis.isConfigured()) return Collections.emptyList();
         List<DrawingHandle> handles = new ArrayList<>();
-        int x1 = axis.timeToX(start.timestamp(), data, tf);
+        int x1 = axis.timeToX(start.timestamp(), klines, tf);
         int y1 = axis.priceToY(start.price());
-        int x2 = axis.timeToX(end.timestamp(), data, tf);
+        int x2 = axis.timeToX(end.timestamp(), klines, tf);
         int y2 = axis.priceToY(end.price());
         handles.add(new DrawingHandle(new Point(x1, y1), DrawingHandle.HandleType.START_POINT, id));
         handles.add(new DrawingHandle(new Point(x2, y2), DrawingHandle.HandleType.END_POINT, id));

@@ -677,53 +677,6 @@ public class SettingsDialog extends JDialog {
         fpsPanel.add(fpsComboBox);
         fpsPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, fpsPanel.getPreferredSize().height));
         
-        JPanel nonTimeBasedPanel = new JPanel(new GridBagLayout());
-        nonTimeBasedPanel.setBorder(BorderFactory.createTitledBorder("Non-Time-Based Chart Settings"));
-        GridBagConstraints ntgbc = new GridBagConstraints();
-        ntgbc.insets = new Insets(2, 5, 2, 5);
-        ntgbc.anchor = GridBagConstraints.WEST;
-
-        ntgbc.gridx = 0; ntgbc.gridy = 0;
-        nonTimeBasedPanel.add(new JLabel("Renko Brick Size:"), ntgbc);
-        ntgbc.gridx = 1;
-        JSpinner renkoSpinner = new JSpinner(new SpinnerNumberModel(
-            settingsManager.getRenkoBrickSize().doubleValue(), 0.1, 10000.0, 1.0
-        ));
-        renkoSpinner.addChangeListener(e -> settingsManager.setRenkoBrickSize(BigDecimal.valueOf((Double) renkoSpinner.getValue())));
-        nonTimeBasedPanel.add(renkoSpinner, ntgbc);
-
-        ntgbc.gridx = 0; ntgbc.gridy = 1;
-        nonTimeBasedPanel.add(new JLabel("Range Bar Size:"), ntgbc);
-        ntgbc.gridx = 1;
-        JSpinner rangeSpinner = new JSpinner(new SpinnerNumberModel(
-            settingsManager.getRangeBarSize().doubleValue(), 0.1, 10000.0, 1.0
-        ));
-        rangeSpinner.addChangeListener(e -> settingsManager.setRangeBarSize(BigDecimal.valueOf((Double) rangeSpinner.getValue())));
-        nonTimeBasedPanel.add(rangeSpinner, ntgbc);
-
-        ntgbc.gridx = 0; ntgbc.gridy = 2;
-        nonTimeBasedPanel.add(new JLabel("P&F Box Size:"), ntgbc);
-        ntgbc.gridx = 1;
-        JSpinner pfBoxSpinner = new JSpinner(new SpinnerNumberModel(
-            settingsManager.getPfBoxSize().doubleValue(), 0.01, 10000.0, 0.1
-        ));
-        pfBoxSpinner.addChangeListener(e -> settingsManager.setPfBoxSize(BigDecimal.valueOf((Double) pfBoxSpinner.getValue())));
-        nonTimeBasedPanel.add(pfBoxSpinner, ntgbc);
-
-        ntgbc.gridx = 0; ntgbc.gridy = 3;
-        nonTimeBasedPanel.add(new JLabel("P&F Reversal (boxes):"), ntgbc);
-        ntgbc.gridx = 1;
-        JSpinner pfReversalSpinner = new JSpinner(new SpinnerNumberModel(
-            settingsManager.getPfReversalAmount(), 1, 10, 1
-        ));
-        pfReversalSpinner.addChangeListener(e -> settingsManager.setPfReversalAmount((Integer) pfReversalSpinner.getValue()));
-        nonTimeBasedPanel.add(pfReversalSpinner, ntgbc);
-
-        ntgbc.gridx = 2; ntgbc.weightx = 1.0;
-        nonTimeBasedPanel.add(new JLabel(), ntgbc);
-        nonTimeBasedPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, nonTimeBasedPanel.getPreferredSize().height * 5));
-
-
         panel.add(createUiScalingPanel());
         panel.add(Box.createVerticalStrut(10));
         panel.add(sessionHighlightPanel); // Add the new panel here
@@ -734,8 +687,6 @@ public class SettingsDialog extends JDialog {
         panel.add(interactionPanel);
         panel.add(Box.createVerticalStrut(10));
         panel.add(fpsPanel);
-        panel.add(Box.createVerticalStrut(10));
-        panel.add(nonTimeBasedPanel);
         panel.add(Box.createVerticalStrut(10));
         panel.add(createTradeReplayTimeframesPanel());
         panel.add(Box.createVerticalStrut(10));

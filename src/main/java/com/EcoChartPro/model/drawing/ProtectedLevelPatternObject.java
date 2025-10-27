@@ -4,10 +4,10 @@ import com.EcoChartPro.core.manager.DrawingManager;
 import com.EcoChartPro.core.manager.PriceRange;
 import com.EcoChartPro.core.manager.TimeRange;
 import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.Timeframe;
 import com.EcoChartPro.model.TradeDirection;
-import com.EcoChartPro.model.chart.AbstractChartData;
-import com.EcoChartPro.ui.chart.axis.IChartAxis;
+import com.EcoChartPro.ui.chart.axis.ChartAxis;
 
 import java.awt.*;
 import java.math.BigDecimal;
@@ -69,12 +69,12 @@ public record ProtectedLevelPatternObject(
     }
 
     @Override
-    public void render(Graphics2D g, IChartAxis axis, List<? extends AbstractChartData> data, Timeframe tf) {
+    public void render(Graphics2D g, ChartAxis axis, List<KLine> klines, Timeframe tf) {
         if (p0 == null || p1 == null || p2 == null || !axis.isConfigured()) return;
 
-        Point s0 = new Point(axis.timeToX(p0.timestamp(), data, tf), axis.priceToY(p0.price()));
-        Point s1 = new Point(axis.timeToX(p1.timestamp(), data, tf), axis.priceToY(p1.price()));
-        Point s2 = new Point(axis.timeToX(p2.timestamp(), data, tf), axis.priceToY(p2.price()));
+        Point s0 = new Point(axis.timeToX(p0.timestamp(), klines, tf), axis.priceToY(p0.price()));
+        Point s1 = new Point(axis.timeToX(p1.timestamp(), klines, tf), axis.priceToY(p1.price()));
+        Point s2 = new Point(axis.timeToX(p2.timestamp(), klines, tf), axis.priceToY(p2.price()));
 
         g.setFont(LABEL_FONT);
         boolean isSelected = id.equals(DrawingManager.getInstance().getSelectedDrawingId());
@@ -95,8 +95,8 @@ public record ProtectedLevelPatternObject(
         BigDecimal projectedTpPrice = fiftyPercentPrice.add(thrustPriceDelta);
         Instant projectedTpTimestamp = pullbackTimestamp.plus(violationTimeDelta);
         
-        Point s_pullback = new Point(axis.timeToX(pullbackTimestamp, data, tf), axis.priceToY(fiftyPercentPrice));
-        Point s_tp = new Point(axis.timeToX(projectedTpTimestamp, data, tf), axis.priceToY(projectedTpPrice));
+        Point s_pullback = new Point(axis.timeToX(pullbackTimestamp, klines, tf), axis.priceToY(fiftyPercentPrice));
+        Point s_tp = new Point(axis.timeToX(projectedTpTimestamp, klines, tf), axis.priceToY(projectedTpPrice));
         
         // 3. Draw the pattern-specific elements
         if (direction == TradeDirection.SHORT) { // Bearish Pattern (PL)
@@ -145,17 +145,17 @@ public record ProtectedLevelPatternObject(
         }
 
         if (isSelected && !isLocked) {
-            getHandles(axis, data, tf).forEach(h -> drawHandle(g, h.position()));
+            getHandles(axis, klines, tf).forEach(h -> drawHandle(g, h.position()));
         }
         g.setStroke(originalStroke);
     }
 
     @Override
-    public boolean isHit(Point screenPoint, IChartAxis axis, List<? extends AbstractChartData> data, Timeframe tf) {
+    public boolean isHit(Point screenPoint, ChartAxis axis, List<KLine> klines, Timeframe tf) {
         if (!axis.isConfigured()) return false;
-        Point s0 = new Point(axis.timeToX(p0.timestamp(), data, tf), axis.priceToY(p0.price()));
-        Point s1 = new Point(axis.timeToX(p1.timestamp(), data, tf), axis.priceToY(p1.price()));
-        Point s2 = new Point(axis.timeToX(p2.timestamp(), data, tf), axis.priceToY(p2.price()));
+        Point s0 = new Point(axis.timeToX(p0.timestamp(), klines, tf), axis.priceToY(p0.price()));
+        Point s1 = new Point(axis.timeToX(p1.timestamp(), klines, tf), axis.priceToY(p1.price()));
+        Point s2 = new Point(axis.timeToX(p2.timestamp(), klines, tf), axis.priceToY(p2.price()));
         boolean hit1 = distanceToLineSegment(screenPoint.x, screenPoint.y, s0.x, s0.y, s1.x, s1.y) < SettingsManager.getInstance().getDrawingHitThreshold();
         boolean hit2 = distanceToLineSegment(screenPoint.x, screenPoint.y, s1.x, s1.y, s2.x, s2.y) < SettingsManager.getInstance().getDrawingHitThreshold();
         return hit1 || hit2;
@@ -178,12 +178,12 @@ public record ProtectedLevelPatternObject(
     }
 
     @Override
-    public List<DrawingHandle> getHandles(IChartAxis axis, List<? extends AbstractChartData> data, Timeframe tf) {
+    public List<DrawingHandle> getHandles(ChartAxis axis, List<KLine> klines, Timeframe tf) {
         if (isLocked || !axis.isConfigured()) return Collections.emptyList();
         List<DrawingHandle> handles = new ArrayList<>();
-        handles.add(new DrawingHandle(new Point(axis.timeToX(p0.timestamp(), data, tf), axis.priceToY(p0.price())), DrawingHandle.HandleType.P0, id));
-        handles.add(new DrawingHandle(new Point(axis.timeToX(p1.timestamp(), data, tf), axis.priceToY(p1.price())), DrawingHandle.HandleType.P1, id));
-        handles.add(new DrawingHandle(new Point(axis.timeToX(p2.timestamp(), data, tf), axis.priceToY(p2.price())), DrawingHandle.HandleType.P2, id));
+        handles.add(new DrawingHandle(new Point(axis.timeToX(p0.timestamp(), klines, tf), axis.priceToY(p0.price())), DrawingHandle.HandleType.P0, id));
+        handles.add(new DrawingHandle(new Point(axis.timeToX(p1.timestamp(), klines, tf), axis.priceToY(p1.price())), DrawingHandle.HandleType.P1, id));
+        handles.add(new DrawingHandle(new Point(axis.timeToX(p2.timestamp(), klines, tf), axis.priceToY(p2.price())), DrawingHandle.HandleType.P2, id));
         return handles;
     }
 

@@ -20,7 +20,7 @@ public class ChartInteractionManager implements ReplayStateListener {
     private boolean viewingLiveEdge = true;
     private double rightMarginRatio = 0.20;
 
-    // Y-Axis state fields
+    // Y-Axis state fields (for Phase 2)
     private boolean isAutoScalingY = true;
     private boolean isInvertedY = false;
     private BigDecimal manualMinPrice;
@@ -33,6 +33,7 @@ public class ChartInteractionManager implements ReplayStateListener {
     public void pan(int barDelta) {
         if (model == null) return;
 
+        // In live mode, prevent panning into the future
         if (model.getCurrentMode() == ChartMode.LIVE && barDelta < 0) {
             if (startIndex + barDelta + barsPerScreen > model.getTotalCandleCount() + (int)(barsPerScreen * rightMarginRatio)) {
                 return;
@@ -41,6 +42,7 @@ public class ChartInteractionManager implements ReplayStateListener {
 
         viewingLiveEdge = false;
         int newStartIndex = Math.max(0, this.startIndex + barDelta);
+        // Use rightMarginRatio to prevent panning too far right
         int maxStartIndex = Math.max(0, model.getTotalCandleCount() - (int)(barsPerScreen * (1.0 - rightMarginRatio)));
         newStartIndex = Math.min(newStartIndex, maxStartIndex);
 
@@ -55,17 +57,20 @@ public class ChartInteractionManager implements ReplayStateListener {
 
         viewingLiveEdge = false;
         int totalSize = model.getTotalCandleCount();
-        if (totalSize <= 0) return;
 
+        // 1. Determine the absolute index of the bar under the cursor before zooming.
         int barsBeforeCursor = (int) (this.barsPerScreen * cursorXRatio);
         int cursorIndex = this.startIndex + barsBeforeCursor;
 
+        // 2. Calculate the new number of bars to display.
         int newBarsPerScreen = Math.max(20, Math.min((int)(this.barsPerScreen / zoomFactor), 1000));
         
+        // 3. Calculate the new start index to keep the cursor at the same screen ratio.
         int newBarsBeforeCursor = (int) (newBarsPerScreen * cursorXRatio);
         int newStartIndex = Math.max(0, cursorIndex - newBarsBeforeCursor);
         
-        newStartIndex = Math.min(newStartIndex, Math.max(0, totalSize - newBarsPerScreen));
+        // 4. Ensure the new start index doesn't scroll past the end of the data.
+        newStartIndex = Math.min(newStartIndex, totalSize - newBarsPerScreen);
         
         if (this.barsPerScreen == newBarsPerScreen && this.startIndex == newStartIndex) return;
 
@@ -75,16 +80,15 @@ public class ChartInteractionManager implements ReplayStateListener {
     }
 
     public void jumpToLiveEdge() {
-        boolean needsUpdate = !this.viewingLiveEdge;
+        boolean needsUpdate = !this.viewingLiveEdge; // We need an update if we WEREN'T at the live edge before.
         this.viewingLiveEdge = true;
 
-        // [FIX] Use getTotalCandleCount() which is now correctly updated for all chart types.
         int dataBarsOnScreen = (int) (barsPerScreen * (1.0 - rightMarginRatio));
         int liveEdgeStartIndex = Math.max(0, model.getTotalCandleCount() - dataBarsOnScreen);
 
         if (this.startIndex != liveEdgeStartIndex) {
             this.startIndex = liveEdgeStartIndex;
-            needsUpdate = true;
+            needsUpdate = true; // The index also changed, so we definitely need an update.
         }
 
         if (needsUpdate) {
@@ -97,7 +101,7 @@ public class ChartInteractionManager implements ReplayStateListener {
         if (viewingLiveEdge) {
             jumpToLiveEdge();
         } else {
-            fireViewStateChanged();
+            fireViewStateChanged(); // To redraw with new margin
         }
     }
 
@@ -115,7 +119,7 @@ public class ChartInteractionManager implements ReplayStateListener {
 
         this.viewingLiveEdge = false;
         int validatedIndex = Math.max(0, newStartIndex);
-        int maxStartIndex = Math.max(0, model.getTotalCandleCount() - (int)(barsPerScreen * (1.0 - rightMarginRatio)));
+        int maxStartIndex = model.getTotalCandleCount() - (int)(barsPerScreen * (1.0 - rightMarginRatio));
         validatedIndex = Math.min(validatedIndex, maxStartIndex);
 
         if (this.startIndex != validatedIndex) {
@@ -126,8 +130,10 @@ public class ChartInteractionManager implements ReplayStateListener {
 
     public void setAutoScalingY(boolean autoScaling) {
         if (this.isAutoScalingY == autoScaling) return;
+
         this.isAutoScalingY = autoScaling;
         if (!isAutoScalingY) {
+            // Capture current auto-scaled prices for manual mode
             this.manualMinPrice = model.getMinPrice();
             this.manualMaxPrice = model.getMaxPrice();
         }
@@ -140,11 +146,18 @@ public class ChartInteractionManager implements ReplayStateListener {
         pcs.firePropertyChange("axisConfigChanged", !inverted, inverted);
     }
 
-    public void toggleInvertY() { setInvertedY(!this.isInvertedY); }
+    public void toggleInvertY() {
+        setInvertedY(!this.isInvertedY);
+    }
 
     public void setManualPriceRange(BigDecimal min, BigDecimal max) {
         if (min == null || max == null || min.compareTo(max) >= 0) return;
-        if (isAutoScalingY) isAutoScalingY = false;
+        
+        // Ensure we are in manual mode when this is called
+        if (isAutoScalingY) {
+            isAutoScalingY = false;
+        }
+        
         this.manualMinPrice = min;
         this.manualMaxPrice = max;
         pcs.firePropertyChange("axisConfigChanged", null, null);
@@ -152,25 +165,53 @@ public class ChartInteractionManager implements ReplayStateListener {
 
     public void scalePriceAxis(double scaleFactor, BigDecimal anchorPrice) {
         if (anchorPrice == null) return;
-        setAutoScalingY(false);
-        BigDecimal min = getManualMinPrice() != null ? getManualMinPrice() : model.getMinPrice();
-        BigDecimal max = getManualMaxPrice() != null ? getManualMaxPrice() : model.getMaxPrice();
-        if (min == null || max == null) return;
+    
+        setAutoScalingY(false); // This action implies manual mode
+    
+        BigDecimal min = getManualMinPrice();
+        BigDecimal max = getManualMaxPrice();
+        if (min == null || max == null) {
+            min = model.getMinPrice(); // Fallback to current auto-scale
+            max = model.getMaxPrice();
+        }
+    
         BigDecimal priceRange = max.subtract(min);
         if (priceRange.signum() <= 0) return;
+    
+        // New range is based on the scale factor
         BigDecimal newPriceRange = priceRange.divide(BigDecimal.valueOf(scaleFactor), 8, RoundingMode.HALF_UP);
+    
+        // Calculate the ratio of the anchor price within the old range
         BigDecimal ratio = anchorPrice.subtract(min).divide(priceRange, 8, RoundingMode.HALF_UP);
+        
+        // Calculate new min/max to keep the anchor price at the same ratio
         BigDecimal newMin = anchorPrice.subtract(newPriceRange.multiply(ratio));
         BigDecimal newMax = newMin.add(newPriceRange);
+    
         setManualPriceRange(newMin, newMax);
     }
 
-    private void fireViewStateChanged() { pcs.firePropertyChange("viewStateChanged", null, null); }
-    public void addPropertyChangeListener(PropertyChangeListener listener) { pcs.addPropertyChangeListener(listener); }
-    public void addPropertyChangeListener(String propertyName, PropertyChangeListener listener) { pcs.addPropertyChangeListener(propertyName, listener); }
-    public void removePropertyChangeListener(PropertyChangeListener listener) { pcs.removePropertyChangeListener(listener); }
-    public void removePropertyChangeListener(String propertyName, PropertyChangeListener listener) { pcs.removePropertyChangeListener(propertyName, listener); }
+    private void fireViewStateChanged() {
+        pcs.firePropertyChange("viewStateChanged", null, null);
+    }
 
+    public void addPropertyChangeListener(PropertyChangeListener listener) {
+        pcs.addPropertyChangeListener(listener);
+    }
+
+    public void addPropertyChangeListener(String propertyName, PropertyChangeListener listener) {
+        pcs.addPropertyChangeListener(propertyName, listener);
+    }
+
+    public void removePropertyChangeListener(PropertyChangeListener listener) {
+        pcs.removePropertyChangeListener(listener);
+    }
+
+    public void removePropertyChangeListener(String propertyName, PropertyChangeListener listener) {
+        pcs.removePropertyChangeListener(propertyName, listener);
+    }
+
+    // --- Getters ---
     public int getStartIndex() { return startIndex; }
     public int getBarsPerScreen() { return barsPerScreen; }
     public boolean isViewingLiveEdge() { return viewingLiveEdge; }
@@ -180,9 +221,14 @@ public class ChartInteractionManager implements ReplayStateListener {
     public BigDecimal getManualMinPrice() { return manualMinPrice; }
     public BigDecimal getManualMaxPrice() { return manualMaxPrice; }
 
+    // --- ReplayStateListener Implementation ---
+
     @Override
     public void onReplayTick(KLine newBar) {
-        boolean shouldJump = (model.getCurrentMode() == ChartMode.REPLAY && viewingLiveEdge) || (model.getCurrentMode() == ChartMode.LIVE && viewingLiveEdge);
+        // This is now called for both Replay and Live ticks.
+        // In Live mode, if we are viewing the latest candles, we want to auto-scroll.
+        boolean shouldJump = (model.getCurrentMode() == ChartMode.REPLAY && viewingLiveEdge) ||
+                             (model.getCurrentMode() == ChartMode.LIVE && viewingLiveEdge);
         if (shouldJump) {
             jumpToLiveEdge();
         }
@@ -191,12 +237,14 @@ public class ChartInteractionManager implements ReplayStateListener {
     @Override
     public void onReplaySessionStart() {
         this.viewingLiveEdge = true;
-        this.startIndex = 0;
+        this.startIndex = 0; // Reset on new session
         jumpToLiveEdge();
     }
 
     @Override
     public void onReplayStateChanged() {
-        // This is handled by the ChartDataModel now to trigger a full rebuild
+        if (ReplaySessionManager.getInstance().isPlaying()) {
+            jumpToLiveEdge();
+        }
     }
 }

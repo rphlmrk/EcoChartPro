@@ -2,8 +2,7 @@ package com.EcoChartPro.ui.chart.render;
 
 import com.EcoChartPro.core.settings.SettingsManager;
 import com.EcoChartPro.model.KLine;
-import com.EcoChartPro.model.chart.AbstractChartData;
-import com.EcoChartPro.ui.chart.axis.IChartAxis;
+import com.EcoChartPro.ui.chart.axis.ChartAxis;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.util.List;
@@ -11,12 +10,10 @@ import java.util.List;
 public class CandleRenderer implements AbstractChartTypeRenderer {
 
     @Override
-    public void draw(Graphics2D g2d, IChartAxis axis, List<? extends AbstractChartData> visibleData, int viewStartIndex) {
-        if (!axis.isConfigured() || visibleData == null) return;
-        if (visibleData.isEmpty() || !(visibleData.get(0) instanceof KLine)) return; // Only for KLine data
-
-        @SuppressWarnings("unchecked")
-        List<KLine> klines = (List<KLine>) visibleData;
+    public void draw(Graphics2D g2d, ChartAxis axis, List<KLine> klines, int viewStartIndex) {
+        if (!axis.isConfigured() || klines == null) {
+            return;
+        }
         
         SettingsManager settings = SettingsManager.getInstance();
         double barWidth = axis.getBarWidth();
@@ -25,7 +22,7 @@ public class CandleRenderer implements AbstractChartTypeRenderer {
         for (int i = 0; i < klines.size(); i++) {
             KLine kline = klines.get(i);
             
-            // The slot index on the screen is simply 'i' because the visible list is already a slice.
+            // The slot index on the screen is simply 'i' because the visibleKlines list is already a slice.
             int slotIndex = i;
 
             int xCenter = axis.slotToX(slotIndex);

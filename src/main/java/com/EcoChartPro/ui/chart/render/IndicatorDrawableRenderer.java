@@ -1,9 +1,9 @@
 package com.EcoChartPro.ui.chart.render;
 
 import com.EcoChartPro.api.indicator.drawing.*;
+import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.Timeframe;
-import com.EcoChartPro.model.chart.AbstractChartData;
-import com.EcoChartPro.ui.chart.axis.IChartAxis;
+import com.EcoChartPro.ui.chart.axis.ChartAxis;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -24,31 +24,31 @@ public class IndicatorDrawableRenderer {
     private static final long NANO_ENCODING_MULTIPLIER = 10000L;
     private static final long NANO_ENCODING_BIAS = 5000L;
 
-    public void draw(Graphics2D g, List<DrawableObject> objects, IChartAxis axis, List<? extends AbstractChartData> visibleData, Timeframe timeframe) {
+    public void draw(Graphics2D g, List<DrawableObject> objects, ChartAxis axis, List<KLine> visibleKLines, Timeframe timeframe) {
         if (g == null || objects == null || !axis.isConfigured() || timeframe == null) return;
 
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         g.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
 
-        Instant viewStartTime = visibleData.isEmpty() ? Instant.MIN : visibleData.get(0).startTime();
-        Instant viewEndTime = visibleData.isEmpty() ? Instant.MAX : visibleData.get(visibleData.size() - 1).endTime();
+        Instant viewStartTime = visibleKLines.isEmpty() ? Instant.MIN : visibleKLines.get(0).timestamp();
+        Instant viewEndTime = visibleKLines.isEmpty() ? Instant.MAX : visibleKLines.get(visibleKLines.size() - 1).timestamp();
 
         for (DrawableObject obj : objects) {
             if (obj instanceof DrawableBox box) {
-                drawBox(g, box, axis, visibleData, timeframe);
+                drawBox(g, box, axis, visibleKLines, timeframe);
             } else if (obj instanceof DrawableLine line) {
-                drawLine(g, line, axis, visibleData, timeframe);
+                drawLine(g, line, axis, visibleKLines, timeframe);
             } else if (obj instanceof DrawablePolyline polyline) {
-                drawOptimizedPolyline(g, polyline, axis, visibleData, viewStartTime, viewEndTime, timeframe);
+                drawOptimizedPolyline(g, polyline, axis, visibleKLines, viewStartTime, viewEndTime, timeframe);
             } else if (obj instanceof DrawableText text) {
-                drawText(g, text, axis, visibleData, timeframe);
+                drawText(g, text, axis, visibleKLines, timeframe);
             } else if (obj instanceof DrawablePolygon polygon) {
-                drawPolygon(g, polygon, axis, visibleData, timeframe);
+                drawPolygon(g, polygon, axis, visibleKLines, timeframe);
             }
         }
     }
 
-    private int resolveX(Graphics2D g, DataPoint point, IChartAxis axis, List<? extends AbstractChartData> visibleData, Timeframe timeframe) {
+    private int resolveX(Graphics2D g, DataPoint point, ChartAxis axis, List<KLine> visibleKLines, Timeframe timeframe) {
         if (point == null || point.time() == null) return -1;
         long epochSecond = point.time().getEpochSecond();
         
@@ -61,18 +61,18 @@ public class IndicatorDrawableRenderer {
             long anchorTimeSec = encodedValue / NANO_ENCODING_MULTIPLIER;
             int pixelOffset = (int) (encodedValue % NANO_ENCODING_MULTIPLIER - NANO_ENCODING_BIAS);
             Instant anchorTime = Instant.ofEpochSecond(anchorTimeSec);
-            int anchorX = axis.timeToX(anchorTime, visibleData, timeframe);
+            int anchorX = axis.timeToX(anchorTime, visibleKLines, timeframe);
             return (anchorX == -1) ? -1 : anchorX + pixelOffset;
         }
 
-        return axis.timeToX(point.time(), visibleData, timeframe);
+        return axis.timeToX(point.time(), visibleKLines, timeframe);
     }
     
     /**
      * This method now correctly handles "degenerate" polygons (where all vertices
      * have the same timestamp). It gives them a visible width on the screen.
      */
-    private void drawPolygon(Graphics2D g, DrawablePolygon polygon, IChartAxis axis, List<? extends AbstractChartData> visibleData, Timeframe timeframe) {
+    private void drawPolygon(Graphics2D g, DrawablePolygon polygon, ChartAxis axis, List<KLine> visibleKLines, Timeframe timeframe) {
         List<DataPoint> vertices = polygon.vertices();
         if (vertices == null || vertices.size() < 2) return;
         
@@ -84,7 +84,7 @@ public class IndicatorDrawableRenderer {
 
         for (int i = 0; i < vertices.size(); i++) {
             DataPoint vertex = vertices.get(i);
-            xPoints[i] = resolveX(g, vertex, axis, visibleData, timeframe);
+            xPoints[i] = resolveX(g, vertex, axis, visibleKLines, timeframe);
             if (xPoints[i] == -1) return; // Don't draw if any point is off-screen
             
             if (i == 0) firstX = xPoints[i];
@@ -120,10 +120,10 @@ public class IndicatorDrawableRenderer {
      * have the same timestamp). It gives them the full width of a candle bar,
      * which is perfect for drawing backgrounds.
      */
-    private void drawBox(Graphics2D g, DrawableBox box, IChartAxis axis, List<? extends AbstractChartData> visibleData, Timeframe timeframe) {
-        int x1 = resolveX(g, box.corner1(), axis, visibleData, timeframe);
+    private void drawBox(Graphics2D g, DrawableBox box, ChartAxis axis, List<KLine> visibleKLines, Timeframe timeframe) {
+        int x1 = resolveX(g, box.corner1(), axis, visibleKLines, timeframe);
         int y1 = axis.priceToY(box.corner1().price());
-        int x2 = resolveX(g, box.corner2(), axis, visibleData, timeframe);
+        int x2 = resolveX(g, box.corner2(), axis, visibleKLines, timeframe);
         int y2 = axis.priceToY(box.corner2().price());
 
         if (x1 == -1 || x2 == -1) return; // Don't draw if time is off-screen
@@ -143,7 +143,7 @@ public class IndicatorDrawableRenderer {
         if (box.strokeColor() != null && box.strokeWidth() > 0) { g.setColor(box.strokeColor()); g.setStroke(new BasicStroke(box.strokeWidth())); g.drawRect(rectX, rectY, width, height); }
     }
 
-    private void drawOptimizedPolyline(Graphics2D g, DrawablePolyline polyline, IChartAxis axis, List<? extends AbstractChartData> visibleData, Instant viewStartTime, Instant viewEndTime, Timeframe timeframe) {
+    private void drawOptimizedPolyline(Graphics2D g, DrawablePolyline polyline, ChartAxis axis, List<KLine> visibleKLines, Instant viewStartTime, Instant viewEndTime, Timeframe timeframe) {
         List<DataPoint> allPoints = polyline.getPoints();
         if (allPoints.size() < 2) return;
         int startIndex = Collections.binarySearch(allPoints, new DataPoint(viewStartTime, null), (p1, p2) -> p1.time().compareTo(p2.time()));
@@ -158,22 +158,22 @@ public class IndicatorDrawableRenderer {
         int[] yPoints = new int[numVisiblePoints];
         for (int i = 0; i < numVisiblePoints; i++) {
             DataPoint point = allPoints.get(startIndex + i);
-            xPoints[i] = resolveX(g, point, axis, visibleData, timeframe);
+            xPoints[i] = resolveX(g, point, axis, visibleKLines, timeframe);
             yPoints[i] = axis.priceToY(point.price());
         }
         if (polyline.getColor() != null && polyline.getStrokeWidth() > 0) { g.setColor(polyline.getColor()); g.setStroke(new BasicStroke(polyline.getStrokeWidth())); g.drawPolyline(xPoints, yPoints, numVisiblePoints); }
     }
 
-    private void drawLine(Graphics2D g, DrawableLine line, IChartAxis axis, List<? extends AbstractChartData> visibleData, Timeframe timeframe) {
-        int x1 = resolveX(g, line.start(), axis, visibleData, timeframe);
+    private void drawLine(Graphics2D g, DrawableLine line, ChartAxis axis, List<KLine> visibleKLines, Timeframe timeframe) {
+        int x1 = resolveX(g, line.start(), axis, visibleKLines, timeframe);
         int y1 = axis.priceToY(line.start().price());
-        int x2 = resolveX(g, line.end(), axis, visibleData, timeframe);
+        int x2 = resolveX(g, line.end(), axis, visibleKLines, timeframe);
         int y2 = axis.priceToY(line.end().price());
         if (line.color() != null && line.strokeWidth() > 0) { g.setColor(line.color()); g.setStroke(new BasicStroke(line.strokeWidth())); g.drawLine(x1, y1, x2, y2); }
     }
 
-    private void drawText(Graphics2D g, DrawableText text, IChartAxis axis, List<? extends AbstractChartData> visibleData, Timeframe timeframe) {
-        int anchorX = resolveX(g, text.position(), axis, visibleData, timeframe);
+    private void drawText(Graphics2D g, DrawableText text, ChartAxis axis, List<KLine> visibleKLines, Timeframe timeframe) {
+        int anchorX = resolveX(g, text.position(), axis, visibleKLines, timeframe);
         int anchorY = axis.priceToY(text.position().price());
         if (text.color() != null && text.font() != null && text.text() != null && !text.text().isEmpty()) {
             g.setColor(text.color());

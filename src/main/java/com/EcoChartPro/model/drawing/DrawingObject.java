@@ -5,8 +5,7 @@ import com.EcoChartPro.core.manager.PriceRange;
 import com.EcoChartPro.core.manager.TimeRange;
 import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.Timeframe;
-import com.EcoChartPro.model.chart.AbstractChartData;
-import com.EcoChartPro.ui.chart.axis.IChartAxis;
+import com.EcoChartPro.ui.chart.axis.ChartAxis;
 import com.EcoChartPro.ui.dialogs.DrawingToolSettingsDialog;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
@@ -42,10 +41,10 @@ public interface DrawingObject {
     UUID id();
     Map<Timeframe, Boolean> visibility();
     DrawingObject withVisibility(Map<Timeframe, Boolean> newVisibility);
-    void render(Graphics2D g, IChartAxis axis, List<? extends AbstractChartData> data, Timeframe tf); // MODIFIED
-    boolean isHit(Point screenPoint, IChartAxis axis, List<? extends AbstractChartData> data, Timeframe tf); // MODIFIED
+    void render(Graphics2D g, ChartAxis axis, List<KLine> klines, Timeframe tf);
+    boolean isHit(Point screenPoint, ChartAxis axis, List<KLine> klines, Timeframe tf);
     boolean isVisible(TimeRange timeRange, PriceRange priceRange);
-    List<DrawingHandle> getHandles(IChartAxis axis, List<? extends AbstractChartData> data, Timeframe tf); // MODIFIED
+    List<DrawingHandle> getHandles(ChartAxis axis, List<KLine> klines, Timeframe tf);
     DrawingObject withPoint(DrawingHandle.HandleType handleType, DrawingObjectPoint newPoint);
     DrawingObject move(long timeDelta, java.math.BigDecimal priceDelta);
     Color color();

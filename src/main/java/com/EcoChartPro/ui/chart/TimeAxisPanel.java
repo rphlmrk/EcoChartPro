@@ -7,7 +7,7 @@ import com.EcoChartPro.core.settings.SettingsManager;
 import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.Timeframe;
 import com.EcoChartPro.model.drawing.DrawingObjectPoint;
-import com.EcoChartPro.ui.chart.axis.IChartAxis;
+import com.EcoChartPro.ui.chart.axis.ChartAxis;
 
 import java.awt.BorderLayout;
 import java.awt.Color;
@@ -42,14 +42,14 @@ import javax.swing.UIManager;
 public class TimeAxisPanel extends JPanel implements PropertyChangeListener {
 
     private final ChartDataModel dataModel;
-    private IChartAxis chartAxis; // MODIFIED: Changed to interface
+    private final ChartAxis chartAxis;
     private DrawingObjectPoint crosshairPoint;
     private final ChartInteractionManager interactionManager;
     private JButton scaleModeButton;
     private JButton invertButton;
 
 
-    public TimeAxisPanel(ChartDataModel dataModel, IChartAxis chartAxis, ChartInteractionManager interactionManager) { // MODIFIED: Changed to interface
+    public TimeAxisPanel(ChartDataModel dataModel, ChartAxis chartAxis, ChartInteractionManager interactionManager) {
         this.dataModel = dataModel;
         this.chartAxis = chartAxis;
         this.interactionManager = interactionManager;
@@ -67,11 +67,6 @@ public class TimeAxisPanel extends JPanel implements PropertyChangeListener {
         if (this.interactionManager != null) {
             this.interactionManager.addPropertyChangeListener("axisConfigChanged", this);
         }
-    }
-    
-    public void setChartAxis(IChartAxis axis) {
-        this.chartAxis = axis;
-        repaint();
     }
     
     private void setupControls() {

@@ -182,10 +182,6 @@ public final class SettingsManager {
     private boolean sessionHighlightingEnabled;
     private List<TradingSession> preferredTradingSessions;
     private List<String> favoriteSymbols;
-    private BigDecimal renkoBrickSize;
-    private BigDecimal rangeBarSize;
-    private BigDecimal pfBoxSize;
-    private int pfReversalAmount;
 
 
     private SettingsManager() {
@@ -341,12 +337,6 @@ public final class SettingsManager {
         if (!favStr.isBlank()) {
             this.favoriteSymbols.addAll(Arrays.asList(favStr.split(",")));
         }
-        
-        this.renkoBrickSize = new BigDecimal(properties.getProperty("chart.renkoBrickSize", "5.0"));
-        this.rangeBarSize = new BigDecimal(properties.getProperty("chart.rangeBarSize", "10.0"));
-        this.pfBoxSize = new BigDecimal(properties.getProperty("chart.pfBoxSize", "1.0"));
-        this.pfReversalAmount = Integer.parseInt(properties.getProperty("chart.pfReversalAmount", "3"));
-
 
         for (TradingSession session : TradingSession.values()) {
             sessionEnabled.put(session, Boolean.parseBoolean(properties.getProperty("session." + session.name() + ".enabled", "true")));
@@ -453,11 +443,6 @@ public final class SettingsManager {
                 properties.setProperty("chart.sessionHighlighting.enabled", String.valueOf(sessionHighlightingEnabled));
                 properties.setProperty("tradeReplay.availableTimeframes", String.join(",", this.tradeReplayAvailableTimeframes));
                 properties.setProperty("favorite.symbols", String.join(",", this.favoriteSymbols));
-                
-                properties.setProperty("chart.renkoBrickSize", renkoBrickSize.toPlainString());
-                properties.setProperty("chart.rangeBarSize", rangeBarSize.toPlainString());
-                properties.setProperty("chart.pfBoxSize", pfBoxSize.toPlainString());
-                properties.setProperty("chart.pfReversalAmount", String.valueOf(pfReversalAmount));
 
                 for (TradingSession session : TradingSession.values()) {
                     properties.setProperty("session." + session.name() + ".enabled", String.valueOf(sessionEnabled.get(session)));
@@ -1010,42 +995,6 @@ public final class SettingsManager {
             this.sessionHighlightingEnabled = enabled;
             saveSettings();
             pcs.firePropertyChange("sessionHighlightingChanged", oldVal, this.sessionHighlightingEnabled);
-        }
-    }
-    
-    public BigDecimal getRenkoBrickSize() { return renkoBrickSize; }
-    public void setRenkoBrickSize(BigDecimal size) {
-        if (this.renkoBrickSize == null || this.renkoBrickSize.compareTo(size) != 0) {
-            this.renkoBrickSize = size;
-            saveSettings();
-            pcs.firePropertyChange("chartTypeChanged", null, null); // Rebuild chart
-        }
-    }
-
-    public BigDecimal getRangeBarSize() { return rangeBarSize; }
-    public void setRangeBarSize(BigDecimal size) {
-        if (this.rangeBarSize == null || this.rangeBarSize.compareTo(size) != 0) {
-            this.rangeBarSize = size;
-            saveSettings();
-            pcs.firePropertyChange("chartTypeChanged", null, null); // Rebuild chart
-        }
-    }
-
-    public BigDecimal getPfBoxSize() { return pfBoxSize; }
-    public void setPfBoxSize(BigDecimal size) {
-        if (this.pfBoxSize == null || this.pfBoxSize.compareTo(size) != 0) {
-            this.pfBoxSize = size;
-            saveSettings();
-            pcs.firePropertyChange("chartTypeChanged", null, null); // Rebuild chart
-        }
-    }
-
-    public int getPfReversalAmount() { return pfReversalAmount; }
-    public void setPfReversalAmount(int amount) {
-        if (this.pfReversalAmount != amount) {
-            this.pfReversalAmount = amount;
-            saveSettings();
-            pcs.firePropertyChange("chartTypeChanged", null, null); // Rebuild chart
         }
     }
 

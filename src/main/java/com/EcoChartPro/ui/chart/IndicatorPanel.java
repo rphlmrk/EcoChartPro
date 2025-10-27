@@ -9,11 +9,9 @@ import com.EcoChartPro.api.indicator.drawing.DrawablePolyline;
 import com.EcoChartPro.core.indicator.Indicator;
 import com.EcoChartPro.core.model.ChartDataModel;
 import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.Timeframe;
-import com.EcoChartPro.model.chart.AbstractChartData;
-import com.EcoChartPro.ui.chart.axis.IChartAxis;
-import com.EcoChartPro.ui.chart.axis.IndexBasedAxis;
-import com.EcoChartPro.ui.chart.axis.TimeBasedAxis;
+import com.EcoChartPro.ui.chart.axis.ChartAxis;
 import com.EcoChartPro.ui.chart.render.AxisRenderer;
 import com.EcoChartPro.ui.chart.render.IndicatorDrawableRenderer;
 import org.slf4j.Logger;
@@ -35,18 +33,18 @@ public class IndicatorPanel extends JPanel implements PropertyChangeListener {
     private static final Logger logger = LoggerFactory.getLogger(IndicatorPanel.class);
 
     private final ChartDataModel mainDataModel;
-    private final IChartAxis mainXAxis;
+    private final ChartAxis mainXAxis;
     private final Indicator indicator;
 
-    private final IChartAxis localYAxis;
+    private final ChartAxis localYAxis;
     private final IndicatorDrawableRenderer indicatorDrawableRenderer;
     private final AxisRenderer axisRenderer;
 
-    public IndicatorPanel(ChartDataModel mainDataModel, IChartAxis mainXAxis, Indicator indicator) {
+    public IndicatorPanel(ChartDataModel mainDataModel, ChartAxis mainXAxis, Indicator indicator) {
         this.mainDataModel = mainDataModel;
         this.mainXAxis = mainXAxis;
         this.indicator = indicator;
-        this.localYAxis = new TimeBasedAxis(); // Y-axis is always price/value based
+        this.localYAxis = new ChartAxis();
         this.indicatorDrawableRenderer = new IndicatorDrawableRenderer();
         this.axisRenderer = new AxisRenderer();
 
@@ -81,7 +79,7 @@ public class IndicatorPanel extends JPanel implements PropertyChangeListener {
         }
     }
 
-    public IChartAxis getLocalYAxis() {
+    public ChartAxis getLocalYAxis() {
         return localYAxis;
     }
 
@@ -92,8 +90,8 @@ public class IndicatorPanel extends JPanel implements PropertyChangeListener {
 
         if (!mainXAxis.isConfigured()) return;
 
-        List<? extends AbstractChartData> visibleData = mainDataModel.getVisibleKLines();
-        if (visibleData.isEmpty()) return;
+        List<KLine> visibleKLines = mainDataModel.getVisibleKLines();
+        if (visibleKLines.isEmpty()) return;
 
         List<DrawableObject> drawables = indicator.getResults();
         if (drawables.isEmpty()) return;
@@ -144,14 +142,14 @@ public class IndicatorPanel extends JPanel implements PropertyChangeListener {
 
         localYAxis.configure(min, max, 1, this.getSize(), false);
 
-        IChartAxis renderAxis = (mainXAxis instanceof TimeBasedAxis) ? new TimeBasedAxis() : new IndexBasedAxis();
+        ChartAxis renderAxis = new ChartAxis();
         renderAxis.configureForRendering(mainXAxis, localYAxis);
 
         Timeframe timeframe = mainDataModel.getCurrentDisplayTimeframe();
 
-        axisRenderer.draw(g2d, renderAxis, visibleData, timeframe);
+        axisRenderer.draw(g2d, renderAxis, visibleKLines, timeframe);
 
-        indicatorDrawableRenderer.draw(g2d, drawables, renderAxis, visibleData, timeframe);
+        indicatorDrawableRenderer.draw(g2d, drawables, renderAxis, visibleKLines, timeframe);
 
         g2d.dispose();
     }

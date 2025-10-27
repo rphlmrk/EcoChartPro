@@ -4,9 +4,9 @@ import com.EcoChartPro.core.manager.DrawingManager;
 import com.EcoChartPro.core.manager.PriceRange;
 import com.EcoChartPro.core.manager.TimeRange;
 import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.Timeframe;
-import com.EcoChartPro.model.chart.AbstractChartData;
-import com.EcoChartPro.ui.chart.axis.IChartAxis;
+import com.EcoChartPro.ui.chart.axis.ChartAxis;
 import com.EcoChartPro.ui.dialogs.TextSettingsDialog;
 
 import java.awt.*;
@@ -50,7 +50,7 @@ public record TextObject(
 
 
     @Override
-    public void render(Graphics2D g, IChartAxis axis, List<? extends AbstractChartData> data, Timeframe tf) {
+    public void render(Graphics2D g, ChartAxis axis, List<KLine> klines, Timeframe tf) {
         if (text == null || text.isBlank()) return;
 
         Point p;
@@ -59,7 +59,7 @@ public record TextObject(
             p = new Point((int) anchor.timestamp().toEpochMilli(), anchor.price().intValue());
         } else {
             if (!axis.isConfigured()) return;
-            p = new Point(axis.timeToX(anchor.timestamp(), data, tf), axis.priceToY(anchor.price()));
+            p = new Point(axis.timeToX(anchor.timestamp(), klines, tf), axis.priceToY(anchor.price()));
         }
 
         g.setFont(this.font);
@@ -92,7 +92,7 @@ public record TextObject(
         }
 
         if (id.equals(DrawingManager.getInstance().getSelectedDrawingId()) && !isLocked) {
-            getHandles(axis, data, tf).forEach(h -> drawHandle(g, h.position()));
+            getHandles(axis, klines, tf).forEach(h -> drawHandle(g, h.position()));
         }
     }
     
@@ -117,13 +117,13 @@ public record TextObject(
         }
     }
     
-    private Rectangle getScreenBounds(Graphics2D g, IChartAxis axis, List<? extends AbstractChartData> data, Timeframe tf) {
+    private Rectangle getScreenBounds(Graphics2D g, ChartAxis axis, List<KLine> klines, Timeframe tf) {
         Point p;
         if (properties.screenAnchored()) {
             p = new Point((int) anchor.timestamp().toEpochMilli(), anchor.price().intValue());
         } else {
             if (!axis.isConfigured()) return new Rectangle();
-            p = new Point(axis.timeToX(anchor.timestamp(), data, tf), axis.priceToY(anchor.price()));
+            p = new Point(axis.timeToX(anchor.timestamp(), klines, tf), axis.priceToY(anchor.price()));
         }
 
         FontMetrics fm = g.getFontMetrics(this.font);
@@ -135,23 +135,23 @@ public record TextObject(
     }
 
     @Override
-    public boolean isHit(Point screenPoint, IChartAxis axis, List<? extends AbstractChartData> data, Timeframe tf) {
+    public boolean isHit(Point screenPoint, ChartAxis axis, List<KLine> klines, Timeframe tf) {
         // Create a temporary graphics context to get FontMetrics
         Graphics2D g2d = (Graphics2D) new java.awt.image.BufferedImage(1, 1, java.awt.image.BufferedImage.TYPE_INT_ARGB).getGraphics();
-        Rectangle bounds = getScreenBounds(g2d, axis, data, tf);
+        Rectangle bounds = getScreenBounds(g2d, axis, klines, tf);
         g2d.dispose();
         bounds.grow(SettingsManager.getInstance().getDrawingHitThreshold(), SettingsManager.getInstance().getDrawingHitThreshold());
         return bounds.contains(screenPoint);
     }
     
     @Override
-    public List<DrawingHandle> getHandles(IChartAxis axis, List<? extends AbstractChartData> data, Timeframe tf) {
+    public List<DrawingHandle> getHandles(ChartAxis axis, List<KLine> klines, Timeframe tf) {
         // Disable handles (and thus moving) for screen-anchored or locked text.
         if (properties.screenAnchored() || isLocked) {
             return Collections.emptyList();
         }
         if (!axis.isConfigured()) return Collections.emptyList();
-        Point p = new Point(axis.timeToX(anchor.timestamp(), data, tf), axis.priceToY(anchor.price()));
+        Point p = new Point(axis.timeToX(anchor.timestamp(), klines, tf), axis.priceToY(anchor.price()));
         return List.of(new DrawingHandle(p, DrawingHandle.HandleType.BODY, id));
     }
 

@@ -3,9 +3,7 @@ package com.EcoChartPro.ui.chart.render;
 import com.EcoChartPro.core.settings.SettingsManager;
 import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.Timeframe;
-import com.EcoChartPro.model.chart.AbstractChartData;
-import com.EcoChartPro.ui.chart.axis.IChartAxis;
-import com.EcoChartPro.ui.chart.axis.TimeBasedAxis;
+import com.EcoChartPro.ui.chart.axis.ChartAxis;
 
 import java.awt.Color;
 import java.awt.Graphics2D;
@@ -18,35 +16,24 @@ import java.util.List;
 public class AxisRenderer {
 
     private static final int TARGET_Y_GRID_LINES = 8; // Target number of lines for "nice step" calculation
-    private static final int TARGET_X_GRID_LINES = 10; // Target for index-based charts
 
     /**
      * Draws the full background grid, delegating to the specific methods.
      * @param g2d The graphics context.
      * @param axis The configured chart axis.
-     * @param visibleData The list of data points on screen for context.
-     * @param tf The current timeframe (used by time-based axis).
+     * @param visibleKlines The list of k-lines on screen for time context.
+     * @param tf The current timeframe.
      */
-    public void draw(Graphics2D g2d, IChartAxis axis, List<? extends AbstractChartData> visibleData, Timeframe tf) {
+    public void draw(Graphics2D g2d, ChartAxis axis, List<KLine> visibleKlines, Timeframe tf) {
         if (!axis.isConfigured()) return;
         drawHorizontalGridLines(g2d, axis);
-
-        // [FIX] Check both axis type AND data type to prevent ClassCastException during chart type switching.
-        if (axis instanceof TimeBasedAxis && (visibleData.isEmpty() || visibleData.get(0) instanceof KLine)) {
-            // This cast is now safe due to the check.
-            @SuppressWarnings("unchecked")
-            List<KLine> klines = (List<KLine>) visibleData;
-            drawTimeBasedVerticalGridLines(g2d, axis, klines, tf);
-        } else {
-            // Fallback for index-based axes or during the transition period.
-            drawIndexBasedVerticalGridLines(g2d, axis, visibleData.size());
-        }
+        drawVerticalGridLines(g2d, axis, visibleKlines, tf);
     }
 
     /**
      * Draws vertical grid lines at "nice" time intervals.
      */
-    private void drawTimeBasedVerticalGridLines(Graphics2D g2d, IChartAxis axis, List<KLine> visibleKlines, Timeframe tf) {
+    public void drawVerticalGridLines(Graphics2D g2d, ChartAxis axis, List<KLine> visibleKlines, Timeframe tf) {
         if (visibleKlines == null || visibleKlines.isEmpty() || tf == null) return;
 
         Instant firstVisibleTime = visibleKlines.get(0).timestamp();
@@ -86,24 +73,11 @@ public class AxisRenderer {
             currentLineTime = currentLineTime.plus(labelInterval);
         }
     }
-
-    /**
-     * Draws vertical grid lines at regular index intervals for non-time-based charts.
-     */
-    private void drawIndexBasedVerticalGridLines(Graphics2D g2d, IChartAxis axis, int visibleDataSize) {
-        if (visibleDataSize <= 0) return;
-        g2d.setColor(SettingsManager.getInstance().getGridColor());
-        int step = Math.max(1, axis.getBarsPerScreen() / TARGET_X_GRID_LINES);
-        for (int i = 0; i < visibleDataSize; i += step) {
-            int x = axis.slotToX(i);
-            g2d.drawLine(x, 0, x, g2d.getClipBounds().height);
-        }
-    }
     
     /**
      * Draws horizontal grid lines at "nice" price intervals.
      */
-    public void drawHorizontalGridLines(Graphics2D g2d, IChartAxis axis) {
+    public void drawHorizontalGridLines(Graphics2D g2d, ChartAxis axis) {
         if (!axis.isConfigured()) return;
         BigDecimal minPrice = axis.getMinPrice();
         BigDecimal maxPrice = axis.getMaxPrice();

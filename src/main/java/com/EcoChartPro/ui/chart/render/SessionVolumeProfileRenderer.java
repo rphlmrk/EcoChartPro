@@ -4,7 +4,7 @@ import com.EcoChartPro.core.model.ChartDataModel;
 import com.EcoChartPro.core.settings.SettingsManager;
 import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.Timeframe;
-import com.EcoChartPro.ui.chart.axis.IChartAxis;
+import com.EcoChartPro.ui.chart.axis.ChartAxis;
 
 import java.awt.BasicStroke;
 import java.awt.Color;
@@ -29,7 +29,7 @@ public class SessionVolumeProfileRenderer {
 
     private static final double PROFILE_WIDTH_RATIO = 0.8; // 80% of the session's width
 
-    public void draw(Graphics2D g2d, IChartAxis axis, ChartDataModel dataModel) {
+    public void draw(Graphics2D g2d, ChartAxis axis, ChartDataModel dataModel) {
         List<KLine> visibleKlines = dataModel.getVisibleKLines();
         if (!axis.isConfigured() || visibleKlines.isEmpty()) {
             return;
@@ -68,7 +68,7 @@ public class SessionVolumeProfileRenderer {
         }
     }
 
-    private void drawProfileForSession(Graphics2D g2d, IChartAxis axis, List<KLine> sessionKlines, Timeframe timeframe, List<KLine> allVisibleKlines) {
+    private void drawProfileForSession(Graphics2D g2d, ChartAxis axis, List<KLine> sessionKlines, Timeframe timeframe, List<KLine> allVisibleKlines) {
         if (sessionKlines.isEmpty()) return;
 
         SettingsManager settings = SettingsManager.getInstance();

@@ -2,8 +2,7 @@ package com.EcoChartPro.ui.chart.render;
 
 import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.Timeframe;
-import com.EcoChartPro.ui.chart.axis.IChartAxis;
-import com.EcoChartPro.ui.chart.axis.TimeBasedAxis;
+import com.EcoChartPro.ui.chart.axis.ChartAxis;
 
 import javax.swing.UIManager;
 import java.awt.Color;
@@ -24,12 +23,7 @@ public class DaySeparatorRenderer {
     private static final ZoneId TRADING_DAY_ZONE = ZoneId.of("America/New_York");
     private static final Font LABEL_FONT = new Font("SansSerif", Font.PLAIN, 12);
 
-    public void draw(Graphics2D g, IChartAxis axis, List<KLine> visibleKLines, Timeframe chartTimeframe) {
-        // This renderer is only valid for time-based charts.
-        if (!(axis instanceof TimeBasedAxis)) {
-            return;
-        }
-
+    public void draw(Graphics2D g, ChartAxis axis, List<KLine> visibleKLines, Timeframe chartTimeframe) {
         if (visibleKLines == null || visibleKLines.size() < 2 || chartTimeframe == null) {
             return;
         }
@@ -63,7 +57,7 @@ public class DaySeparatorRenderer {
         }
     }
 
-    private void drawPeriodLabel(Graphics2D g, IChartAxis axis, List<KLine> visibleKLines, Instant periodStart, Instant periodEnd, Granularity granularity, Timeframe timeframe) {
+    private void drawPeriodLabel(Graphics2D g, ChartAxis axis, List<KLine> visibleKLines, Instant periodStart, Instant periodEnd, Granularity granularity, Timeframe timeframe) {
         long startSeconds = periodStart.getEpochSecond();
         long endSeconds = periodEnd.getEpochSecond();
         long midSeconds = startSeconds + (endSeconds - startSeconds) / 2;
@@ -81,7 +75,7 @@ public class DaySeparatorRenderer {
         int labelWidth = fm.stringWidth(label);
         
         // Use the axis padding constant for correct vertical placement
-        int y = axis.priceToY(IChartAxis.ANCHOR_TOP) + fm.getAscent() + 2;
+        int y = axis.priceToY(ChartAxis.ANCHOR_TOP) + fm.getAscent() + 2;
 
         g.drawString(label, x - labelWidth / 2, y);
     }

@@ -2,8 +2,7 @@ package com.EcoChartPro.ui.chart.render;
 
 import com.EcoChartPro.core.settings.SettingsManager;
 import com.EcoChartPro.model.KLine;
-import com.EcoChartPro.model.chart.AbstractChartData;
-import com.EcoChartPro.ui.chart.axis.IChartAxis;
+import com.EcoChartPro.ui.chart.axis.ChartAxis;
 
 import java.awt.Graphics2D;
 import java.math.BigDecimal;
@@ -11,12 +10,10 @@ import java.util.List;
 
 public class VolumeCandleRenderer implements AbstractChartTypeRenderer {
     @Override
-    public void draw(Graphics2D g2d, IChartAxis axis, List<? extends AbstractChartData> visibleData, int viewStartIndex) {
-        if (!axis.isConfigured() || visibleData == null || visibleData.isEmpty()) return;
-        if (!(visibleData.get(0) instanceof KLine)) return; // Only for KLine data
-
-        @SuppressWarnings("unchecked")
-        List<KLine> klines = (List<KLine>) visibleData;
+    public void draw(Graphics2D g2d, ChartAxis axis, List<KLine> klines, int viewStartIndex) {
+        if (!axis.isConfigured() || klines == null || klines.isEmpty()) {
+            return;
+        }
 
         // 1. Find the min and max volume in the visible range
         BigDecimal minVolume = klines.get(0).volume();

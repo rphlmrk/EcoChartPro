@@ -1,6 +1,5 @@
 package com.EcoChartPro.model;
 
-import com.EcoChartPro.model.chart.AbstractChartData;
 import java.math.BigDecimal;
 import java.time.Instant;
 
@@ -21,16 +20,4 @@ public record KLine(
     BigDecimal low,
     BigDecimal close,
     BigDecimal volume
-) implements AbstractChartData {
-    @Override
-    public Instant startTime() {
-        return timestamp;
-    }
-
-    @Override
-    public Instant endTime() {
-        // For a standard KLine, the end time is implicitly defined by its timeframe.
-        // We return the start time here as a convention, as the object itself lacks duration info.
-        return timestamp;
-    }
-}
+) {}

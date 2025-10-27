@@ -5,10 +5,10 @@ import com.EcoChartPro.core.commands.RemoveDrawingCommand;
 import com.EcoChartPro.core.commands.UndoableCommand;
 import com.EcoChartPro.core.commands.UpdateDrawingCommand;
 import com.EcoChartPro.core.manager.listener.DrawingListener;
+import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.Timeframe;
-import com.EcoChartPro.model.chart.AbstractChartData;
 import com.EcoChartPro.model.drawing.DrawingObject;
-import com.EcoChartPro.ui.chart.axis.IChartAxis;
+import com.EcoChartPro.ui.chart.axis.ChartAxis;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -23,6 +23,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.stream.Collectors;
 
 /**
  * A singleton manager that serves as the "source of truth" for all drawing objects.
@@ -108,7 +109,7 @@ public final class DrawingManager {
         pcs.firePropertyChange("selectedDrawingChanged", oldId, this.selectedDrawingId);
     }
 
-    public DrawingObject findDrawingAt(Point screenPoint, IChartAxis axis, List<? extends AbstractChartData> data, Timeframe timeframe) {
+    public DrawingObject findDrawingAt(Point screenPoint, ChartAxis axis, List<KLine> klines, Timeframe timeframe) {
         if (!axis.isConfigured() || getActiveDrawingsMap() == null) {
             return null;
         }
@@ -117,7 +118,7 @@ public final class DrawingManager {
         Collections.reverse(drawingList);
 
         for (DrawingObject drawing : drawingList) {
-            if (drawing.isHit(screenPoint, axis, data, timeframe)) {
+            if (drawing.isHit(screenPoint, axis, klines, timeframe)) {
                 return drawing;
             }
         }
