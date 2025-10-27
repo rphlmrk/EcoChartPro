@@ -68,9 +68,9 @@ public class VisibleRangeVolumeProfileRenderer {
 
         if (maxVolume.compareTo(BigDecimal.ZERO) <= 0) return;
 
-        // 4. Render the histogram bars
-        int maxBarWidth = (int) (g2d.getClipBounds().getWidth() * PROFILE_WIDTH_RATIO);
-        int profileStartX = g2d.getClipBounds().width - maxBarWidth;
+        // 4. Render the histogram bars (growing from right to left)
+        int chartWidth = g2d.getClipBounds().width;
+        int maxBarWidth = (int) (chartWidth * PROFILE_WIDTH_RATIO);
 
         for (Map.Entry<BigDecimal, VolumeBar> entry : volumeHistogram.entrySet()) {
             BigDecimal price = entry.getKey();
@@ -81,20 +81,21 @@ public class VisibleRangeVolumeProfileRenderer {
             
             int totalBarWidth = (int) (maxBarWidth * (totalVolume.doubleValue() / maxVolume.doubleValue()));
             int upVolumeWidth = (int) (totalBarWidth * (bar.upVolume.doubleValue() / totalVolume.doubleValue()));
+            int downVolumeWidth = totalBarWidth - upVolumeWidth;
 
-            // Draw Up Volume part
+            // Draw Up Volume part (from the right edge, inward)
             g2d.setColor(settings.getVrvpUpVolumeColor());
-            g2d.fillRect(profileStartX, y, upVolumeWidth, rowHeight);
+            g2d.fillRect(chartWidth - upVolumeWidth, y, upVolumeWidth, rowHeight);
             
-            // Draw Down Volume part
+            // Draw Down Volume part (adjacent to the up volume part, growing further inward)
             g2d.setColor(settings.getVrvpDownVolumeColor());
-            g2d.fillRect(profileStartX + upVolumeWidth, y, totalBarWidth - upVolumeWidth, rowHeight);
+            g2d.fillRect(chartWidth - upVolumeWidth - downVolumeWidth, y, downVolumeWidth, rowHeight);
 
             // Highlight POC row
             if (price.equals(pocPrice)) {
                 g2d.setStroke(settings.getVrvpPocLineStroke());
                 g2d.setColor(settings.getVrvpPocColor());
-                g2d.drawRect(profileStartX, y, maxBarWidth, rowHeight);
+                g2d.drawRect(chartWidth - totalBarWidth, y, totalBarWidth, rowHeight);
             }
         }
     }
