@@ -1,9 +1,9 @@
 package com.EcoChartPro.ui.chart.render.drawing;
 
-import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.Timeframe;
+import com.EcoChartPro.model.chart.AbstractChartData;
 import com.EcoChartPro.model.drawing.DrawingObject;
-import com.EcoChartPro.ui.chart.axis.ChartAxis;
+import com.EcoChartPro.ui.chart.axis.IChartAxis;
 
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
@@ -22,10 +22,10 @@ public class DrawingRenderer {
      * @param g               The graphics context to draw on.
      * @param visibleDrawings The list of drawings that are known to be on-screen.
      * @param axis            The ChartAxis used for coordinate conversion.
-     * @param visibleKLines   The list of currently visible K-lines, used for time-axis context.
+     * @param visibleData   The list of currently visible chart data, used for time-axis context.
      * @param timeframe       The current chart timeframe, used for extrapolation and visibility checks.
      */
-    public void draw(Graphics2D g, List<DrawingObject> visibleDrawings, ChartAxis axis, List<KLine> visibleKLines, Timeframe timeframe) {
+    public void draw(Graphics2D g, List<DrawingObject> visibleDrawings, IChartAxis axis, List<? extends AbstractChartData> visibleData, Timeframe timeframe) {
         if (visibleDrawings == null || visibleDrawings.isEmpty() || !axis.isConfigured() || timeframe == null) {
             return;
         }
@@ -37,7 +37,7 @@ public class DrawingRenderer {
             boolean isVisibleOnThisTimeframe = drawing.visibility().getOrDefault(timeframe, true);
             if (isVisibleOnThisTimeframe) {
                 // Delegate rendering to the object itself
-                drawing.render(g, axis, visibleKLines, timeframe);
+                drawing.render(g, axis, visibleData, timeframe);
             }
         }
     }

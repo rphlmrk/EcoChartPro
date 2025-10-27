@@ -13,7 +13,7 @@ import com.EcoChartPro.model.trading.Order;
 import com.EcoChartPro.model.trading.Position;
 import com.EcoChartPro.ui.MainWindow;
 import com.EcoChartPro.ui.chart.ChartPanel;
-import com.EcoChartPro.ui.chart.axis.ChartAxis;
+import com.EcoChartPro.ui.chart.axis.IChartAxis;
 import com.EcoChartPro.ui.chart.render.trading.OrderRenderer;
 import com.EcoChartPro.ui.chart.render.trading.OrderRenderer.InteractionType;
 import com.EcoChartPro.ui.dialogs.TextSettingsDialog;
@@ -165,7 +165,7 @@ public class ChartController {
 
                 // A. Vertical Panning (if applicable)
                 if (!interactionManager.isAutoScalingY() && dragStartPoint != null && dragStartMinPrice != null && view.getChartAxis().isConfigured()) {
-                    ChartAxis yAxis = view.getChartAxis();
+                    IChartAxis yAxis = view.getChartAxis();
                     BigDecimal priceAtStart = yAxis.yToPrice(dragStartPoint.y);
                     BigDecimal priceAtCurrent = yAxis.yToPrice(e.getY());
                     BigDecimal priceDelta = priceAtStart.subtract(priceAtCurrent);

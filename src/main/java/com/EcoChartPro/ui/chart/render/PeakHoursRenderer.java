@@ -3,7 +3,8 @@ package com.EcoChartPro.ui.chart.render;
 import com.EcoChartPro.core.settings.SettingsManager;
 import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.Timeframe;
-import com.EcoChartPro.ui.chart.axis.ChartAxis;
+import com.EcoChartPro.ui.chart.axis.IChartAxis;
+import com.EcoChartPro.ui.chart.axis.TimeBasedAxis;
 
 import java.awt.BasicStroke;
 import java.awt.Color;
@@ -36,8 +37,8 @@ public class PeakHoursRenderer {
      * Main drawing method. It reads the user's preferred style from settings
      * and calls the appropriate drawing helper method.
      */
-    public void draw(Graphics2D g, ChartAxis axis, List<KLine> visibleKLines, Timeframe timeframe, List<Integer> peakHours) {
-        if (visibleKLines == null || visibleKLines.isEmpty() || peakHours == null || peakHours.isEmpty() || !axis.isConfigured()) {
+    public void draw(Graphics2D g, IChartAxis axis, List<KLine> visibleKLines, Timeframe timeframe, List<Integer> peakHours) {
+        if (!(axis instanceof TimeBasedAxis) || visibleKLines == null || visibleKLines.isEmpty() || peakHours == null || peakHours.isEmpty() || !axis.isConfigured()) {
             return;
         }
 
@@ -57,7 +58,7 @@ public class PeakHoursRenderer {
         }
     }
 
-    private void drawShadeArea(Graphics2D g, ChartAxis axis, List<KLine> visibleKLines, List<Integer> peakHours) {
+    private void drawShadeArea(Graphics2D g, IChartAxis axis, List<KLine> visibleKLines, List<Integer> peakHours) {
         Set<Integer> peakHoursSet = new HashSet<>(peakHours);
         g.setColor(SettingsManager.getInstance().getPeakHoursColorShade());
         int barWidth = (int) Math.max(1.0, axis.getBarWidth());
@@ -72,7 +73,7 @@ public class PeakHoursRenderer {
         }
     }
 
-    private void drawBottomBar(Graphics2D g, ChartAxis axis, List<KLine> visibleKLines, Timeframe timeframe, List<Integer> peakHours) {
+    private void drawBottomBar(Graphics2D g, IChartAxis axis, List<KLine> visibleKLines, Timeframe timeframe, List<Integer> peakHours) {
         List<TimeWindow> windows = parseHoursIntoWindows(peakHours);
         g.setColor(SettingsManager.getInstance().getPeakHoursColorShade());
         LocalDate startDate = visibleKLines.get(0).timestamp().atZone(ZoneOffset.UTC).toLocalDate().minusDays(1);
@@ -101,7 +102,7 @@ public class PeakHoursRenderer {
         }
     }
 
-    private void drawIndicatorLines(Graphics2D g, ChartAxis axis, List<KLine> visibleKLines, Timeframe timeframe, List<Integer> peakHours) {
+    private void drawIndicatorLines(Graphics2D g, IChartAxis axis, List<KLine> visibleKLines, Timeframe timeframe, List<Integer> peakHours) {
         List<TimeWindow> windows = parseHoursIntoWindows(peakHours);
         LocalDate startDate = visibleKLines.get(0).timestamp().atZone(ZoneOffset.UTC).toLocalDate().minusDays(1);
         LocalDate endDate = visibleKLines.get(visibleKLines.size() - 1).timestamp().atZone(ZoneOffset.UTC).toLocalDate().plusDays(1);

@@ -4,9 +4,9 @@ import com.EcoChartPro.core.manager.DrawingManager;
 import com.EcoChartPro.core.manager.PriceRange;
 import com.EcoChartPro.core.manager.TimeRange;
 import com.EcoChartPro.core.settings.SettingsManager;
-import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.Timeframe;
-import com.EcoChartPro.ui.chart.axis.ChartAxis;
+import com.EcoChartPro.model.chart.AbstractChartData;
+import com.EcoChartPro.ui.chart.axis.IChartAxis;
 
 import java.awt.*;
 import java.math.BigDecimal;
@@ -58,11 +58,11 @@ public record MeasureToolObject(
     }
 
     @Override
-    public void render(Graphics2D g, ChartAxis axis, List<KLine> klines, Timeframe tf) {
+    public void render(Graphics2D g, IChartAxis axis, List<? extends AbstractChartData> data, Timeframe tf) {
         if (!axis.isConfigured() || p1 == null || p2 == null || tf == null) return;
 
-        Point s1 = new Point(axis.timeToX(p1.timestamp(), klines, tf), axis.priceToY(p1.price()));
-        Point s2 = new Point(axis.timeToX(p2.timestamp(), klines, tf), axis.priceToY(p2.price()));
+        Point s1 = new Point(axis.timeToX(p1.timestamp(), data, tf), axis.priceToY(p1.price()));
+        Point s2 = new Point(axis.timeToX(p2.timestamp(), data, tf), axis.priceToY(p2.price()));
         Rectangle bounds = getScreenBounds(s1, s2);
 
         // --- 1. Draw the main shape ---
@@ -134,7 +134,7 @@ public record MeasureToolObject(
 
         // --- 5. Draw Handles if Selected ---
         if (id.equals(DrawingManager.getInstance().getSelectedDrawingId()) && !isLocked) {
-            getHandles(axis, klines, tf).forEach(h -> drawHandle(g, h.position()));
+            getHandles(axis, data, tf).forEach(h -> drawHandle(g, h.position()));
         }
 
         g.setStroke(originalStroke);
@@ -162,10 +162,10 @@ public record MeasureToolObject(
         return new MeasureToolObject(id, p1, p2, toolType, color, newStroke, visibility, isLocked, showPriceLabel);
     }
     @Override
-    public boolean isHit(Point screenPoint, ChartAxis axis, List<KLine> klines, Timeframe tf) {
+    public boolean isHit(Point screenPoint, IChartAxis axis, List<? extends AbstractChartData> data, Timeframe tf) {
         if (!axis.isConfigured()) return false;
-        Point s1 = new Point(axis.timeToX(p1.timestamp(), klines, tf), axis.priceToY(p1.price()));
-        Point s2 = new Point(axis.timeToX(p2.timestamp(), klines, tf), axis.priceToY(p2.price()));
+        Point s1 = new Point(axis.timeToX(p1.timestamp(), data, tf), axis.priceToY(p1.price()));
+        Point s2 = new Point(axis.timeToX(p2.timestamp(), data, tf), axis.priceToY(p2.price()));
         Rectangle bounds = getScreenBounds(s1, s2);
         bounds.grow(SettingsManager.getInstance().getDrawingHitThreshold() / 2, SettingsManager.getInstance().getDrawingHitThreshold() / 2);
         return bounds.contains(screenPoint);
@@ -181,11 +181,11 @@ public record MeasureToolObject(
         return timeOverlap && priceOverlap;
     }
     @Override
-    public List<DrawingHandle> getHandles(ChartAxis axis, List<KLine> klines, Timeframe tf) {
+    public List<DrawingHandle> getHandles(IChartAxis axis, List<? extends AbstractChartData> data, Timeframe tf) {
         if (isLocked) return Collections.emptyList();
         List<DrawingHandle> handles = new ArrayList<>();
-        Point s1 = new Point(axis.timeToX(p1.timestamp(), klines, tf), axis.priceToY(p1.price()));
-        Point s2 = new Point(axis.timeToX(p2.timestamp(), klines, tf), axis.priceToY(p2.price()));
+        Point s1 = new Point(axis.timeToX(p1.timestamp(), data, tf), axis.priceToY(p1.price()));
+        Point s2 = new Point(axis.timeToX(p2.timestamp(), data, tf), axis.priceToY(p2.price()));
         handles.add(new DrawingHandle(s1, DrawingHandle.HandleType.START_POINT, id));
         handles.add(new DrawingHandle(s2, DrawingHandle.HandleType.END_POINT, id));
         return handles;

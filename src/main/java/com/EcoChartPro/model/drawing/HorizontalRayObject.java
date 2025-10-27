@@ -4,13 +4,12 @@ import com.EcoChartPro.core.manager.DrawingManager;
 import com.EcoChartPro.core.manager.PriceRange;
 import com.EcoChartPro.core.manager.TimeRange;
 import com.EcoChartPro.core.settings.SettingsManager;
-import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.Timeframe;
-import com.EcoChartPro.ui.chart.axis.ChartAxis;
+import com.EcoChartPro.model.chart.AbstractChartData;
+import com.EcoChartPro.ui.chart.axis.IChartAxis;
 
 import java.awt.*;
 import java.math.BigDecimal;
-import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -58,10 +57,10 @@ public record HorizontalRayObject(
     }
 
     @Override
-    public void render(Graphics2D g, ChartAxis axis, List<KLine> klines, Timeframe tf) {
+    public void render(Graphics2D g, IChartAxis axis, List<? extends AbstractChartData> data, Timeframe tf) {
         if (!axis.isConfigured()) return;
         
-        Point p1 = new Point(axis.timeToX(anchor.timestamp(), klines, tf), axis.priceToY(anchor.price()));
+        Point p1 = new Point(axis.timeToX(anchor.timestamp(), data, tf), axis.priceToY(anchor.price()));
         int chartWidth = g.getClipBounds().width;
 
         boolean isSelected = id.equals(DrawingManager.getInstance().getSelectedDrawingId());
@@ -73,14 +72,14 @@ public record HorizontalRayObject(
         g.setStroke(originalStroke);
 
         if (isSelected && !isLocked) {
-            getHandles(axis, klines, tf).forEach(h -> drawHandle(g, h.position()));
+            getHandles(axis, data, tf).forEach(h -> drawHandle(g, h.position()));
         }
     }
 
     @Override
-    public boolean isHit(Point screenPoint, ChartAxis axis, List<KLine> klines, Timeframe tf) {
+    public boolean isHit(Point screenPoint, IChartAxis axis, List<? extends AbstractChartData> data, Timeframe tf) {
         if (!axis.isConfigured()) return false;
-        Point p1 = new Point(axis.timeToX(anchor.timestamp(), klines, tf), axis.priceToY(anchor.price()));
+        Point p1 = new Point(axis.timeToX(anchor.timestamp(), data, tf), axis.priceToY(anchor.price()));
         // Check if point is on the horizontal line and to the right of the anchor
         boolean yMatch = Math.abs(screenPoint.y - p1.y) < SettingsManager.getInstance().getDrawingHitThreshold();
         boolean xMatch = screenPoint.x >= p1.x;
@@ -94,9 +93,9 @@ public record HorizontalRayObject(
     }
 
     @Override
-    public List<DrawingHandle> getHandles(ChartAxis axis, List<KLine> klines, Timeframe tf) {
+    public List<DrawingHandle> getHandles(IChartAxis axis, List<? extends AbstractChartData> data, Timeframe tf) {
         if (isLocked || !axis.isConfigured()) return Collections.emptyList();
-        int x = axis.timeToX(anchor.timestamp(), klines, tf);
+        int x = axis.timeToX(anchor.timestamp(), data, tf);
         int y = axis.priceToY(anchor.price());
         return Collections.singletonList(new DrawingHandle(new Point(x, y), DrawingHandle.HandleType.START_POINT, id));
     }

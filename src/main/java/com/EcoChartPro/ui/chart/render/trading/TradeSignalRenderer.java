@@ -4,7 +4,7 @@ import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.Timeframe;
 import com.EcoChartPro.model.Trade;
 import com.EcoChartPro.model.TradeDirection;
-import com.EcoChartPro.ui.chart.axis.ChartAxis;
+import com.EcoChartPro.ui.chart.axis.IChartAxis;
 import javax.swing.UIManager;
 import java.awt.*;
 import java.math.BigDecimal;
@@ -18,7 +18,7 @@ public class TradeSignalRenderer {
     private static final Stroke PNL_LINE_STROKE = new BasicStroke(1.5f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_BEVEL, 0, new float[]{5}, 0);
     private static final int ARROW_SIZE = 8;
 
-    public void draw(Graphics2D g, ChartAxis axis, List<Trade> trades, List<KLine> visibleKLines, Timeframe timeframe) {
+    public void draw(Graphics2D g, IChartAxis axis, List<Trade> trades, List<KLine> visibleKLines, Timeframe timeframe) {
         if (trades == null || trades.isEmpty() || !axis.isConfigured() || visibleKLines.isEmpty() || timeframe == null) {
             return;
         }

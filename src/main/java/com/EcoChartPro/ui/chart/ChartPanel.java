@@ -22,13 +22,16 @@ import com.EcoChartPro.data.DataTransformer;
 import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.Timeframe;
 import com.EcoChartPro.model.Trade;
+import com.EcoChartPro.model.chart.AbstractChartData;
 import com.EcoChartPro.model.chart.ChartType;
 import com.EcoChartPro.model.drawing.DrawingObject;
 import com.EcoChartPro.model.drawing.DrawingObjectPoint;
 import com.EcoChartPro.model.trading.Order;
 import com.EcoChartPro.model.trading.Position;
 import com.EcoChartPro.ui.MainWindow;
-import com.EcoChartPro.ui.chart.axis.ChartAxis;
+import com.EcoChartPro.ui.chart.axis.IChartAxis;
+import com.EcoChartPro.ui.chart.axis.IndexBasedAxis;
+import com.EcoChartPro.ui.chart.axis.TimeBasedAxis;
 import com.EcoChartPro.ui.chart.render.AxisRenderer;
 import com.EcoChartPro.ui.chart.render.ChartRenderer;
 import com.EcoChartPro.ui.chart.render.DaySeparatorRenderer;
@@ -44,6 +47,8 @@ import com.EcoChartPro.ui.dialogs.TimeframeInputDialog;
 import com.EcoChartPro.ui.toolbar.FloatingPropertiesToolbar;
 import com.EcoChartPro.ui.trading.OrderPreview;
 import com.EcoChartPro.utils.DataSourceManager;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.swing.*;
 import javax.swing.border.Border;
@@ -59,6 +64,7 @@ import java.beans.PropertyChangeListener;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -67,6 +73,9 @@ import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 public class ChartPanel extends JPanel implements PropertyChangeListener, DrawingListener, ReplayStateListener {
+
+    // --- FIX: Added logger declaration ---
+    private static final Logger logger = LoggerFactory.getLogger(ChartPanel.class);
 
     private final ChartRenderer chartRenderer;
     private final AxisRenderer axisRenderer;
@@ -80,7 +89,7 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
     private final SessionVolumeProfileRenderer svpRenderer;
     private final DrawingController drawingController;
     private final ChartInteractionManager interactionManager;
-    private final ChartAxis chartAxis;
+    private IChartAxis chartAxis;
     private final ChartDataModel dataModel;
     private final PriceAxisPanel priceAxisPanel;
     private final TimeAxisPanel timeAxisPanel;
@@ -107,7 +116,7 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
     private boolean showIndicators = true;
     private boolean showPositionsAndOrders = true;
 
-    public ChartPanel(ChartDataModel dataModel, ChartInteractionManager interactionManager, ChartAxis chartAxis, PriceAxisPanel priceAxisPanel, TimeAxisPanel timeAxisPanel, Consumer<DrawingTool> onToolStateChange, FloatingPropertiesToolbar propertiesToolbar) {
+    public ChartPanel(ChartDataModel dataModel, ChartInteractionManager interactionManager, IChartAxis chartAxis, PriceAxisPanel priceAxisPanel, TimeAxisPanel timeAxisPanel, Consumer<DrawingTool> onToolStateChange, FloatingPropertiesToolbar propertiesToolbar) {
         this.dataModel = dataModel;
         this.interactionManager = interactionManager;
         this.chartAxis = chartAxis;
@@ -166,14 +175,21 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
     public DrawingObjectPoint getSnappingPoint(MouseEvent e) {
         if (!getChartAxis().isConfigured()) return null;
 
-        DrawingObjectPoint rawPoint = getChartAxis().screenToDataPoint(e.getX(), e.getY(), getDataModel().getVisibleKLines(), getDataModel().getCurrentDisplayTimeframe());
-        if (rawPoint == null || !e.isControlDown()) {
+        List<? extends AbstractChartData> data = dataModel.getVisibleData();
+        int viewStartIndex = interactionManager.getStartIndex();
+        // [FIX] Pass the viewStartIndex to the axis for correct index calculation on non-time-based charts.
+        DrawingObjectPoint rawPoint = getChartAxis().screenToDataPoint(e.getX(), e.getY(), data, getDataModel().getCurrentDisplayTimeframe(), viewStartIndex);
+        
+        if (rawPoint == null || !e.isControlDown() || data.isEmpty() || !(data.get(0) instanceof KLine)) {
             return rawPoint;
         }
 
+        @SuppressWarnings("unchecked")
+        List<KLine> klines = (List<KLine>) data;
+
         // Snap to OHLC of the nearest candle
         KLine targetKline = null;
-        for (KLine kline : getDataModel().getVisibleKLines()) {
+        for (KLine kline : klines) {
             if (kline.timestamp().equals(rawPoint.timestamp())) {
                 targetKline = kline;
                 break;
@@ -202,7 +218,7 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
         }
 
         if (bestPrice != null && minDistance < SettingsManager.getInstance().getSnapRadius()) {
-            return new DrawingObjectPoint(rawPoint.timestamp(), bestPrice);
+            return new DrawingObjectPoint(rawPoint.timestamp(), bestPrice, rawPoint.index());
         } else {
             return rawPoint;
         }
@@ -294,13 +310,8 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
         }
     }
 
-    public boolean isPriceSelectionMode() {
-        return isPriceSelectionMode;
-    }
-
-    public Consumer<BigDecimal> getPriceSelectionCallback() {
-        return priceSelectionCallback;
-    }
+    public boolean isPriceSelectionMode() { return isPriceSelectionMode; }
+    public Consumer<BigDecimal> getPriceSelectionCallback() { return priceSelectionCallback; }
 
     public void cleanup() {
         DrawingManager.getInstance().removeListener(this);
@@ -322,11 +333,24 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
     public void propertyChange(PropertyChangeEvent evt) {
         String propName = evt.getPropertyName();
 
-        if ("chartColorsChanged".equals(propName) || "chartTypeChanged".equals(propName) || "volumeProfileVisibilityChanged".equals(propName) || "peakHoursLinesVisibilityChanged".equals(propName) || "peakHoursOverrideChanged".equals(propName) || "peakHoursSettingsChanged".equals(propName)) {
+        if ("chartColorsChanged".equals(propName) || "volumeProfileVisibilityChanged".equals(propName) || "peakHoursLinesVisibilityChanged".equals(propName) || "peakHoursOverrideChanged".equals(propName) || "peakHoursSettingsChanged".equals(propName)) {
             SettingsManager settings = SettingsManager.getInstance();
             setBackground(settings.getChartBackground());
             if (getBorder() != INACTIVE_BORDER) {
                 setBorder(BorderFactory.createLineBorder(settings.getBullColor(), 2));
+            }
+            repaint();
+        } else if ("chartTypeChanged".equals(propName)) {
+            // [FIX] Swap axis type based on the new chart type's properties.
+            ChartType newType = (ChartType) evt.getNewValue();
+            boolean isNewTypeTimeBased = newType.isTimeBased();
+            boolean isCurrentAxisTimeBased = (chartAxis instanceof TimeBasedAxis);
+            if (isNewTypeTimeBased != isCurrentAxisTimeBased) {
+                this.chartAxis = isNewTypeTimeBased ? new TimeBasedAxis() : new IndexBasedAxis();
+                this.priceAxisPanel.setChartAxis(this.chartAxis);
+                this.timeAxisPanel.setChartAxis(this.chartAxis);
+                this.timeAxisPanel.setVisible(isNewTypeTimeBased); // Hide time axis for non-time-based charts
+                logger.info("Switched chart axis to {}", this.chartAxis.getClass().getSimpleName());
             }
             repaint();
         } else if ("dataUpdated".equals(propName) || "axisConfigChanged".equals(propName)) {
@@ -360,48 +384,40 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
         if (point == null || !chartAxis.isConfigured()) {
             return;
         }
-        List<KLine> visibleKLines = dataModel.getVisibleKLines();
-        int x = chartAxis.timeToX(point.timestamp(), visibleKLines, dataModel.getCurrentDisplayTimeframe());
+        
+        int x;
+        if (chartAxis instanceof IndexBasedAxis && point.index() != null) {
+            int absoluteIndex = point.index();
+            int startIndex = interactionManager.getStartIndex();
+            int relativeIndex = absoluteIndex - startIndex;
+            x = chartAxis.slotToX(relativeIndex);
+        } else {
+            x = chartAxis.timeToX(point.timestamp(), dataModel.getVisibleData(), dataModel.getCurrentDisplayTimeframe());
+        }
+
         int y = chartAxis.priceToY(point.price());
 
-        if (x >= 0) {
-            repaint(x - 1, 0, 3, getHeight());
-        }
-        if (y >= 0) {
-            repaint(0, y - 1, getWidth(), 3);
-        }
+        if (x >= 0) { repaint(x - 1, 0, 3, getHeight()); }
+        if (y >= 0) { repaint(0, y - 1, getWidth(), 3); }
     }
 
-    @Override
-    public void onDrawingAdded(DrawingObject drawingObject) {
-        repaint();
-    }
-    @Override
-    public void onDrawingUpdated(DrawingObject drawingObject) {
-        repaint();
-    }
-    @Override
-    public void onDrawingRemoved(UUID drawingObjectId) {
-        repaint();
-    }
+    @Override public void onDrawingAdded(DrawingObject drawingObject) { repaint(); }
+    @Override public void onDrawingUpdated(DrawingObject drawingObject) { repaint(); }
+    @Override public void onDrawingRemoved(UUID drawingObjectId) { repaint(); }
+
     public void setActive(boolean isActive) {
-        if (isActive) {
-            setBorder(BorderFactory.createLineBorder(SettingsManager.getInstance().getBullColor(), 2));
-        } else {
-            setBorder(INACTIVE_BORDER);
-        }
+        if (isActive) { setBorder(BorderFactory.createLineBorder(SettingsManager.getInstance().getBullColor(), 2)); } 
+        else { setBorder(INACTIVE_BORDER); }
     }
-    public ChartAxis getChartAxis() { return this.chartAxis; }
+
+    public IChartAxis getChartAxis() { return this.chartAxis; }
     public PriceAxisPanel getPriceAxisPanel() { return priceAxisPanel; }
     public TimeAxisPanel getTimeAxisPanel() { return timeAxisPanel; }
     public ChartDataModel getDataModel() { return this.dataModel; }
     public DrawingController getDrawingController() { return this.drawingController; }
     public OrderRenderer getOrderRenderer() { return this.orderRenderer; }
     public FloatingPropertiesToolbar getPropertiesToolbar() { return this.propertiesToolbar; }
-    public void setDragPreview(OrderRenderer.InteractiveZone preview) {
-        this.dragPreview = preview;
-        repaint();
-    }
+    public void setDragPreview(OrderRenderer.InteractiveZone preview) { this.dragPreview = preview; repaint(); }
 
     @Override
     protected void paintComponent(Graphics g) {
@@ -410,227 +426,154 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
         g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
         SettingsManager settings = SettingsManager.getInstance();
-        List<KLine> rawVisibleKLines = dataModel.getVisibleKLines();
+        List<? extends AbstractChartData> rawVisibleData = dataModel.getVisibleData();
 
         BigDecimal minP, maxP;
         if (interactionManager.isAutoScalingY()) {
-            minP = dataModel.getMinPrice();
-            maxP = dataModel.getMaxPrice();
+            minP = dataModel.getMinPrice(); maxP = dataModel.getMaxPrice();
         } else {
-            minP = interactionManager.getManualMinPrice();
-            maxP = interactionManager.getManualMaxPrice();
-            if (minP == null || maxP == null) {
-                minP = dataModel.getMinPrice();
-                maxP = dataModel.getMaxPrice();
-            }
+            minP = interactionManager.getManualMinPrice(); maxP = interactionManager.getManualMaxPrice();
+            if (minP == null || maxP == null) { minP = dataModel.getMinPrice(); maxP = dataModel.getMaxPrice(); }
         }
 
-        chartAxis.configure(
-            minP,
-            maxP,
-            interactionManager.getBarsPerScreen(),
-            getSize(),
-            interactionManager.isInvertedY()
-        );
+        chartAxis.configure(minP, maxP, interactionManager.getBarsPerScreen(), getSize(), interactionManager.isInvertedY());
 
         DataSourceManager.ChartDataSource currentSource = dataModel.getCurrentSymbol();
-        if (currentSource == null && dataModel.isInReplayMode()) {
-             currentSource = ReplaySessionManager.getInstance().getCurrentSource();
-        }
+        if (currentSource == null && dataModel.isInReplayMode()) { currentSource = ReplaySessionManager.getInstance().getCurrentSource(); }
         Timeframe currentTimeframe = dataModel.getCurrentDisplayTimeframe();
 
         if (currentSource != null) {
-            g2d.setFont(SYMBOL_FONT);
-            g2d.setColor(settings.getAxisTextColor());
-            // Use record accessor displayName()
-            String text = currentSource.displayName() + " - " + (currentTimeframe != null ? currentTimeframe.displayName() : "");
+            g2d.setFont(SYMBOL_FONT); g2d.setColor(settings.getAxisTextColor());
+            String text = currentSource.displayName() + (currentTimeframe != null && chartAxis instanceof TimeBasedAxis ? " - " + currentTimeframe.displayName() : "");
             g2d.drawString(text, 20, 30);
         }
 
-        if (rawVisibleKLines.isEmpty() && !isLoading) {
+        if (rawVisibleData.isEmpty() && !isLoading) {
              g2d.setColor(UIManager.getColor("Label.disabledForeground"));
              g2d.drawString("No data available for the current view.", 20, 60);
              g2d.dispose();
              return;
         }
 
-        // --- Data Transformation Step ---
         ChartType chartType = settings.getCurrentChartType();
-        List<KLine> klinesToRender = rawVisibleKLines;
-        if (chartType == ChartType.HEIKIN_ASHI) {
-            klinesToRender = DataTransformer.transformToHeikinAshi(rawVisibleKLines);
+        List<? extends AbstractChartData> dataToRender = rawVisibleData;
+        if (chartType == ChartType.HEIKIN_ASHI && !rawVisibleData.isEmpty() && rawVisibleData.get(0) instanceof KLine) {
+            dataToRender = DataTransformer.transformToHeikinAshi((List<KLine>) rawVisibleData);
         }
 
-        axisRenderer.draw(g2d, chartAxis, klinesToRender, currentTimeframe);
-        chartRenderer.draw(g2d, chartType, chartAxis, klinesToRender, interactionManager.getStartIndex());
+        axisRenderer.draw(g2d, chartAxis, dataToRender, currentTimeframe);
+        chartRenderer.draw(g2d, chartType, chartAxis, dataToRender, interactionManager.getStartIndex());
 
-
-        if (settings.isDaySeparatorsEnabled()) {
-            daySeparatorRenderer.draw(g2d, chartAxis, klinesToRender, currentTimeframe);
-        }
-
-        if (settings.isShowPeakHoursLines() && dataModel.isInReplayMode()) {
-            List<Integer> peakHours = settings.getPeakPerformanceHoursOverride();
-            if (peakHours.isEmpty()) {
-                peakHours = GamificationService.getInstance().getPeakPerformanceHours();
+        // The following renderers are time-based, so we must check axis type and cast.
+        if (chartAxis instanceof TimeBasedAxis && !dataToRender.isEmpty() && dataToRender.get(0) instanceof KLine) {
+            List<KLine> klinesToRender = (List<KLine>) dataToRender;
+            if (settings.isDaySeparatorsEnabled()) { daySeparatorRenderer.draw(g2d, chartAxis, klinesToRender, currentTimeframe); }
+            if (settings.isShowPeakHoursLines() && dataModel.isInReplayMode()) {
+                List<Integer> peakHours = settings.getPeakPerformanceHoursOverride().isEmpty() ? GamificationService.getInstance().getPeakPerformanceHours() : settings.getPeakPerformanceHoursOverride();
+                peakHoursRenderer.draw(g2d, chartAxis, klinesToRender, currentTimeframe, peakHours);
             }
-            peakHoursRenderer.draw(g2d, chartAxis, klinesToRender, currentTimeframe, peakHours);
+            if (settings.isSvpVisible()) { svpRenderer.draw(g2d, chartAxis, dataModel); }
         }
+        
+        // These renderers can work with any AbstractChartData
+        if (settings.isVrvpVisible() && !dataToRender.isEmpty() && dataToRender.get(0) instanceof KLine) {
+            vrvpRenderer.draw(g2d, chartAxis, (List<KLine>)dataToRender);
+        }
+        
+        Instant startTime = dataToRender.isEmpty() ? Instant.MIN : dataToRender.get(0).startTime();
+        Instant endTime = dataToRender.isEmpty() ? Instant.MAX : dataToRender.get(dataToRender.size() - 1).endTime();
+        TimeRange timeRange = new TimeRange(startTime, endTime);
 
-
-        if (!klinesToRender.isEmpty()) {
-            Instant startTime = klinesToRender.get(0).timestamp();
-            Instant endTime = klinesToRender.get(klinesToRender.size() - 1).timestamp();
-            TimeRange timeRange = new TimeRange(startTime, endTime);
+        if (showIndicators) {
+            List<DrawableObject> allIndicatorDrawables = new ArrayList<>();
+            dataModel.getIndicatorManager().getIndicators().stream().filter(i -> i.getType() == IndicatorType.OVERLAY).forEach(indicator -> allIndicatorDrawables.addAll(indicator.getResults()));
+            indicatorDrawableRenderer.draw(g2d, allIndicatorDrawables, chartAxis, dataToRender, currentTimeframe);
+        }
+        
+        if (showDrawings) {
             PriceRange priceRange = new PriceRange(dataModel.getMinPrice(), dataModel.getMaxPrice());
-
-            if (settings.isVrvpVisible()) {
-                vrvpRenderer.draw(g2d, chartAxis, klinesToRender);
-            }
-
-            if (settings.isSvpVisible()) {
-                svpRenderer.draw(g2d, chartAxis, dataModel);
-            }
-
-            if (showIndicators) {
-                List<DrawableObject> allIndicatorDrawables = new ArrayList<>();
-                dataModel.getIndicatorManager().getIndicators().stream()
-                    .filter(i -> i.getType() == IndicatorType.OVERLAY)
-                    .forEach(indicator -> allIndicatorDrawables.addAll(indicator.getResults()));
-                indicatorDrawableRenderer.draw(g2d, allIndicatorDrawables, chartAxis, klinesToRender, currentTimeframe);
-            }
-
-            if (showDrawings) {
-                List<DrawingObject> visibleDrawings = DrawingManager.getInstance().getVisibleDrawings(timeRange, priceRange);
-                drawingRenderer.draw(g2d, visibleDrawings, chartAxis, klinesToRender, currentTimeframe);
-
-                DrawingTool activeTool = drawingController.getActiveTool();
-                if (activeTool != null && activeTool.getPreviewObject() != null) {
-                    drawingRenderer.draw(g2d, List.of(activeTool.getPreviewObject()), chartAxis, klinesToRender, currentTimeframe);
-                }
-            }
-
-            if (showPositionsAndOrders) {
-                PaperTradingService service = PaperTradingService.getInstance();
-                List<Trade> allTrades = service.getTradeHistory();
-                List<Trade> visibleTrades = filterVisibleTrades(allTrades, timeRange);
-                tradeSignalRenderer.draw(g2d, chartAxis, visibleTrades, klinesToRender, currentTimeframe);
-                List<Position> positions = service.getOpenPositions();
-                List<Order> orders = service.getPendingOrders();
-                orderRenderer.draw(g2d, chartAxis, positions, orders, dragPreview);
+            List<DrawingObject> visibleDrawings = DrawingManager.getInstance().getVisibleDrawings(timeRange, priceRange);
+            drawingRenderer.draw(g2d, visibleDrawings, chartAxis, dataToRender, currentTimeframe);
+            DrawingTool activeTool = drawingController.getActiveTool();
+            if (activeTool != null && activeTool.getPreviewObject() != null) {
+                drawingRenderer.draw(g2d, List.of(activeTool.getPreviewObject()), chartAxis, dataToRender, currentTimeframe);
             }
         }
 
-        if (orderPreview != null) {
-            drawOrderPreview(g2d, orderPreview);
+        if (showPositionsAndOrders && !dataToRender.isEmpty() && dataToRender.get(0) instanceof KLine) {
+            PaperTradingService service = PaperTradingService.getInstance();
+            List<Trade> visibleTrades = filterVisibleTrades(service.getTradeHistory(), timeRange);
+            tradeSignalRenderer.draw(g2d, chartAxis, visibleTrades, (List<KLine>)dataToRender, currentTimeframe);
+            orderRenderer.draw(g2d, chartAxis, service.getOpenPositions(), service.getPendingOrders(), dragPreview);
         }
+        
+        if (!dataToRender.isEmpty() && dataToRender.get(0) instanceof KLine) {
+             drawInfoPanel(g2d, (List<KLine>) dataToRender);
+        }
+        
+        if (orderPreview != null) drawOrderPreview(g2d, orderPreview);
 
-        drawCrosshair(g2d, klinesToRender);
+        drawCrosshair(g2d, dataToRender);
 
-        drawInfoPanel(g2d, rawVisibleKLines); // Info panel should always show raw data
-
-        if (interactionManager.isViewingLiveEdge()) {
+        if (interactionManager.isViewingLiveEdge() && dataModel.getCurrentReplayKLine() != null) {
             KLine lastKline = dataModel.getCurrentReplayKLine();
-            if (lastKline != null) {
-                BigDecimal lastClose = lastKline.close();
-                int y = chartAxis.priceToY(lastClose);
-                boolean isBullish = lastKline.close().compareTo(lastKline.open()) >= 0;
-                Color backgroundColor = isBullish ? settings.getBullColor() : settings.getBearColor();
-
-                int lastGlobalIndex;
-                if (dataModel.getCurrentMode() == ChartDataModel.ChartMode.LIVE) {
-                    // For live, the forming candle is at the next logical index
-                    lastGlobalIndex = dataModel.getTotalCandleCount();
-                } else {
-                    // For replay, it's the last available index
-                    lastGlobalIndex = dataModel.getTotalCandleCount() - 1;
-                }
-
-                int slot = lastGlobalIndex - interactionManager.getStartIndex();
-                int startX = chartAxis.slotToX(slot);
-                Stroke dashed = new BasicStroke(1, BasicStroke.CAP_BUTT, BasicStroke.JOIN_BEVEL, 0, new float[]{5}, 0);
-                g2d.setStroke(dashed);
-                g2d.setColor(backgroundColor);
-                g2d.drawLine(startX, y, getWidth(), y);
-            }
+            BigDecimal lastClose = lastKline.close();
+            int y = chartAxis.priceToY(lastClose);
+            boolean isBullish = lastKline.close().compareTo(lastKline.open()) >= 0;
+            Color backgroundColor = isBullish ? settings.getBullColor() : settings.getBearColor();
+            int lastGlobalIndex = dataModel.getTotalCandleCount() - (dataModel.getCurrentMode() == ChartDataModel.ChartMode.LIVE ? 0 : 1);
+            int slot = lastGlobalIndex - interactionManager.getStartIndex();
+            int startX = chartAxis.slotToX(slot);
+            Stroke dashed = new BasicStroke(1, BasicStroke.CAP_BUTT, BasicStroke.JOIN_BEVEL, 0, new float[]{5}, 0);
+            g2d.setStroke(dashed); g2d.setColor(backgroundColor); g2d.drawLine(startX, y, getWidth(), y);
         }
 
-        if (isLoading) {
-            drawLoadingOverlay(g2d);
-        }
+        if (isLoading) drawLoadingOverlay(g2d);
 
         g2d.dispose();
-
         priceAxisPanel.repaint();
         timeAxisPanel.repaint();
     }
 
     private void drawInfoPanel(Graphics2D g, List<KLine> visibleKLines) {
         DrawingTool activeTool = drawingController.getActiveTool();
-        if (!(activeTool instanceof InfoTool infoTool)) {
-            return;
-        }
-
+        if (!(activeTool instanceof InfoTool infoTool)) return;
         DrawingObjectPoint dataPoint = infoTool.getCurrentPoint();
-        if (dataPoint == null || dataPoint.timestamp() == null) {
-            infoPanel.updateData(null, null, null);
-            return;
-        }
-
+        if (dataPoint == null || dataPoint.timestamp() == null) { infoPanel.updateData(null, null, null); return; }
         KLine targetKline = null;
         int slotIndex = chartAxis.timeToSlotIndex(dataPoint.timestamp(), visibleKLines, dataModel.getCurrentDisplayTimeframe());
-        if (slotIndex >= 0 && slotIndex < visibleKLines.size()) {
-            targetKline = visibleKLines.get(slotIndex);
-        }
-
+        if (slotIndex >= 0 && slotIndex < visibleKLines.size()) targetKline = visibleKLines.get(slotIndex);
         infoPanel.updateData(targetKline, dataModel.getIndicatorManager().getIndicators(), SettingsManager.getInstance().getDisplayZoneId());
-
         Point screenPoint = infoTool.getScreenPoint();
-        if (screenPoint == null) {
-            return;
-        }
-
-        int panelWidth = infoPanel.getWidth();
-        int panelHeight = infoPanel.getHeight();
-        int padding = 20;
-
-        int x = screenPoint.x + padding;
-        int y = screenPoint.y + padding;
-
-        if (x + panelWidth > getWidth()) {
-            x = screenPoint.x - panelWidth - padding;
-        }
-        if (y + panelHeight > getHeight()) {
-            y = screenPoint.y - panelHeight - padding;
-        }
-
-        x = Math.max(5, x);
-        y = Math.max(5, y);
-
+        if (screenPoint == null) return;
+        int panelWidth = infoPanel.getWidth(); int panelHeight = infoPanel.getHeight(); int padding = 20;
+        int x = screenPoint.x + padding; int y = screenPoint.y + padding;
+        if (x + panelWidth > getWidth()) x = screenPoint.x - panelWidth - padding;
+        if (y + panelHeight > getHeight()) y = screenPoint.y - panelHeight - padding;
+        x = Math.max(5, x); y = Math.max(5, y);
         SwingUtilities.paintComponent(g, infoPanel, this, x, y, panelWidth, panelHeight);
     }
 
-    private void drawCrosshair(Graphics2D g2d, List<KLine> visibleKLines) {
+    private void drawCrosshair(Graphics2D g2d, List<? extends AbstractChartData> visibleData) {
         if (crosshairPoint == null || !chartAxis.isConfigured()) return;
-
-        int x = chartAxis.timeToX(crosshairPoint.timestamp(), visibleKLines, dataModel.getCurrentDisplayTimeframe());
-        int y = chartAxis.priceToY(crosshairPoint.price());
-
-        Stroke dashed = new BasicStroke(1, BasicStroke.CAP_BUTT, BasicStroke.JOIN_BEVEL, 0, new float[]{2}, 0);
-        g2d.setStroke(dashed);
-        g2d.setColor(SettingsManager.getInstance().getCrosshairColor());
-
-        g2d.drawLine(0, y, getWidth(), y);
-        if (x >= 0) {
-            g2d.drawLine(x, 0, x, getHeight());
+        int x;
+        if (chartAxis instanceof IndexBasedAxis && crosshairPoint.index() != null) {
+            int relativeIndex = crosshairPoint.index() - interactionManager.getStartIndex();
+            x = chartAxis.slotToX(relativeIndex);
+        } else {
+            x = chartAxis.timeToX(crosshairPoint.timestamp(), visibleData, dataModel.getCurrentDisplayTimeframe());
         }
+        int y = chartAxis.priceToY(crosshairPoint.price());
+        Stroke dashed = new BasicStroke(1, BasicStroke.CAP_BUTT, BasicStroke.JOIN_BEVEL, 0, new float[]{2}, 0);
+        g2d.setStroke(dashed); g2d.setColor(SettingsManager.getInstance().getCrosshairColor());
+        g2d.drawLine(0, y, getWidth(), y);
+        if (x >= 0) g2d.drawLine(x, 0, x, getHeight());
     }
 
     private void drawLoadingOverlay(Graphics2D g2d) {
         Color bgColor = UIManager.getColor("Panel.background");
         g2d.setColor(new Color(bgColor.getRed(), bgColor.getGreen(), bgColor.getBlue(), 180));
         g2d.fillRect(0, 0, getWidth(), getHeight());
-
         g2d.setColor(UIManager.getColor("Label.foreground"));
         g2d.setFont(getFont().deriveFont(Font.BOLD, 16f));
         FontMetrics fm = g2d.getFontMetrics();
@@ -644,80 +587,30 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
         if (!chartAxis.isConfigured()) return;
         final Stroke previewStroke = new BasicStroke(1.0f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_BEVEL, 0, new float[]{4}, 0);
         g.setStroke(previewStroke);
-
-        if (preview.entryPrice() != null) {
-            g.setColor(new Color(255, 193, 7, 180));
-            int y = chartAxis.priceToY(preview.entryPrice());
-            g.drawLine(0, y, getWidth(), y);
-        }
-        if (preview.stopLoss() != null) {
-            g.setColor(new Color(244, 67, 54, 180));
-            int y = chartAxis.priceToY(preview.stopLoss());
-            g.drawLine(0, y, getWidth(), y);
-        }
-        if (preview.takeProfit() != null) {
-            g.setColor(new Color(76, 175, 80, 180));
-            int y = chartAxis.priceToY(preview.takeProfit());
-            g.drawLine(0, y, getWidth(), y);
-        }
+        if (preview.entryPrice() != null) { g.setColor(new Color(255, 193, 7, 180)); g.drawLine(0, chartAxis.priceToY(preview.entryPrice()), getWidth(), chartAxis.priceToY(preview.entryPrice())); }
+        if (preview.stopLoss() != null) { g.setColor(new Color(244, 67, 54, 180)); g.drawLine(0, chartAxis.priceToY(preview.stopLoss()), getWidth(), chartAxis.priceToY(preview.stopLoss())); }
+        if (preview.takeProfit() != null) { g.setColor(new Color(76, 175, 80, 180)); g.drawLine(0, chartAxis.priceToY(preview.takeProfit()), getWidth(), chartAxis.priceToY(preview.takeProfit())); }
     }
 
     private List<Trade> filterVisibleTrades(List<Trade> allTrades, TimeRange visibleTimeRange) {
-        return allTrades.stream()
-                .filter(trade -> {
-                    boolean entryVisible = visibleTimeRange.contains(trade.entryTime());
-                    boolean exitVisible = visibleTimeRange.contains(trade.exitTime());
-                    boolean spansAcross = trade.entryTime().isBefore(visibleTimeRange.start()) && trade.exitTime().isAfter(visibleTimeRange.end());
-                    return entryVisible || exitVisible || spansAcross;
-                })
-                .collect(Collectors.toList());
+        return allTrades.stream().filter(trade -> {
+            boolean entryVisible = visibleTimeRange.contains(trade.entryTime());
+            boolean exitVisible = visibleTimeRange.contains(trade.exitTime());
+            boolean spansAcross = trade.entryTime().isBefore(visibleTimeRange.start()) && trade.exitTime().isAfter(visibleTimeRange.end());
+            return entryVisible || exitVisible || spansAcross;
+        }).collect(Collectors.toList());
     }
 
-    @Override
-    public void onReplayTick(KLine newM1Bar) { }
+    @Override public void onReplayTick(KLine newM1Bar) { }
+    @Override public void onReplaySessionStart() { this.isReplayPlaying = false; SwingUtilities.invokeLater(this::updateOverlayButtonsVisibility); }
+    @Override public void onReplayStateChanged() { this.isReplayPlaying = ReplaySessionManager.getInstance().isPlaying(); SwingUtilities.invokeLater(this::updateOverlayButtonsVisibility); }
 
-    @Override
-    public void onReplaySessionStart() {
-        this.isReplayPlaying = false;
-        SwingUtilities.invokeLater(this::updateOverlayButtonsVisibility);
-    }
+    public boolean getShowDrawings() { return showDrawings; }
+    public void setShowDrawings(boolean showDrawings) { if (this.showDrawings != showDrawings) { this.showDrawings = showDrawings; repaint(); } }
 
-    @Override
-    public void onReplayStateChanged() {
-        this.isReplayPlaying = ReplaySessionManager.getInstance().isPlaying();
-        SwingUtilities.invokeLater(this::updateOverlayButtonsVisibility);
-    }
+    public boolean getShowIndicators() { return showIndicators; }
+    public void setShowIndicators(boolean showIndicators) { if (this.showIndicators != showIndicators) { this.showIndicators = showIndicators; repaint(); } }
 
-    public boolean getShowDrawings() {
-        return showDrawings;
-    }
-
-    public void setShowDrawings(boolean showDrawings) {
-        if (this.showDrawings != showDrawings) {
-            this.showDrawings = showDrawings;
-            repaint();
-        }
-    }
-
-    public boolean getShowIndicators() {
-        return showIndicators;
-    }
-
-    public void setShowIndicators(boolean showIndicators) {
-        if (this.showIndicators != showIndicators) {
-            this.showIndicators = showIndicators;
-            repaint();
-        }
-    }
-
-    public boolean getShowPositionsAndOrders() {
-        return showPositionsAndOrders;
-    }
-
-    public void setShowPositionsAndOrders(boolean showPositionsAndOrders) {
-        if (this.showPositionsAndOrders != showPositionsAndOrders) {
-            this.showPositionsAndOrders = showPositionsAndOrders;
-            repaint();
-        }
-    }
+    public boolean getShowPositionsAndOrders() { return showPositionsAndOrders; }
+    public void setShowPositionsAndOrders(boolean showPositionsAndOrders) { if (this.showPositionsAndOrders != showPositionsAndOrders) { this.showPositionsAndOrders = showPositionsAndOrders; repaint(); } }
 }

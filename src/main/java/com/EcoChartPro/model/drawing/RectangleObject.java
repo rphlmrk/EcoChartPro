@@ -4,9 +4,9 @@ import com.EcoChartPro.core.manager.DrawingManager;
 import com.EcoChartPro.core.manager.PriceRange;
 import com.EcoChartPro.core.manager.TimeRange;
 import com.EcoChartPro.core.settings.SettingsManager;
-import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.Timeframe;
-import com.EcoChartPro.ui.chart.axis.ChartAxis;
+import com.EcoChartPro.model.chart.AbstractChartData;
+import com.EcoChartPro.ui.chart.axis.IChartAxis;
 
 import java.awt.BasicStroke;
 import java.awt.Color;
@@ -76,9 +76,9 @@ public record RectangleObject(
     }
 
     @Override
-    public void render(Graphics2D g, ChartAxis axis, List<KLine> klines, Timeframe tf) {
-        Point p1 = getScreenPoint(corner1, axis, klines, tf);
-        Point p2 = getScreenPoint(corner2, axis, klines, tf);
+    public void render(Graphics2D g, IChartAxis axis, List<? extends AbstractChartData> data, Timeframe tf) {
+        Point p1 = getScreenPoint(corner1, axis, data, tf);
+        Point p2 = getScreenPoint(corner2, axis, data, tf);
         Rectangle r = getScreenBounds(p1, p2);
 
         UUID selectedId = DrawingManager.getInstance().getSelectedDrawingId();
@@ -95,17 +95,17 @@ public record RectangleObject(
         g.drawRect(r.x, r.y, r.width, r.height);
 
         if (isSelected && !isLocked) {
-            getHandles(axis, klines, tf).forEach(h -> drawHandle(g, h.position()));
+            getHandles(axis, data, tf).forEach(h -> drawHandle(g, h.position()));
         }
         
         g.setStroke(originalStroke);
     }
 
     @Override
-    public boolean isHit(Point screenPoint, ChartAxis axis, List<KLine> klines, Timeframe tf) {
+    public boolean isHit(Point screenPoint, IChartAxis axis, List<? extends AbstractChartData> data, Timeframe tf) {
         if (!axis.isConfigured()) return false;
-        Point p1 = getScreenPoint(corner1, axis, klines, tf);
-        Point p2 = getScreenPoint(corner2, axis, klines, tf);
+        Point p1 = getScreenPoint(corner1, axis, data, tf);
+        Point p2 = getScreenPoint(corner2, axis, data, tf);
         Rectangle bounds = getScreenBounds(p1, p2);
         bounds.grow(SettingsManager.getInstance().getDrawingHitThreshold() / 2, SettingsManager.getInstance().getDrawingHitThreshold() / 2);
         return bounds.contains(screenPoint);
@@ -123,11 +123,11 @@ public record RectangleObject(
     }
 
     @Override
-    public List<DrawingHandle> getHandles(ChartAxis axis, List<KLine> klines, Timeframe tf) {
+    public List<DrawingHandle> getHandles(IChartAxis axis, List<? extends AbstractChartData> data, Timeframe tf) {
         if (isLocked || !axis.isConfigured()) return Collections.emptyList();
         List<DrawingHandle> handles = new ArrayList<>();
-        Point p1 = getScreenPoint(corner1, axis, klines, tf);
-        Point p2 = getScreenPoint(corner2, axis, klines, tf);
+        Point p1 = getScreenPoint(corner1, axis, data, tf);
+        Point p2 = getScreenPoint(corner2, axis, data, tf);
         Rectangle r = getScreenBounds(p1, p2);
         handles.add(new DrawingHandle(new Point(r.x, r.y), DrawingHandle.HandleType.TOP_LEFT, id));
         handles.add(new DrawingHandle(new Point(r.x + r.width, r.y), DrawingHandle.HandleType.TOP_RIGHT, id));
@@ -171,8 +171,8 @@ public record RectangleObject(
         return new RectangleObject(id, corner1, corner2, color, stroke, visibility, isLocked, show);
     }
 
-    private Point getScreenPoint(DrawingObjectPoint p, ChartAxis axis, List<KLine> klines, Timeframe tf) {
-        return new Point(axis.timeToX(p.timestamp(), klines, tf), axis.priceToY(p.price()));
+    private Point getScreenPoint(DrawingObjectPoint p, IChartAxis axis, List<? extends AbstractChartData> data, Timeframe tf) {
+        return new Point(axis.timeToX(p.timestamp(), data, tf), axis.priceToY(p.price()));
     }
     
     private Rectangle getScreenBounds(Point p1, Point p2) {

@@ -189,7 +189,8 @@ public class ChartToolbarPanel extends JPanel implements PropertyChangeListener 
         String iconPath = switch (type) {
             case BARS -> UITheme.Icons.BAR_CHART;
             case LINE, LINE_WITH_MARKERS, AREA -> UITheme.Icons.LINE_CHART;
-            default -> UITheme.Icons.CANDLESTICK;
+            case CANDLES, HOLLOW_CANDLES, HEIKIN_ASHI, VOLUME_CANDLES -> UITheme.Icons.CANDLESTICK;
+            default -> UITheme.Icons.INFO; // Generic icon for non-time-based charts for now
         };
         chartTypeButton.setIcon(UITheme.getIcon(iconPath, 18, 18));
         chartTypeButton.setToolTipText("Chart Type & Display Settings");

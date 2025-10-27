@@ -2,7 +2,7 @@ package com.EcoChartPro.ui.chart.render;
 
 import com.EcoChartPro.core.settings.SettingsManager;
 import com.EcoChartPro.model.KLine;
-import com.EcoChartPro.ui.chart.axis.ChartAxis;
+import com.EcoChartPro.ui.chart.axis.IChartAxis;
 
 import java.awt.Graphics2D;
 import java.math.BigDecimal;
@@ -21,7 +21,7 @@ public class VisibleRangeVolumeProfileRenderer {
 
     private static final double PROFILE_WIDTH_RATIO = 0.3; // 30% of the chart width
 
-    public void draw(Graphics2D g2d, ChartAxis axis, List<KLine> visibleKlines) {
+    public void draw(Graphics2D g2d, IChartAxis axis, List<KLine> visibleKlines) {
         if (!axis.isConfigured() || visibleKlines == null || visibleKlines.isEmpty()) {
             return;
         }

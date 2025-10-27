@@ -12,7 +12,8 @@ import com.EcoChartPro.ui.chart.ChartPanel;
 import com.EcoChartPro.ui.chart.IndicatorPanel;
 import com.EcoChartPro.ui.chart.PriceAxisPanel;
 import com.EcoChartPro.ui.chart.TimeAxisPanel;
-import com.EcoChartPro.ui.chart.axis.ChartAxis;
+import com.EcoChartPro.ui.chart.axis.IChartAxis;
+import com.EcoChartPro.ui.chart.axis.TimeBasedAxis;
 import com.EcoChartPro.ui.toolbar.FloatingDrawingToolbar;
 import com.EcoChartPro.utils.DataSourceManager;
 import com.EcoChartPro.utils.DatabaseManager;
@@ -165,7 +166,7 @@ public class WorkspaceManager {
         }
         // --- END OF FIX ---
 
-        ChartAxis chartAxis = new ChartAxis();
+        IChartAxis chartAxis = new TimeBasedAxis(); // MODIFIED: Use interface and default to TimeBasedAxis
         PriceAxisPanel priceAxisPanel = new PriceAxisPanel(model, chartAxis, interactionManager);
         TimeAxisPanel timeAxisPanel = new TimeAxisPanel(model, chartAxis, interactionManager);
 

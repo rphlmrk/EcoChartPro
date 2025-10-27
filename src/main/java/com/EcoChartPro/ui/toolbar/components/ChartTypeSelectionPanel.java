@@ -10,6 +10,9 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 
 public class ChartTypeSelectionPanel extends JPanel implements PropertyChangeListener {
 
@@ -29,9 +32,20 @@ public class ChartTypeSelectionPanel extends JPanel implements PropertyChangeLis
         gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.weightx = 1.0;
 
-        // Add Chart Type buttons
-        int columnCount = 0;
+        // Separate time-based from non-time-based
+        List<ChartType> timeBasedTypes = new ArrayList<>();
+        List<ChartType> nonTimeBasedTypes = new ArrayList<>();
         for (ChartType type : ChartType.values()) {
+            if (type.isTimeBased()) {
+                timeBasedTypes.add(type);
+            } else {
+                nonTimeBasedTypes.add(type);
+            }
+        }
+
+        // Add Time-Based Chart Type buttons
+        int columnCount = 0;
+        for (ChartType type : timeBasedTypes) {
             JButton button = new JButton(type.getDisplayName());
             button.setFocusPainted(false);
             button.setMargin(new Insets(4, 8, 4, 8));
@@ -43,12 +57,36 @@ public class ChartTypeSelectionPanel extends JPanel implements PropertyChangeLis
             add(button, gbc);
             columnCount++;
         }
+        
+        int currentGridY = (columnCount + 1) / 2;
 
         // Add Separator
-        gbc.gridy = (columnCount + 1) / 2;
+        gbc.gridy = currentGridY++;
         gbc.gridx = 0;
         gbc.gridwidth = 2;
         gbc.insets = new Insets(8, 0, 8, 0);
+        add(new JSeparator(), gbc);
+
+        // Add Non-Time-Based Chart Type buttons
+        columnCount = 0;
+        for (ChartType type : nonTimeBasedTypes) {
+            JButton button = new JButton(type.getDisplayName());
+            button.setFocusPainted(false);
+            button.setMargin(new Insets(4, 8, 4, 8));
+            button.setActionCommand("chartTypeChanged:" + type.name());
+            button.addActionListener(e -> fireActionPerformed(e.getActionCommand()));
+            
+            gbc.gridx = columnCount % 2;
+            gbc.gridy = currentGridY + (columnCount / 2);
+            add(button, gbc);
+            columnCount++;
+        }
+        currentGridY += (columnCount + 1) / 2;
+
+        // Add another Separator
+        gbc.gridy = currentGridY++;
+        gbc.gridx = 0;
+        gbc.gridwidth = 2;
         add(new JSeparator(), gbc);
         
         // Reset constraints for checkboxes
@@ -58,7 +96,7 @@ public class ChartTypeSelectionPanel extends JPanel implements PropertyChangeLis
         SettingsManager sm = SettingsManager.getInstance();
 
         // Add VRVP Checkbox
-        gbc.gridy++;
+        gbc.gridy = currentGridY++;
         vrvpCheckBox = new JCheckBox("Visible Range Volume Profile");
         vrvpCheckBox.setSelected(sm.isVrvpVisible());
         vrvpCheckBox.setOpaque(false);
@@ -66,7 +104,7 @@ public class ChartTypeSelectionPanel extends JPanel implements PropertyChangeLis
         add(vrvpCheckBox, gbc);
 
         // Add SVP Checkbox
-        gbc.gridy++;
+        gbc.gridy = currentGridY;
         svpCheckBox = new JCheckBox("Session Volume Profile");
         svpCheckBox.setSelected(sm.isSvpVisible());
         svpCheckBox.setOpaque(false);

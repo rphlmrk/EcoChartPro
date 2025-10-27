@@ -1,52 +1,51 @@
 package com.EcoChartPro.ui.chart.render;
 
 import com.EcoChartPro.core.settings.SettingsManager;
-import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.chart.AbstractChartData;
+import com.EcoChartPro.model.chart.RangeBar;
 import com.EcoChartPro.ui.chart.axis.IChartAxis;
-import java.awt.Color;
-import java.awt.Graphics2D;
+
+import java.awt.*;
 import java.util.List;
 
-public class CandleRenderer implements AbstractChartTypeRenderer {
-
+public class RangeBarRenderer implements AbstractChartTypeRenderer {
     @Override
     public void draw(Graphics2D g2d, IChartAxis axis, List<? extends AbstractChartData> visibleData, int viewStartIndex) {
-        if (!axis.isConfigured() || visibleData == null) return;
-        if (visibleData.isEmpty() || !(visibleData.get(0) instanceof KLine)) return; // Only for KLine data
+         if (!axis.isConfigured() || visibleData == null || visibleData.isEmpty()) return;
+         if (!(visibleData.get(0) instanceof RangeBar)) return; // Only for RangeBar data
 
         @SuppressWarnings("unchecked")
-        List<KLine> klines = (List<KLine>) visibleData;
+        List<RangeBar> rangeBars = (List<RangeBar>) visibleData;
         
         SettingsManager settings = SettingsManager.getInstance();
         double barWidth = axis.getBarWidth();
         int candleBodyWidth = Math.max(1, (int) (barWidth * 0.8)); 
 
-        for (int i = 0; i < klines.size(); i++) {
-            KLine kline = klines.get(i);
+        for (int i = 0; i < rangeBars.size(); i++) {
+            RangeBar bar = rangeBars.get(i);
             
             // The slot index on the screen is simply 'i' because the visible list is already a slice.
-            int slotIndex = i;
-
-            int xCenter = axis.slotToX(slotIndex);
+            int xCenter = axis.slotToX(i);
             
-            int yOpen = axis.priceToY(kline.open());
-            int yClose = axis.priceToY(kline.close());
-            int yHigh = axis.priceToY(kline.high());
-            int yLow = axis.priceToY(kline.low());
+            int yOpen = axis.priceToY(bar.open());
+            int yClose = axis.priceToY(bar.close());
+            int yHigh = axis.priceToY(bar.high());
+            int yLow = axis.priceToY(bar.low());
 
-            g2d.setColor(kline.close().compareTo(kline.open()) >= 0 ? settings.getBullColor() : settings.getBearColor());
+            g2d.setColor(bar.close().compareTo(bar.open()) >= 0 ? settings.getBullColor() : settings.getBearColor());
+            // Draw the high-low wick
             g2d.drawLine(xCenter, yHigh, xCenter, yLow);
 
-            if (kline.close().compareTo(kline.open()) >= 0) {
+            // Draw the open-close body
+            if (bar.close().compareTo(bar.open()) >= 0) { // Bullish bar
                 g2d.fillRect(xCenter - candleBodyWidth / 2, yClose, candleBodyWidth, yOpen - yClose);
-            } else {
+            } else { // Bearish bar
                 int bodyX = xCenter - candleBodyWidth / 2;
                 int bodyY = yOpen;
                 int bodyHeight = yClose - yOpen;
                 g2d.setColor(settings.getBearColor());
                 g2d.fillRect(bodyX, bodyY, candleBodyWidth, bodyHeight);
-                // Use chart background for the outline for theme compatibility
+                // Use chart background for the outline for theme compatibility, same as candles
                 g2d.setColor(settings.getChartBackground());
                 g2d.drawRect(bodyX, bodyY, candleBodyWidth, bodyHeight);
             }

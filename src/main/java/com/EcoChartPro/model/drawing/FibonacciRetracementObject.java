@@ -4,9 +4,9 @@ import com.EcoChartPro.core.manager.DrawingManager;
 import com.EcoChartPro.core.manager.PriceRange;
 import com.EcoChartPro.core.manager.TimeRange;
 import com.EcoChartPro.core.settings.SettingsManager;
-import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.Timeframe;
-import com.EcoChartPro.ui.chart.axis.ChartAxis;
+import com.EcoChartPro.model.chart.AbstractChartData;
+import com.EcoChartPro.ui.chart.axis.IChartAxis;
 import com.EcoChartPro.ui.dialogs.FibonacciSettingsDialog;
 
 import java.awt.*;
@@ -17,7 +17,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.TreeMap;
 import java.util.UUID;
 import java.util.function.Consumer;
 
@@ -52,11 +51,11 @@ public record FibonacciRetracementObject(
 
 
     @Override
-    public void render(Graphics2D g, ChartAxis axis, List<KLine> klines, Timeframe tf) {
+    public void render(Graphics2D g, IChartAxis axis, List<? extends AbstractChartData> data, Timeframe tf) {
         if (!axis.isConfigured() || p1 == null || p2 == null) return;
 
-        Point s1 = new Point(axis.timeToX(p1.timestamp(), klines, tf), axis.priceToY(p1.price()));
-        Point s2 = new Point(axis.timeToX(p2.timestamp(), klines, tf), axis.priceToY(p2.price()));
+        Point s1 = new Point(axis.timeToX(p1.timestamp(), data, tf), axis.priceToY(p1.price()));
+        Point s2 = new Point(axis.timeToX(p2.timestamp(), data, tf), axis.priceToY(p2.price()));
 
         BigDecimal priceRange = p2.price().subtract(p1.price());
         boolean isReversed = s2.x < s1.x;
@@ -94,7 +93,7 @@ public record FibonacciRetracementObject(
         g.drawLine(s1.x, s1.y, s2.x, s2.y);
 
         if (id.equals(DrawingManager.getInstance().getSelectedDrawingId()) && !isLocked) {
-            getHandles(axis, klines, tf).forEach(h -> drawHandle(g, h.position()));
+            getHandles(axis, data, tf).forEach(h -> drawHandle(g, h.position()));
         }
     }
     
@@ -118,21 +117,21 @@ public record FibonacciRetracementObject(
     }
 
     @Override
-    public boolean isHit(Point screenPoint, ChartAxis axis, List<KLine> klines, Timeframe tf) {
+    public boolean isHit(Point screenPoint, IChartAxis axis, List<? extends AbstractChartData> data, Timeframe tf) {
         if (!axis.isConfigured()) return false;
-        Point s1 = new Point(axis.timeToX(p1.timestamp(), klines, tf), axis.priceToY(p1.price()));
-        Point s2 = new Point(axis.timeToX(p2.timestamp(), klines, tf), axis.priceToY(p2.price()));
+        Point s1 = new Point(axis.timeToX(p1.timestamp(), data, tf), axis.priceToY(p1.price()));
+        Point s2 = new Point(axis.timeToX(p2.timestamp(), data, tf), axis.priceToY(p2.price()));
         Rectangle bounds = new Rectangle(Math.min(s1.x, s2.x), Math.min(s1.y, s2.y), Math.abs(s1.x - s2.x), Math.abs(s1.y - s2.y));
         bounds.grow(SettingsManager.getInstance().getDrawingHitThreshold(), SettingsManager.getInstance().getDrawingHitThreshold());
         return bounds.contains(screenPoint);
     }
 
     @Override
-    public List<DrawingHandle> getHandles(ChartAxis axis, List<KLine> klines, Timeframe tf) {
+    public List<DrawingHandle> getHandles(IChartAxis axis, List<? extends AbstractChartData> data, Timeframe tf) {
         if (isLocked || !axis.isConfigured()) return Collections.emptyList();
         List<DrawingHandle> handles = new ArrayList<>();
-        handles.add(new DrawingHandle(new Point(axis.timeToX(p1.timestamp(), klines, tf), axis.priceToY(p1.price())), DrawingHandle.HandleType.START_POINT, id));
-        handles.add(new DrawingHandle(new Point(axis.timeToX(p2.timestamp(), klines, tf), axis.priceToY(p2.price())), DrawingHandle.HandleType.END_POINT, id));
+        handles.add(new DrawingHandle(new Point(axis.timeToX(p1.timestamp(), data, tf), axis.priceToY(p1.price())), DrawingHandle.HandleType.START_POINT, id));
+        handles.add(new DrawingHandle(new Point(axis.timeToX(p2.timestamp(), data, tf), axis.priceToY(p2.price())), DrawingHandle.HandleType.END_POINT, id));
         return handles;
     }
 

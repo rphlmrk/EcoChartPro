@@ -1,8 +1,8 @@
 package com.EcoChartPro.ui.chart.render;
 
-import com.EcoChartPro.model.KLine;
+import com.EcoChartPro.model.chart.AbstractChartData;
 import com.EcoChartPro.model.chart.ChartType;
-import com.EcoChartPro.ui.chart.axis.ChartAxis;
+import com.EcoChartPro.ui.chart.axis.IChartAxis;
 
 import java.awt.*;
 import java.util.HashMap;
@@ -23,6 +23,11 @@ public class ChartRenderer {
         renderers.put(ChartType.AREA, new AreaRenderer());
         renderers.put(ChartType.VOLUME_CANDLES, new VolumeCandleRenderer());
         renderers.put(ChartType.HEIKIN_ASHI, new HeikinAshiRenderer());
+        // New renderers for non-time-based charts
+        renderers.put(ChartType.RENKO, new RenkoRenderer());
+        renderers.put(ChartType.RANGE_BARS, new RangeBarRenderer());
+        renderers.put(ChartType.KAGI, new KagiRenderer());
+        renderers.put(ChartType.POINT_AND_FIGURE, new PointAndFigureRenderer());
     }
 
     /**
@@ -31,14 +36,14 @@ public class ChartRenderer {
      * @param g2d The graphics context.
      * @param chartType The type of chart to render.
      * @param axis The configured chart axis.
-     * @param visibleKlines The list of visible data points.
+     * @param visibleData The list of visible data points.
      * @param startIndex The absolute start index of the visible data.
      */
-    public void draw(Graphics2D g2d, ChartType chartType, ChartAxis axis, List<KLine> visibleKlines, int startIndex) {
+    public void draw(Graphics2D g2d, ChartType chartType, IChartAxis axis, List<? extends AbstractChartData> visibleData, int startIndex) {
         AbstractChartTypeRenderer renderer = renderers.get(chartType);
 
         if (renderer != null) {
-            renderer.draw(g2d, axis, visibleKlines, startIndex);
+            renderer.draw(g2d, axis, visibleData, startIndex);
         } else {
             // Fallback for unimplemented chart types
             String message = chartType.getDisplayName() + " chart type not yet implemented.";

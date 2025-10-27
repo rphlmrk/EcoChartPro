@@ -21,7 +21,7 @@ import com.EcoChartPro.model.drawing.Trendline;
 import com.EcoChartPro.model.trading.Order;
 import com.EcoChartPro.model.trading.Position;
 import com.EcoChartPro.ui.MainWindow;
-import com.EcoChartPro.ui.chart.axis.ChartAxis;
+import com.EcoChartPro.ui.chart.axis.IChartAxis;
 
 import javax.swing.*;
 import java.awt.*;
@@ -42,26 +42,19 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
-/**
- * Renders the vertical price axis for a chart, including the price scale and dynamic labels
- * for orders, positions, and drawings.
- */
 public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
 
     private final ChartDataModel dataModel;
-    private final ChartAxis yAxis;
+    private IChartAxis yAxis;
     private DrawingObjectPoint crosshairPoint;
     private final ChartInteractionManager interactionManager;
     private javax.swing.Timer repaintTimer;
     private boolean isPriceSelectionMode = false;
     private ChartPanel priceSelectionController;
 
-    /**
-     * A record to hold all necessary information for rendering a price label.
-     */
     private record PriceLabel(String text, BigDecimal price, Color color, int y) {}
 
-    public PriceAxisPanel(ChartDataModel dataModel, ChartAxis yAxis, ChartInteractionManager interactionManager) {
+    public PriceAxisPanel(ChartDataModel dataModel, IChartAxis yAxis, ChartInteractionManager interactionManager) {
         this.dataModel = dataModel;
         this.yAxis = yAxis;
         this.interactionManager = interactionManager;
@@ -83,6 +76,11 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
         startRepaintTimer();
     }
 
+    public void setChartAxis(IChartAxis axis) {
+        this.yAxis = axis;
+        repaint();
+    }
+
     public void enterPriceSelectionMode(ChartPanel controller) {
         this.isPriceSelectionMode = true;
         this.priceSelectionController = controller;
@@ -97,8 +95,9 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
     
     private void startRepaintTimer() {
         if (repaintTimer == null) {
+            // --- FIX: This condition correctly triggers repaints in LIVE mode for the countdown ---
             repaintTimer = new javax.swing.Timer(1000, e -> {
-                if (dataModel != null && dataModel.getCurrentReplayKLine() != null) {
+                if (dataModel != null && dataModel.getCurrentMode() == ChartDataModel.ChartMode.LIVE) {
                     repaint();
                 }
             });
@@ -128,9 +127,6 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
         repaint();
     }
     
-    /**
-     * Inner class responsible for all custom drawing on the price axis.
-     */
     private class PriceScaleDrawer extends JComponent {
         private static final int TICK_LENGTH = 5;
         private static final int PADDING_X = 5;
@@ -201,7 +197,6 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
                     if (lastMousePoint == null || interactionManager == null || !yAxis.isConfigured()) return;
 
                     int dy = e.getY() - lastMousePoint.y;
-                    // Exponential scaling feels smoother and more controlled than linear
                     double scaleFactor = Math.pow(1.005, -dy);
                     
                     BigDecimal anchorPrice = yAxis.yToPrice(e.getY());

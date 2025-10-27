@@ -4,7 +4,7 @@ import com.EcoChartPro.model.TradeDirection;
 import com.EcoChartPro.model.trading.Order;
 import com.EcoChartPro.model.trading.OrderStatus;
 import com.EcoChartPro.model.trading.Position;
-import com.EcoChartPro.ui.chart.axis.ChartAxis;
+import com.EcoChartPro.ui.chart.axis.IChartAxis;
 import javax.swing.UIManager;
 
 import java.awt.*;
@@ -36,7 +36,7 @@ public class OrderRenderer {
 
     private final List<InteractiveZone> interactiveZones = new ArrayList<>();
 
-    public void draw(Graphics2D g, ChartAxis axis, List<Position> positions, List<Order> pendingOrders, InteractiveZone dragPreview) {
+    public void draw(Graphics2D g, IChartAxis axis, List<Position> positions, List<Order> pendingOrders, InteractiveZone dragPreview) {
         g.setFont(LABEL_FONT);
         interactiveZones.clear(); // Clear zones from the previous frame
 
@@ -58,7 +58,7 @@ public class OrderRenderer {
         }
     }
 
-    private void drawPosition(Graphics2D g, ChartAxis axis, Position pos) {
+    private void drawPosition(Graphics2D g, IChartAxis axis, Position pos) {
         Color entryColor = pos.direction() == TradeDirection.LONG ? UIManager.getColor("app.trading.long") : UIManager.getColor("app.trading.short");
 
         // Draw entry line
@@ -105,7 +105,7 @@ public class OrderRenderer {
         addInteractiveZone(pos.id(), closeButtonBounds, pos.entryPrice(), InteractionType.CLOSE_POSITION);
     }
 
-    private void drawPendingOrder(Graphics2D g, ChartAxis axis, Order order) {
+    private void drawPendingOrder(Graphics2D g, IChartAxis axis, Order order) {
         if (order.status() != OrderStatus.PENDING || order.limitPrice() == null) return;
 
         int yPrice = axis.priceToY(order.limitPrice());
@@ -147,7 +147,7 @@ public class OrderRenderer {
         }
     }
 
-    private void drawDragPreview(Graphics2D g, ChartAxis axis, InteractiveZone preview) {
+    private void drawDragPreview(Graphics2D g, IChartAxis axis, InteractiveZone preview) {
         Color previewColor = switch(preview.type) {
             case PENDING_ORDER_PRICE -> UIManager.getColor("app.trading.pending");
             case STOP_LOSS -> UIManager.getColor("app.trading.short");

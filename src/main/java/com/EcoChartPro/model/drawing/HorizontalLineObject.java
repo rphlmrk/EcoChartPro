@@ -4,13 +4,12 @@ import com.EcoChartPro.core.manager.DrawingManager;
 import com.EcoChartPro.core.manager.PriceRange;
 import com.EcoChartPro.core.manager.TimeRange;
 import com.EcoChartPro.core.settings.SettingsManager;
-import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.Timeframe;
-import com.EcoChartPro.ui.chart.axis.ChartAxis;
+import com.EcoChartPro.model.chart.AbstractChartData;
+import com.EcoChartPro.ui.chart.axis.IChartAxis;
 
 import java.awt.*;
 import java.math.BigDecimal;
-import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -59,7 +58,7 @@ public record HorizontalLineObject(
     }
 
     @Override
-    public void render(Graphics2D g, ChartAxis axis, List<KLine> klines, Timeframe tf) {
+    public void render(Graphics2D g, IChartAxis axis, List<? extends AbstractChartData> data, Timeframe tf) {
         if (!axis.isConfigured()) return;
         
         int y = axis.priceToY(anchor.price());
@@ -74,12 +73,12 @@ public record HorizontalLineObject(
         g.setStroke(originalStroke);
 
         if (isSelected && !isLocked) {
-            getHandles(axis, klines, tf).forEach(h -> drawHandle(g, h.position()));
+            getHandles(axis, data, tf).forEach(h -> drawHandle(g, h.position()));
         }
     }
 
     @Override
-    public boolean isHit(Point screenPoint, ChartAxis axis, List<KLine> klines, Timeframe tf) {
+    public boolean isHit(Point screenPoint, IChartAxis axis, List<? extends AbstractChartData> data, Timeframe tf) {
         if (!axis.isConfigured()) return false;
         int y = axis.priceToY(anchor.price());
         return Math.abs(screenPoint.y - y) < SettingsManager.getInstance().getDrawingHitThreshold();
@@ -91,9 +90,9 @@ public record HorizontalLineObject(
     }
 
     @Override
-    public List<DrawingHandle> getHandles(ChartAxis axis, List<KLine> klines, Timeframe tf) {
-        if (isLocked || !axis.isConfigured() || klines.isEmpty()) return Collections.emptyList();
-        int x = axis.timeToX(klines.get(klines.size() / 2).timestamp(), klines, tf);
+    public List<DrawingHandle> getHandles(IChartAxis axis, List<? extends AbstractChartData> data, Timeframe tf) {
+        if (isLocked || !axis.isConfigured() || data.isEmpty()) return Collections.emptyList();
+        int x = axis.timeToX(data.get(data.size() / 2).startTime(), data, tf);
         int y = axis.priceToY(anchor.price());
         return Collections.singletonList(new DrawingHandle(new Point(x, y), DrawingHandle.HandleType.BODY, id));
     }
