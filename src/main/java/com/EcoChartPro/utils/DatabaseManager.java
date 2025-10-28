@@ -2,6 +2,7 @@ package com.EcoChartPro.utils;
 
 import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.Symbol;
+import com.EcoChartPro.model.TradeTick;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -54,6 +55,21 @@ public final class DatabaseManager implements AutoCloseable {
     private static final String CREATE_INDEX_SQL = """
         CREATE INDEX IF NOT EXISTS idx_kline_query
         ON kline_data (symbol, timeframe, timestamp_sec);
+    """;
+    
+    private static final String CREATE_TRADES_TABLE_SQL = """
+        CREATE TABLE IF NOT EXISTS trades (
+            symbol TEXT NOT NULL,
+            timestamp_ms INTEGER NOT NULL,
+            price TEXT NOT NULL,
+            quantity TEXT NOT NULL,
+            side TEXT NOT NULL
+        );
+    """;
+
+    private static final String CREATE_TRADES_INDEX_SQL = """
+        CREATE INDEX IF NOT EXISTS idx_trades_query
+        ON trades (symbol, timestamp_ms);
     """;
 
     private DatabaseManager() {
@@ -117,6 +133,8 @@ public final class DatabaseManager implements AutoCloseable {
         try (Statement stmt = connection.createStatement()) {
             stmt.execute(CREATE_TABLE_SQL);
             stmt.execute(CREATE_INDEX_SQL);
+            stmt.execute(CREATE_TRADES_TABLE_SQL);
+            stmt.execute(CREATE_TRADES_INDEX_SQL);
         }
     }
 
@@ -200,7 +218,6 @@ public final class DatabaseManager implements AutoCloseable {
         long targetTimestampSec = targetTime.getEpochSecond();
         long foundTimestampSec = -1;
 
-        // 1. Find the first timestamp >= our target. This is very fast due to the index.
         String findSql = "SELECT timestamp_sec FROM kline_data WHERE symbol = ? AND timeframe = ? AND timestamp_sec >= ? ORDER BY timestamp_sec ASC LIMIT 1";
         try (PreparedStatement pstmt = connection.prepareStatement(findSql)) {
             pstmt.setString(1, symbol.name());
@@ -217,11 +234,9 @@ public final class DatabaseManager implements AutoCloseable {
         }
 
         if (foundTimestampSec == -1) {
-            // Target time is after all available data, so return the last index.
             return Math.max(0, getTotalKLineCount(symbol, timeframe) - 1);
         }
 
-        // 2. Count how many records come before the one we found. This count is the index.
         String countSql = "SELECT COUNT(*) FROM kline_data WHERE symbol = ? AND timeframe = ? AND timestamp_sec < ?";
         try (PreparedStatement pstmt = connection.prepareStatement(countSql)) {
             pstmt.setString(1, symbol.name());
@@ -266,9 +281,6 @@ public final class DatabaseManager implements AutoCloseable {
         return klines;
     }
 
-    /**
-     * An efficient method to retrieve a specific slice of data using LIMIT and OFFSET.
-     */
     public List<KLine> getKLinesByIndex(Symbol symbol, String timeframe, int offset, int limit) {
         List<KLine> klines = new ArrayList<>();
         String sql = "SELECT * FROM kline_data WHERE symbol = ? AND timeframe = ? ORDER BY timestamp_sec ASC LIMIT ? OFFSET ?";
@@ -323,13 +335,6 @@ public final class DatabaseManager implements AutoCloseable {
         return klines;
     }
 
-    /**
-     * [NEW METHOD] Retrieves the complete historical dataset for a given symbol and timeframe.
-     * This is used by the IndicatorRunner to provide full data context to HTF indicators.
-     * @param symbol The symbol to retrieve data for.
-     * @param timeframe The timeframe string (e.g., "M1", "H4").
-     * @return A list of all KLine objects, sorted by timestamp.
-     */
     public List<KLine> getAllKLines(Symbol symbol, String timeframe) {
         List<KLine> klines = new ArrayList<>();
         String sql = "SELECT timestamp_sec, open, high, low, close, volume FROM kline_data WHERE symbol = ? AND timeframe = ? ORDER BY timestamp_sec ASC";
@@ -400,6 +405,56 @@ public final class DatabaseManager implements AutoCloseable {
         } catch (SQLException e) {
             logger.error("Failed to set transaction properties.", e);
         }
+    }
+    
+    public void saveTrades(List<TradeTick> trades, String symbol) {
+        String sql = "INSERT OR IGNORE INTO trades (symbol, timestamp_ms, price, quantity, side) VALUES (?, ?, ?, ?, ?)";
+        try {
+            connection.setAutoCommit(false);
+            try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
+                for (TradeTick trade : trades) {
+                    pstmt.setString(1, symbol);
+                    pstmt.setLong(2, trade.timestamp().toEpochMilli());
+                    pstmt.setString(3, trade.price().toPlainString());
+                    pstmt.setString(4, trade.quantity().toPlainString());
+                    pstmt.setString(5, trade.side());
+                    pstmt.addBatch();
+                }
+                pstmt.executeBatch();
+                connection.commit();
+            } catch (SQLException e) {
+                connection.rollback();
+                logger.error("Error during trade batch insert, transaction rolled back.", e);
+            } finally {
+                connection.setAutoCommit(true);
+            }
+        } catch (SQLException e) {
+            logger.error("Failed to set transaction properties for saving trades.", e);
+        }
+    }
+
+    public List<TradeTick> getTrades(String symbol, long startTimeMs, long endTimeMs) {
+        List<TradeTick> trades = new ArrayList<>();
+        String sql = "SELECT * FROM trades WHERE symbol = ? AND timestamp_ms BETWEEN ? AND ? ORDER BY timestamp_ms ASC";
+        try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
+            pstmt.setString(1, symbol);
+            pstmt.setLong(2, startTimeMs);
+            pstmt.setLong(3, endTimeMs);
+
+            try (ResultSet rs = pstmt.executeQuery()) {
+                while (rs.next()) {
+                    trades.add(new TradeTick(
+                        Instant.ofEpochMilli(rs.getLong("timestamp_ms")),
+                        new BigDecimal(rs.getString("price")),
+                        new BigDecimal(rs.getString("quantity")),
+                        rs.getString("side")
+                    ));
+                }
+            }
+        } catch (SQLException e) {
+            logger.error("Failed to retrieve trades between timestamps.", e);
+        }
+        return trades;
     }
     
     @Override

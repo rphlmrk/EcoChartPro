@@ -2,6 +2,7 @@ package com.EcoChartPro.data.provider;
 
 import com.EcoChartPro.data.DataProvider;
 import com.EcoChartPro.model.KLine;
+import com.EcoChartPro.model.TradeTick;
 import com.EcoChartPro.utils.DataSourceManager;
 import com.EcoChartPro.utils.DataSourceManager.ChartDataSource;
 import com.EcoChartPro.utils.DatabaseManager;
@@ -50,6 +51,12 @@ public class LocalFileProvider implements DataProvider {
     }
 
     @Override
+    public List<TradeTick> getHistoricalTrades(String symbol, long startTimeMillis, int limit) {
+        logger.warn("getHistoricalTrades not yet implemented for LocalFileProvider. Tick data must be imported into the local DB first.");
+        return Collections.emptyList();
+    }
+
+    @Override
     public void connectToLiveStream(String symbol, String timeframe, Consumer<KLine> onKLineUpdate) {
         logger.debug("connectToLiveStream called on LocalFileProvider, which does not support live data. Ignoring.");
     }
@@ -57,6 +64,16 @@ public class LocalFileProvider implements DataProvider {
     @Override
     public void disconnectFromLiveStream(String symbol, String timeframe, Consumer<KLine> onKLineUpdate) {
         logger.debug("disconnectFromLiveStream called on LocalFileProvider. Nothing to disconnect.");
+    }
+
+    @Override
+    public void connectToTradeStream(String symbol, Consumer<TradeTick> onTradeUpdate) {
+        logger.debug("connectToTradeStream not supported by LocalFileProvider.");
+    }
+
+    @Override
+    public void disconnectFromTradeStream(String symbol, Consumer<TradeTick> onTradeUpdate) {
+        // Nothing to do
     }
 
     private void processSymbolDirectory(Path symbolDir, List<ChartDataSource> sources) {
@@ -92,7 +109,6 @@ public class LocalFileProvider implements DataProvider {
     }
 
     private String formatDisplayName(String rawSymbol) {
-        // This will now correctly format "eurusd" to "EUR/USD" for display
         return rawSymbol.toUpperCase().replace("_", "/");
     }
 }

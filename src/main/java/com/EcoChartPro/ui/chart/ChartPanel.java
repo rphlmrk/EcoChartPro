@@ -127,6 +127,9 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
         this.drawingController = new DrawingController(this, onToolStateChange);
         this.infoPanel = new InfoPanel();
 
+        // Ensure double buffering is enabled for smooth rendering performance
+        setDoubleBuffered(true);
+
         SettingsManager settings = SettingsManager.getInstance();
         setBackground(settings.getChartBackground());
         setBorder(INACTIVE_BORDER);
@@ -442,7 +445,6 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
         if (currentSource != null) {
             g2d.setFont(SYMBOL_FONT);
             g2d.setColor(settings.getAxisTextColor());
-            // Use record accessor displayName()
             String text = currentSource.displayName() + " - " + (currentTimeframe != null ? currentTimeframe.displayName() : "");
             g2d.drawString(text, 20, 30);
         }
@@ -461,6 +463,7 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
             klinesToRender = DataTransformer.transformToHeikinAshi(rawVisibleKLines);
         }
 
+        // --- Grid and Main Chart Rendering ---
         axisRenderer.draw(g2d, chartAxis, klinesToRender, currentTimeframe);
         chartRenderer.draw(g2d, chartType, chartAxis, klinesToRender, interactionManager.getStartIndex());
 

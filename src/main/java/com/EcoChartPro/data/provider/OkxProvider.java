@@ -3,6 +3,7 @@ package com.EcoChartPro.data.provider;
 import com.EcoChartPro.data.DataProvider;
 import com.EcoChartPro.data.LiveDataManager;
 import com.EcoChartPro.model.KLine;
+import com.EcoChartPro.model.TradeTick;
 import com.EcoChartPro.utils.DataSourceManager.ChartDataSource;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
@@ -89,6 +90,12 @@ public class OkxProvider implements DataProvider {
             logger.error("Network error while fetching k-line data for {} @ {}", symbol, timeframe, e);
             return Collections.emptyList();
         }
+    }
+    
+    @Override
+    public List<TradeTick> getHistoricalTrades(String symbol, long startTimeMillis, int limit) {
+        logger.warn("getHistoricalTrades not yet implemented for OkxProvider.");
+        return Collections.emptyList();
     }
     
     public List<KLine> getHistoricalData(String symbol, String timeframe, int limit, Long before) throws IOException {
@@ -185,13 +192,6 @@ public class OkxProvider implements DataProvider {
         return allData;
     }
 
-    /**
-     * [NEW] Fetches historical data by making chunked requests to the API, starting from a given time and moving forward.
-     * @param symbol The symbol to fetch (e.g., "BTC/USDT").
-     * @param timeframe The timeframe string (e.g., "1H").
-     * @param startTimeMillis The earliest timestamp to fetch data from.
-     * @return A list of all KLine data retrieved.
-     */
     public List<KLine> backfillHistoricalDataForward(String symbol, String timeframe, long startTimeMillis) {
         List<KLine> allData = new ArrayList<>();
         Long currentAfter = startTimeMillis;
@@ -246,6 +246,16 @@ public class OkxProvider implements DataProvider {
     @Override
     public void disconnectFromLiveStream(String symbol, String timeframe, Consumer<KLine> onKLineUpdate) {
         LiveDataManager.getInstance().unsubscribe(symbol, timeframe, onKLineUpdate);
+    }
+    
+    @Override
+    public void connectToTradeStream(String symbol, Consumer<TradeTick> onTradeUpdate) {
+        logger.warn("Trade stream subscription not yet fully implemented in LiveDataManager.");
+    }
+
+    @Override
+    public void disconnectFromTradeStream(String symbol, Consumer<TradeTick> onTradeUpdate) {
+        logger.warn("Trade stream unsubscription not yet fully implemented in LiveDataManager.");
     }
     
     private static class OkxInstrumentData {

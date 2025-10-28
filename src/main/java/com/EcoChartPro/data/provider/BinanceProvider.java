@@ -3,6 +3,7 @@ package com.EcoChartPro.data.provider;
 import com.EcoChartPro.data.DataProvider;
 import com.EcoChartPro.data.LiveDataManager;
 import com.EcoChartPro.model.KLine;
+import com.EcoChartPro.model.TradeTick;
 import com.EcoChartPro.utils.DataSourceManager.ChartDataSource;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
@@ -40,14 +41,13 @@ public class BinanceProvider implements DataProvider {
     private static final Gson gson = new Gson();
 
     /**
-     * [NEW] DTO for parsing 24h ticker data.
+     * DTO for parsing 24h ticker data.
      */
     public static class TickerData {
         public String symbol;
         public String priceChange;
         public String priceChangePercent;
         public String lastPrice;
-        // Add other fields like highPrice, lowPrice, etc. as needed
     }
 
     @Override
@@ -80,7 +80,6 @@ public class BinanceProvider implements DataProvider {
                             s.symbol.toLowerCase(), // e.g. "btcusdt"
                             s.baseAsset + "/" + s.quoteAsset, // e.g. "BTC/USDT"
                             null, // No local DB path for a live provider
-                            // Provide a standard list of timeframes
                             List.of("1m", "5m", "15m", "30m", "1H", "4H", "1D")
                     ))
                     .collect(Collectors.toList());
@@ -94,11 +93,6 @@ public class BinanceProvider implements DataProvider {
         }
     }
 
-    /**
-     * [NEW] Fetches 24-hour price change statistics for a single symbol.
-     * @param symbol The symbol in application format (e.g., "btcusdt").
-     * @return A TickerData object or null on failure.
-     */
     public TickerData get24hTickerData(String symbol) {
         String binanceSymbol = BinanceDataUtils.toBinanceSymbol(symbol).toUpperCase();
         String url = API_BASE_URL + "/ticker/24hr?symbol=" + binanceSymbol;
@@ -118,7 +112,6 @@ public class BinanceProvider implements DataProvider {
 
     @Override
     public List<KLine> getHistoricalData(String symbol, String timeframe, int limit) {
-        // [FIX] Handle the declared IOException from the detailed getHistoricalData method.
         try {
             return getHistoricalData(symbol, timeframe, limit, null, null);
         } catch (IOException e) {
@@ -127,10 +120,6 @@ public class BinanceProvider implements DataProvider {
         }
     }
 
-    /**
-     * [MODIFIED] Fetches historical K-line records with optional time range parameters.
-     * This method now declares IOException to allow the caller (e.g., backfill logic) to implement retries.
-     */
     public List<KLine> getHistoricalData(String symbol, String timeframe, int limit, Long startTimeMillis, Long endTimeMillis) throws IOException {
         String binanceSymbol = BinanceDataUtils.toBinanceSymbol(symbol).toUpperCase();
         String binanceInterval = BinanceDataUtils.toBinanceInterval(timeframe);
@@ -163,24 +152,46 @@ public class BinanceProvider implements DataProvider {
             for (List<Object> rawBar : rawData) {
                 klineDataList.add(new KLine(
                     Instant.ofEpochMilli(((Number) rawBar.get(0)).longValue()),
-                    new BigDecimal((String) rawBar.get(1)), // open
-                    new BigDecimal((String) rawBar.get(2)), // high
-                    new BigDecimal((String) rawBar.get(3)), // low
-                    new BigDecimal((String) rawBar.get(4)), // close
-                    new BigDecimal((String) rawBar.get(5))  // volume
+                    new BigDecimal((String) rawBar.get(1)),
+                    new BigDecimal((String) rawBar.get(2)),
+                    new BigDecimal((String) rawBar.get(3)),
+                    new BigDecimal((String) rawBar.get(4)),
+                    new BigDecimal((String) rawBar.get(5))
                 ));
             }
             return klineDataList;
         }
     }
 
-    /**
-     * [NEW] Fetches a large amount of historical data by making chunked requests to the API.
-     * @param symbol The symbol to fetch (e.g., "BTC/USDT").
-     * @param timeframe The timeframe string (e.g., "1H").
-     * @param startTimeMillis The earliest timestamp to fetch data from.
-     * @return A list of all KLine data retrieved.
-     */
+    @Override
+    public List<TradeTick> getHistoricalTrades(String symbol, long startTimeMillis, int limit) {
+        String binanceSymbol = BinanceDataUtils.toBinanceSymbol(symbol).toUpperCase();
+        String url = String.format("%s/historicalTrades?symbol=%s&limit=%d", API_BASE_URL, binanceSymbol, limit);
+        logger.warn("Fetching historical trades is a demo implementation and requires an API key in the header for full functionality.");
+        Request request = new Request.Builder().url(url).build();
+
+        try (Response response = client.newCall(request).execute()) {
+            if (!response.isSuccessful() || response.body() == null) {
+                return Collections.emptyList();
+            }
+            String jsonBody = response.body().string();
+            Type listType = new TypeToken<List<BinanceTradeData>>() {}.getType();
+            List<BinanceTradeData> rawTrades = gson.fromJson(jsonBody, listType);
+
+            return rawTrades.stream()
+                    .map(trade -> new TradeTick(
+                            Instant.ofEpochMilli(trade.time),
+                            new BigDecimal(trade.price),
+                            new BigDecimal(trade.qty),
+                            !trade.isBuyerMaker ? "buy" : "sell"
+                    ))
+                    .collect(Collectors.toList());
+        } catch (IOException e) {
+            logger.error("Network error fetching historical trades for {}", symbol, e);
+            return Collections.emptyList();
+        }
+    }
+
     public List<KLine> backfillHistoricalData(String symbol, String timeframe, long startTimeMillis) {
         List<KLine> allData = new ArrayList<>();
         long currentStartTime = startTimeMillis;
@@ -230,20 +241,36 @@ public class BinanceProvider implements DataProvider {
         return allData;
     }
 
-
+    @Override
     public void connectToLiveStream(String symbol, String timeframe, Consumer<KLine> onKLineUpdate) {
         LiveDataManager.getInstance().subscribe(symbol, timeframe, onKLineUpdate);
     }
 
+    @Override
     public void disconnectFromLiveStream(String symbol, String timeframe, Consumer<KLine> onKLineUpdate) {
         LiveDataManager.getInstance().unsubscribe(symbol, timeframe, onKLineUpdate);
     }
 
-    // Helper inner class for parsing the /exchangeInfo endpoint JSON
+    @Override
+    public void connectToTradeStream(String symbol, Consumer<TradeTick> onTradeUpdate) {
+        logger.warn("Trade stream subscription not yet fully implemented in LiveDataManager.");
+    }
+
+    @Override
+    public void disconnectFromTradeStream(String symbol, Consumer<TradeTick> onTradeUpdate) {
+        logger.warn("Trade stream unsubscription not yet fully implemented in LiveDataManager.");
+    }
+
     private static class BinanceSymbolData {
         String symbol;
         String status;
         String baseAsset;
         String quoteAsset;
+    }
+    
+    private static class BinanceTradeData {
+        long id, time;
+        String price, qty;
+        boolean isBuyerMaker;
     }
 }

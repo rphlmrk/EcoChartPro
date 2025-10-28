@@ -12,6 +12,8 @@ import java.util.Map;
 public class ChartRenderer {
 
     private final Map<ChartType, AbstractChartTypeRenderer> renderers = new HashMap<>();
+    // Minimum bar width in pixels to render footprint text. Below this, it switches to candles.
+    private static final int FOOTPRINT_THRESHOLD_PX = 30;
 
     public ChartRenderer() {
         // Instantiate and register all available renderers
@@ -23,10 +25,12 @@ public class ChartRenderer {
         renderers.put(ChartType.AREA, new AreaRenderer());
         renderers.put(ChartType.VOLUME_CANDLES, new VolumeCandleRenderer());
         renderers.put(ChartType.HEIKIN_ASHI, new HeikinAshiRenderer());
+        renderers.put(ChartType.FOOTPRINT, new FootprintRenderer());
     }
 
     /**
      * Draws the main chart series by delegating to the appropriate renderer based on the selected ChartType.
+     * Includes logic to automatically switch to candles if Footprint is not legible.
      *
      * @param g2d The graphics context.
      * @param chartType The type of chart to render.
@@ -35,7 +39,16 @@ public class ChartRenderer {
      * @param startIndex The absolute start index of the visible data.
      */
     public void draw(Graphics2D g2d, ChartType chartType, ChartAxis axis, List<KLine> visibleKlines, int startIndex) {
-        AbstractChartTypeRenderer renderer = renderers.get(chartType);
+        ChartType effectiveType = chartType;
+
+        // Auto-switch from Footprint to Candles when zoomed out for performance and readability
+        if (chartType == ChartType.FOOTPRINT) {
+            if (axis.getBarWidth() < FOOTPRINT_THRESHOLD_PX) {
+                effectiveType = ChartType.CANDLES;
+            }
+        }
+        
+        AbstractChartTypeRenderer renderer = renderers.get(effectiveType);
 
         if (renderer != null) {
             renderer.draw(g2d, axis, visibleKlines, startIndex);
