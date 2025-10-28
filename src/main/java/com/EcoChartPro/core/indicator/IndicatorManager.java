@@ -74,6 +74,17 @@ public final class IndicatorManager {
         }
     }
 
+    /**
+     * [NEW] Resets the internal state of all active indicators.
+     * This is called when the underlying dataset changes (e.g., symbol switch)
+     * to ensure indicators re-initialize their state without being removed.
+     */
+    public void resetAllIndicators() {
+        activeIndicators.values().forEach(IndicatorRunner::reset);
+        debugData.clear();
+        logger.info("All active indicators have been reset for new data source.");
+    }
+
     public void updateIndicatorSettings(UUID id, Map<String, Object> newSettings) {
         IndicatorRunner runner = activeIndicators.get(id);
         if (runner != null) {

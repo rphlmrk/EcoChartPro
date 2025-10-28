@@ -397,7 +397,8 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
         this.finalizedCandles.clear();
         this.currentlyFormingCandle = null;
         this.baseDataWindow.clear();
-        this.indicatorManager.clearAllIndicators();
+        // [MODIFIED] Reset indicators instead of removing them on data changes.
+        this.indicatorManager.resetAllIndicators();
         this.totalCandleCount = 0;
         this.dataWindowStartIndex = 0;
         this.htfCache.clear();
