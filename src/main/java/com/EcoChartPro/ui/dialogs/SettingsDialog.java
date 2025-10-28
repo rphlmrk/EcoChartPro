@@ -922,6 +922,8 @@ public class SettingsDialog extends JDialog {
         panel.add(Box.createVerticalStrut(10));
         
         panel.add(createVolumeProfileSettingsPanel());
+        panel.add(Box.createVerticalStrut(10));
+        panel.add(createFootprintSettingsPanel());
 
         panel.add(Box.createVerticalGlue());
         
@@ -930,6 +932,46 @@ public class SettingsDialog extends JDialog {
         return scrollPane;
     }
     
+    private JPanel createFootprintSettingsPanel() {
+        JPanel fpPanel = new JPanel(new GridBagLayout());
+        fpPanel.setBorder(BorderFactory.createTitledBorder("Volume Footprint Settings"));
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.insets = new Insets(5, 10, 5, 10);
+        gbc.anchor = GridBagConstraints.WEST;
+    
+        int row = 0;
+    
+        // --- Opacity Slider ---
+        gbc.gridx = 0;
+        gbc.gridy = row;
+        fpPanel.add(new JLabel("Candle Body Opacity:"), gbc);
+    
+        JSlider opacitySlider = new JSlider(0, 100, settingsManager.getFootprintCandleOpacity());
+        JLabel opacityLabel = new JLabel(settingsManager.getFootprintCandleOpacity() + "%");
+        opacityLabel.setPreferredSize(new Dimension(40, opacityLabel.getPreferredSize().height));
+    
+        opacitySlider.addChangeListener(e -> {
+            int value = opacitySlider.getValue();
+            opacityLabel.setText(value + "%");
+            if (!opacitySlider.getValueIsAdjusting()) {
+                settingsManager.setFootprintCandleOpacity(value);
+            }
+        });
+    
+        gbc.gridx = 1;
+        fpPanel.add(opacitySlider, gbc);
+        gbc.gridx = 2;
+        fpPanel.add(opacityLabel, gbc);
+    
+        row++;
+        gbc.gridx = 3;
+        gbc.weightx = 1.0;
+        fpPanel.add(new JLabel(), gbc); // Glue to push components to the left
+    
+        fpPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, fpPanel.getPreferredSize().height));
+        return fpPanel;
+    }
+
     private JPanel createVolumeProfileSettingsPanel() {
         JPanel vpPanel = new JPanel(new GridBagLayout());
         vpPanel.setBorder(BorderFactory.createTitledBorder("Visible Range Volume Profile (VRVP)"));

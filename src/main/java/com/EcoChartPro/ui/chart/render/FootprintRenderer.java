@@ -35,8 +35,9 @@ public class FootprintRenderer implements AbstractChartTypeRenderer {
         Color bullColor = settings.getBullColor();
         Color bearColor = settings.getBearColor();
         Color pocColor = new Color(settings.getGridColor().getRed(), settings.getGridColor().getGreen(), settings.getGridColor().getBlue(), 80);
-        Color bullBodyColor = new Color(bullColor.getRed(), bullColor.getGreen(), bullColor.getBlue(), 20); // 20% opacity
-        Color bearBodyColor = new Color(bearColor.getRed(), bearColor.getGreen(), bearColor.getBlue(), 20); // 20% opacity
+        int alpha = (int) (settings.getFootprintCandleOpacity() / 100.0 * 255);
+        Color bullBodyColor = new Color(bullColor.getRed(), bullColor.getGreen(), bullColor.getBlue(), alpha);
+        Color bearBodyColor = new Color(bearColor.getRed(), bearColor.getGreen(), bearColor.getBlue(), alpha);
 
         for (int i = 0; i < visibleKlines.size(); i++) {
             KLine kline = visibleKlines.get(i);

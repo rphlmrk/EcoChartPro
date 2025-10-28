@@ -181,6 +181,7 @@ public final class SettingsManager {
     private boolean autoJournalOnTradeClose;
     private boolean sessionHighlightingEnabled;
     private List<TradingSession> preferredTradingSessions;
+    private int footprintCandleOpacity;
     private List<String> favoriteSymbols;
 
 
@@ -331,6 +332,7 @@ public final class SettingsManager {
         this.autoJournalOnTradeClose = Boolean.parseBoolean(properties.getProperty("simulation.autoJournalOnTradeClose", "true"));
         this.sessionHighlightingEnabled = Boolean.parseBoolean(properties.getProperty("chart.sessionHighlighting.enabled", "true"));
         String timeframesStr = properties.getProperty("tradeReplay.availableTimeframes", "1m,5m,15m");
+        this.footprintCandleOpacity = Integer.parseInt(properties.getProperty("footprint.candleOpacity", "20"));
         this.tradeReplayAvailableTimeframes = new ArrayList<>(Arrays.asList(timeframesStr.split(",")));
         String favStr = properties.getProperty("favorite.symbols", "");
         this.favoriteSymbols = new ArrayList<>();
@@ -442,6 +444,7 @@ public final class SettingsManager {
                 properties.setProperty("simulation.autoJournalOnTradeClose", String.valueOf(autoJournalOnTradeClose));
                 properties.setProperty("chart.sessionHighlighting.enabled", String.valueOf(sessionHighlightingEnabled));
                 properties.setProperty("tradeReplay.availableTimeframes", String.join(",", this.tradeReplayAvailableTimeframes));
+                properties.setProperty("footprint.candleOpacity", String.valueOf(footprintCandleOpacity));
                 properties.setProperty("favorite.symbols", String.join(",", this.favoriteSymbols));
 
                 for (TradingSession session : TradingSession.values()) {
@@ -1018,6 +1021,16 @@ public final class SettingsManager {
             pcs.firePropertyChange("favoritesChanged", null, null);
         }
     }
+
+    public int getFootprintCandleOpacity() { return footprintCandleOpacity; }
+    public void setFootprintCandleOpacity(int opacity) {
+        if (this.footprintCandleOpacity != opacity) {
+            this.footprintCandleOpacity = opacity;
+            saveSettings();
+            pcs.firePropertyChange("chartColorsChanged", null, null); // Re-use this event to trigger a repaint
+        }
+    }
+
 
     private String formatColor(Color c) {
         return c.getRed() + "," + c.getGreen() + "," + c.getBlue() + "," + c.getAlpha();
