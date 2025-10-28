@@ -64,6 +64,10 @@ public class DataImportTool {
         this.progressConsumer = progressConsumer != null ? progressConsumer : (p) -> {}; // No-op default
     }
 
+    /**
+     * Scans the 'import_data' directory and processes all found CSV files.
+     * @throws IOException if an I/O error occurs.
+     */
     public void run() throws IOException {
         Path projectRoot = Paths.get(System.getProperty("user.dir"));
         Path importDir = projectRoot.resolve(IMPORT_DIR_NAME);
@@ -95,6 +99,30 @@ public class DataImportTool {
                 }
             }
         }
+    }
+
+    /**
+     * [NEW] Imports a single specified CSV file into the appropriate database.
+     * The original file is not moved or deleted.
+     * @param csvFile The path to the CSV file to import.
+     * @throws IOException if an I/O error occurs.
+     */
+    public void importSingleFile(Path csvFile) throws IOException {
+        Path projectRoot = Paths.get(System.getProperty("user.dir"));
+        Path dataDir = projectRoot.resolve(DATA_DIR_NAME);
+        Files.createDirectories(dataDir);
+
+        String baseSymbol = extractBaseSymbol(csvFile);
+        Path symbolDataDir = dataDir.resolve(baseSymbol);
+        Files.createDirectories(symbolDataDir);
+        String dbFileName = baseSymbol + ".db";
+        Path dbPath = symbolDataDir.resolve(dbFileName);
+        String jdbcUrl = "jdbc:sqlite:" + dbPath.toAbsolutePath();
+
+        try (DatabaseManager dbManager = new DatabaseManager(jdbcUrl)) {
+            importCsvFile(csvFile, baseSymbol, dbManager);
+        }
+        logger.info("-> Finished importing from selected file: {}", csvFile.getFileName());
     }
 
     private void importCsvFile(Path csvFile, String symbolId, DatabaseManager dbManager) throws IOException {
@@ -138,11 +166,11 @@ public class DataImportTool {
         try (Stream<Path> stream = Files.walk(importDir, 1)) {
             return stream
                 .filter(path -> path.toString().toLowerCase().endsWith(".csv"))
-                .collect(Collectors.groupingBy(this::extractBaseSymbol));
+                .collect(Collectors.groupingBy(DataImportTool::extractBaseSymbol));
         }
     }
 
-    private String extractBaseSymbol(Path path) {
+    public static String extractBaseSymbol(Path path) {
         String fileName = path.getFileName().toString().toLowerCase();
         return fileName.replaceAll("_\\d{4}\\.csv", ".csv").replace(".csv", "");
     }
