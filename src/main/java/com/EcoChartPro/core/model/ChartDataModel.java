@@ -421,12 +421,9 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
                 try {
                     get();
                     if (liveDataProvider != null) {
-                        // [FIX] Subscribe to BOTH streams in footprint mode
-                        // 1. Trade stream for building clusters
                         liveTradeConsumer = ChartDataModel.this::onLiveTradeUpdate;
                         liveDataProvider.connectToTradeStream(currentSource.symbol(), liveTradeConsumer);
 
-                        // 2. K-line stream for candle timing and rollover
                         liveDataConsumer = ChartDataModel.this::onLiveFootprintKLineUpdate;
                         liveDataProvider.connectToLiveStream(currentSource.symbol(), timeframe.displayName(), liveDataConsumer);
                     }
@@ -473,28 +470,27 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
         });
     }
 
-    /**
-     * [NEW] Special K-line handler for Footprint mode. Its only job is to detect
-     * a new candle interval and trigger a rollover. The actual H/L/C is updated by the trade stream.
-     * @param newTick The incoming K-line update from the WebSocket stream.
-     */
     private void onLiveFootprintKLineUpdate(KLine newTick) {
         SwingUtilities.invokeLater(() -> {
-            if (currentMode != ChartMode.LIVE || currentlyFormingCandle == null) return;
+            if (currentMode != ChartMode.LIVE) return;
     
             Instant intervalStart = getIntervalStart(newTick.timestamp(), currentDisplayTimeframe);
     
-            // If the incoming k-line tick belongs to a new interval, finalize the old one and start a new one.
-            if (!currentlyFormingCandle.timestamp().equals(intervalStart)) {
+            if (currentlyFormingCandle == null || !currentlyFormingCandle.timestamp().equals(intervalStart)) {
                 logger.debug("New footprint candle interval detected. Finalizing old candle, starting new.");
                 
-                finalizedCandles.add(currentlyFormingCandle);
+                if (currentlyFormingCandle != null) {
+                    finalizedCandles.add(currentlyFormingCandle);
+                }
                 
-                // The new candle starts with the data from the k-line stream.
-                // Subsequent trades from the trade stream will update it.
                 currentlyFormingCandle = newTick;
+
+                footprintData.computeIfAbsent(currentlyFormingCandle.timestamp(), ts -> {
+                    FootprintBar newBar = new FootprintBar(ts);
+                    newBar.setPriceStep(this.lastCalculatedFootprintStep);
+                    return newBar;
+                });
                 
-                // This call is crucial to make the chart scroll to the new candle.
                 interactionManager.onReplayTick(newTick);
                 updateView();
             }
@@ -523,7 +519,9 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
                 newTrade.price(), 
                 currentlyFormingCandle.volume().add(newTrade.quantity())
             );
-            fireDataUpdated();
+            
+            // [FIX] Call the full updateView() method to ensure all components and boundaries are refreshed.
+            updateView();
         });
     }
 
