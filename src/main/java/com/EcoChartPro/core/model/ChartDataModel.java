@@ -27,7 +27,6 @@ import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 import java.beans.PropertyChangeSupport;
 import java.math.BigDecimal;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -48,6 +47,7 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
     private static final int INDICATOR_LOOKBACK_BUFFER = 500;
     private static final int DATA_WINDOW_SIZE = 20000;
     private static final int DATA_WINDOW_TRIGGER_BUFFER = DATA_WINDOW_SIZE / 3;
+    private static final int LIVE_PAN_TRIGGER_THRESHOLD = 500; // Bars remaining before triggering history fetch
 
     private List<KLine> visibleKLines;
     private BigDecimal minPrice, maxPrice;
@@ -74,6 +74,8 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
     private ChartInteractionManager interactionManager;
     private final Map<Instant, FootprintBar> footprintData;
 
+    private volatile boolean isFetchingLiveHistory = false;
+
     private record RebuildResult(List<KLine> resampledCandles, KLine formingCandle, int newWindowStart, List<KLine> rawM1Slice) {}
 
     public ChartDataModel() {
@@ -99,7 +101,8 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
             if ((newType == ChartType.FOOTPRINT && oldType != ChartType.FOOTPRINT) ||
                 (newType != ChartType.FOOTPRINT && oldType == ChartType.FOOTPRINT)) {
                 logger.info("Chart type changed to/from Footprint. Triggering data reload.");
-                loadDataset(currentSource, currentDisplayTimeframe);
+                // [FIX] Call the overloaded method with forceReload = true to bypass the early exit condition.
+                loadDataset(currentSource, currentDisplayTimeframe, true);
             }
         }
     }
@@ -159,8 +162,10 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
         if (activeRebuildWorker != null && !activeRebuildWorker.isDone()) {
             return;
         }
-        if (currentMode == ChartMode.REPLAY && handleDataWindowLoading()) {
-            return; 
+        if (currentMode == ChartMode.REPLAY) {
+            if (handleDataWindowLoading()) return;
+        } else if (currentMode == ChartMode.LIVE) {
+            checkForLivePanBack();
         }
         assembleVisibleKLines();
         calculateBoundaries();
@@ -169,6 +174,58 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
         if (currentMode == ChartMode.REPLAY) checkForPreFetchTrigger();
     }
     
+    private void checkForLivePanBack() {
+        if (isFetchingLiveHistory || finalizedCandles.isEmpty()) return;
+
+        if (interactionManager.getStartIndex() < LIVE_PAN_TRIGGER_THRESHOLD) {
+            if (com.EcoChartPro.core.settings.SettingsManager.getInstance().getCurrentChartType() == ChartType.FOOTPRINT) {
+                int maxBars = getMaxHistoricalBars();
+                if (finalizedCandles.size() >= maxBars) return;
+            }
+            
+            fetchOlderLiveDataAsync();
+        }
+    }
+
+    private void fetchOlderLiveDataAsync() {
+        isFetchingLiveHistory = true;
+        KLine oldestCandle = finalizedCandles.get(0);
+        long endTimeForFetch = oldestCandle.timestamp().toEpochMilli() - 1;
+        int limit = 1000;
+
+        if (chartPanel != null) chartPanel.setLoading(true, "Loading older history...");
+
+        new SwingWorker<List<KLine>, Void>() {
+            @Override
+            protected List<KLine> doInBackground() throws Exception {
+                if (liveDataProvider instanceof BinanceProvider bp) {
+                    return bp.getHistoricalData(currentSource.symbol(), currentDisplayTimeframe.displayName(), limit, null, endTimeForFetch);
+                } else if (liveDataProvider instanceof OkxProvider op) {
+                    return op.getHistoricalData(currentSource.symbol(), currentDisplayTimeframe.displayName(), limit, null, oldestCandle.timestamp().toEpochMilli());
+                }
+                return Collections.emptyList();
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    List<KLine> olderData = get();
+                    if (olderData != null && !olderData.isEmpty()) {
+                        finalizedCandles.addAll(0, olderData);
+                        interactionManager.setStartIndex(interactionManager.getStartIndex() + olderData.size());
+                        logger.info("Fetched and prepended {} older candles in Live mode.", olderData.size());
+                    }
+                } catch (Exception e) {
+                    logger.error("Failed to fetch older live data.", e);
+                } finally {
+                    isFetchingLiveHistory = false;
+                    if (chartPanel != null) chartPanel.setLoading(false, null);
+                    updateView();
+                }
+            }
+        }.execute();
+    }
+
     private boolean handleDataWindowLoading() {
         if (activeRebuildWorker != null && !activeRebuildWorker.isDone()) {
             return true; 
@@ -184,6 +241,18 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
                               (currentStartIndex + currentBarsPerScreen > currentWindowEnd - DATA_WINDOW_TRIGGER_BUFFER && currentWindowEnd < totalCandleCount);
         
         if (needsReload) {
+            if (com.EcoChartPro.core.settings.SettingsManager.getInstance().getCurrentChartType() == ChartType.FOOTPRINT) {
+                boolean isPanningLeft = currentStartIndex < dataWindowStartIndex + DATA_WINDOW_TRIGGER_BUFFER && dataWindowStartIndex > 0;
+                if (isPanningLeft) {
+                    int maxBars = getMaxHistoricalBars();
+                    List<KLine> currentData = (currentDisplayTimeframe == Timeframe.M1) ? baseDataWindow : finalizedCandles;
+                    if (currentData != null && currentData.size() >= maxBars) {
+                        logger.info("Footprint mode: Deep panning disabled. Max history limit reached ({} bars).", maxBars);
+                        return false;
+                    }
+                }
+            }
+
             int newWindowCenter = currentStartIndex + (currentBarsPerScreen / 2);
             int newWindowStart = Math.max(0, newWindowCenter - (DATA_WINDOW_SIZE / 2));
             newWindowStart = Math.min(newWindowStart, Math.max(0, totalCandleCount - DATA_WINDOW_SIZE));
@@ -196,10 +265,6 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
                 updateView();
                 return false; 
             } else {
-                if(preFetchedResult != null) {
-                    logger.warn("Pre-fetch cache MISS. Needed window starting at {} but had {}. Discarding cache.", newWindowStart, preFetchedResult.newWindowStart());
-                    preFetchedResult = null;
-                }
                 rebuildHistoryAsync(currentStartIndex, false);
                 return true; 
             }
@@ -238,15 +303,21 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
         } else { // LIVE Mode
             List<KLine> sourceData = getAllChartableCandles();
             if (sourceData.isEmpty()) return Collections.emptyList();
-            int viewStartInWindow = currentStartIndex - this.dataWindowStartIndex;
-            int calculationEndIndex = Math.min(viewStartInWindow + currentBarsPerScreen, sourceData.size());
-            int calculationStartIndex = Math.max(0, viewStartInWindow - INDICATOR_LOOKBACK_BUFFER);
+            int calculationEndIndex = Math.min(currentStartIndex + currentBarsPerScreen, sourceData.size());
+            int calculationStartIndex = Math.max(0, currentStartIndex - INDICATOR_LOOKBACK_BUFFER);
             return (calculationStartIndex < calculationEndIndex) ? sourceData.subList(calculationStartIndex, calculationEndIndex) : Collections.emptyList();
         }
     }
 
+    // [FIX] Public wrapper method
     public void loadDataset(DataSourceManager.ChartDataSource source, Timeframe timeframe) {
-        if (currentSource != null && currentSource.equals(source) && 
+        loadDataset(source, timeframe, false);
+    }
+    
+    // [FIX] New private method with forceReload flag
+    private void loadDataset(DataSourceManager.ChartDataSource source, Timeframe timeframe, boolean forceReload) {
+        // [FIX] Early exit condition is now conditional
+        if (!forceReload && currentSource != null && currentSource.equals(source) && 
             currentDisplayTimeframe != null && currentDisplayTimeframe.equals(timeframe)) {
             return;
         }
@@ -296,16 +367,13 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
         new SwingWorker<Void, Void>() {
             @Override
             protected Void doInBackground() throws Exception {
-                // In a real implementation, this would fetch trades from DB/API.
-                // For this diff, we'll simulate by distributing KLine volume.
-                List<KLine> klineHistory = fetchDirectTfData(timeframe, 1000);
+                List<KLine> klineHistory = fetchDirectTfData(timeframe, getMaxHistoricalBars());
                 finalizedCandles = new ArrayList<>(klineHistory);
                 footprintData.clear();
 
                 for (KLine kline : klineHistory) {
                     FootprintBar fpBar = new FootprintBar(kline.timestamp());
-                    // Simulate footprint by distributing volume
-                    fpBar.approximateFromKline(kline, new BigDecimal("0.05")); // 5-cent price step for simulation
+                    fpBar.approximateFromKline(kline, new BigDecimal("0.05"));
                     footprintData.put(kline.timestamp(), fpBar);
                 }
                 return null;
@@ -315,10 +383,13 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
             protected void done() {
                 try {
                     get(); // Check for exceptions
-                    totalCandleCount = Integer.MAX_VALUE;
                     if (liveDataProvider != null) {
                         liveTradeConsumer = ChartDataModel.this::onLiveTradeUpdate;
                         liveDataProvider.connectToTradeStream(currentSource.symbol(), liveTradeConsumer);
+                    }
+                    if (interactionManager != null && !finalizedCandles.isEmpty()) {
+                         int dataBarsOnScreen = (int) (interactionManager.getBarsPerScreen() * (1.0 - interactionManager.getRightMarginRatio()));
+                         interactionManager.setStartIndex(Math.max(0, finalizedCandles.size() - dataBarsOnScreen));
                     }
                     updateView();
                 } catch (Exception e) {
@@ -362,31 +433,20 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
     private void onLiveTradeUpdate(TradeTick newTrade) {
         SwingUtilities.invokeLater(() -> {
             if (currentMode != ChartMode.LIVE) return;
-    
-            // Ensure we have a candle to attach the trade to
-            if (currentlyFormingCandle == null) {
-                // This can happen briefly when a connection starts. We'll wait for the first K-line update.
-                return;
-            }
+            if (currentlyFormingCandle == null) return;
     
             Instant candleTimestamp = currentlyFormingCandle.timestamp();
             FootprintBar currentFpBar = footprintData.computeIfAbsent(candleTimestamp, FootprintBar::new);
-            
-            // Add the trade to the footprint bar for aggregation.
-            // The FootprintBar object internally handles the binning of the trade into the correct price level.
             currentFpBar.addTrade(newTrade);
     
-            // Also update the currently forming KLine with info from the latest trade
             currentlyFormingCandle = new KLine(
                 currentlyFormingCandle.timestamp(),
                 currentlyFormingCandle.open(),
                 currentlyFormingCandle.high().max(newTrade.price()),
                 currentlyFormingCandle.low().min(newTrade.price()),
-                newTrade.price(), // The latest trade sets the current close price
+                newTrade.price(), 
                 currentlyFormingCandle.volume().add(newTrade.quantity())
             );
-    
-            // Trigger a repaint to show the updated footprint and candle
             fireDataUpdated();
         });
     }
@@ -454,7 +514,10 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
         new SwingWorker<List<KLine>, Void>() {
             @Override
             protected List<KLine> doInBackground() {
-                return fetchDirectTfData(currentDisplayTimeframe, 1000);
+                int limit = (com.EcoChartPro.core.settings.SettingsManager.getInstance().getCurrentChartType() == ChartType.FOOTPRINT)
+                            ? getMaxHistoricalBars()
+                            : 1000;
+                return fetchDirectTfData(currentDisplayTimeframe, limit);
             }
             @Override
             protected void done() {
@@ -463,7 +526,6 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
                     if (initialData != null && !initialData.isEmpty()) {
                         finalizedCandles = new ArrayList<>(initialData.subList(0, initialData.size() - 1));
                         currentlyFormingCandle = initialData.get(initialData.size() - 1);
-                        totalCandleCount = Integer.MAX_VALUE;
                     } else {
                         finalizedCandles = new ArrayList<>();
                         currentlyFormingCandle = null;
@@ -757,18 +819,32 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
         String tfString = target.displayName();
         
         List<KLine> directData = Collections.emptyList();
-        long lookbackDuration = target.duration().toMillis() * barsBack;
-        long startTime = Instant.now().toEpochMilli() - lookbackDuration;
 
-        if (liveDataProvider instanceof BinanceProvider) {
-             directData = ((BinanceProvider) liveDataProvider).getHistoricalData(currentSource.symbol(), tfString, barsBack);
-        } else if (liveDataProvider instanceof OkxProvider) {
-             directData = ((OkxProvider) liveDataProvider).getHistoricalData(currentSource.symbol(), tfString, barsBack);
+        try {
+            if (liveDataProvider instanceof BinanceProvider bp) {
+                 directData = bp.getHistoricalData(currentSource.symbol(), tfString, barsBack, null, null);
+            } else if (liveDataProvider instanceof OkxProvider op) {
+                 directData = op.getHistoricalData(currentSource.symbol(), tfString, barsBack, null, null);
+            }
+        } catch (Exception e) {
+            logger.error("Error fetching direct data from provider", e);
         }
+
         logger.info("Directly fetched {} bars for timeframe {}.", directData.size(), tfString);
         return directData;
     }
     
+    private int getMaxHistoricalBars() {
+        if (currentSource == null) return DATA_WINDOW_SIZE;
+        String provider = currentSource.providerName();
+        if ("Binance".equals(provider)) {
+            return 1000;
+        } else if ("OKX".equals(provider)) {
+            return 300;
+        }
+        return DATA_WINDOW_SIZE; // Default no limit
+    }
+
     public ChartMode getCurrentMode() { return currentMode; }
     public IndicatorManager getIndicatorManager() { return indicatorManager; }
     public List<KLine> getVisibleKLines() { return visibleKLines; }
