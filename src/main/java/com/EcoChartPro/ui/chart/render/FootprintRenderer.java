@@ -21,20 +21,21 @@ import java.util.TreeMap;
 
 public class FootprintRenderer implements AbstractChartTypeRenderer {
     private static final Logger logger = LoggerFactory.getLogger(FootprintRenderer.class);
-    private static final int MIN_CLUSTER_HEIGHT = 1; // Minimum pixel height per price row
-    private static final Font BASE_CLUSTER_FONT = new Font("Monospaced", Font.PLAIN, 12); // Increased base for readability
-    private static final Font DELTA_FONT = new Font("Monospaced", Font.BOLD, 12); // Match base increase
-    private static final double IMBALANCE_RATIO = 3.0; // Highlight if one side > ratio * other
-    private static final int RECT_FALLBACK_THRESHOLD = 8; // Pixels: Fallback to rects only if < this (increased)
-    private static final int TARGET_CLUSTERS = 60; // Aim for this many visible clusters when zoomed out
-    private static final BigDecimal MIN_PRICE_STEP = new BigDecimal("0.01"); // Smallest allowed step to prevent over-merging
+    private static final int MIN_CLUSTER_HEIGHT = 1;
+    // [FIX] Increased base font sizes for better readability when zoomed in
+    private static final Font BASE_CLUSTER_FONT = new Font("Monospaced", Font.PLAIN, 13);
+    private static final Font DELTA_FONT = new Font("Monospaced", Font.BOLD, 13);
+    private static final double IMBALANCE_RATIO = 3.0;
+    private static final int RECT_FALLBACK_THRESHOLD = 8;
+    private static final int TARGET_CLUSTERS = 60;
+    private static final BigDecimal MIN_RENDER_STEP = new BigDecimal("0.00000001");
 
     @Override
     public void draw(Graphics2D g2d, ChartAxis axis, List<KLine> visibleKlines, int viewStartIndex, ChartDataModel dataModel) {
         if (!axis.isConfigured() || visibleKlines.isEmpty()) return;
 
         SettingsManager settings = SettingsManager.getInstance();
-        g2d.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON); // Crisp text
+        g2d.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
 
         Map<java.time.Instant, FootprintBar> footprintData = dataModel.getFootprintData();
 
@@ -58,47 +59,54 @@ public class FootprintRenderer implements AbstractChartTypeRenderer {
             TreeMap<BigDecimal, FootprintBar.BidAskVolume> clusters = fpBar.getClusters();
             if (clusters.isEmpty()) continue;
 
-            // Calculate dynamic effectivePriceStep based on visible range
-            BigDecimal visiblePriceRange = axis.getMaxPrice().subtract(axis.getMinPrice());
             BigDecimal originalPriceStep = fpBar.getPriceStep();
-            BigDecimal effectivePriceStep = calculateEffectivePriceStep(visiblePriceRange, originalPriceStep);
-            logger.trace("Bar at {}: visibleRange={}, originalStep={}, effectiveStep={}", kline.timestamp(), visiblePriceRange, originalPriceStep, effectivePriceStep);
+            double pixelsPerOriginalStep = axis.priceToPixel(originalPriceStep.doubleValue());
+            BigDecimal effectivePriceStep;
 
-            // Merge clusters if effective step > original
-            TreeMap<BigDecimal, FootprintBar.BidAskVolume> renderClusters = (effectivePriceStep.compareTo(originalPriceStep) > 0)
-                ? mergeClusters(clusters, effectivePriceStep)
-                : clusters; // Use original if no merge needed
+            if (pixelsPerOriginalStep < RECT_FALLBACK_THRESHOLD) {
+                BigDecimal visiblePriceRange = axis.getMaxPrice().subtract(axis.getMinPrice());
+                effectivePriceStep = calculateEffectivePriceStep(visiblePriceRange);
+            } else {
+                effectivePriceStep = originalPriceStep;
+            }
+            TreeMap<BigDecimal, FootprintBar.BidAskVolume> renderClusters = mergeClusters(clusters, effectivePriceStep);
 
-            // Draw semi-transparent candle body background (applies opacity)
+            int renderWidth = barWidth;
+            final int zoomThreshold = 30;
+            final double maxScaleFactor = 2.5;
+            final double scaleRange = 200.0;
+
+            if (barWidth > zoomThreshold) {
+                double zoomProgress = Math.min(1.0, (barWidth - zoomThreshold) / scaleRange);
+                double scaleFactor = 1.0 + zoomProgress * (maxScaleFactor - 1.0);
+                renderWidth = (int) (barWidth * scaleFactor);
+            }
+            
             boolean isUp = kline.close().compareTo(kline.open()) >= 0;
             g2d.setColor(isUp ? bullBodyColor : bearBodyColor);
             int yOpen = axis.priceToY(kline.open());
             int yClose = axis.priceToY(kline.close());
             int bodyTop = Math.min(yOpen, yClose);
             int bodyBottom = Math.max(yOpen, yClose);
-            g2d.fillRect(xCenter - barWidth / 2, bodyTop, barWidth, bodyBottom - bodyTop);
+            g2d.fillRect(xCenter - renderWidth / 2, bodyTop, renderWidth, bodyBottom - bodyTop);
 
-            // Draw wick (non-opaque)
             g2d.setColor(isUp ? bullColor : bearColor);
             g2d.drawLine(xCenter, axis.priceToY(kline.high()), xCenter, axis.priceToY(kline.low()));
 
-            // Calculate pixelsPerCluster based on effective step
             double pixelsPerCluster = axis.priceToPixel(effectivePriceStep.doubleValue());
-            logger.trace("Bar at {}: pixelsPerCluster={}, barWidth={}", kline.timestamp(), pixelsPerCluster, barWidth);
-
-            // Dynamic font scaling: Fit to ~90% of cluster height, min 8pt
-            int fontSize = Math.max(8, (int) (pixelsPerCluster * 0.9));
+            
+            // [FIX] Increased minimum font size for better readability
+            int fontSize = Math.max(9, (int) (pixelsPerCluster * 0.9));
             Font clusterFont = BASE_CLUSTER_FONT.deriveFont((float) fontSize);
             g2d.setFont(clusterFont);
             FontMetrics fm = g2d.getFontMetrics();
 
             boolean useRectFallback = pixelsPerCluster < RECT_FALLBACK_THRESHOLD;
             if (useRectFallback) {
-                drawRectFallbackClusters(g2d, axis, renderClusters, xCenter, barWidth, bullBodyColor, bearBodyColor, effectivePriceStep);
+                drawRectFallbackClusters(g2d, axis, renderClusters, xCenter, renderWidth, bullBodyColor, bearBodyColor, effectivePriceStep);
             } else {
                 BigDecimal pocPrice = fpBar.getPocPrice();
 
-                // Draw clusters using renderClusters
                 for (Map.Entry<BigDecimal, FootprintBar.BidAskVolume> entry : renderClusters.entrySet()) {
                     BigDecimal price = entry.getKey();
                     FootprintBar.BidAskVolume pair = entry.getValue();
@@ -107,10 +115,9 @@ public class FootprintRenderer implements AbstractChartTypeRenderer {
                     int clusterHeight = Math.max(MIN_CLUSTER_HEIGHT, yBottom - yTop);
                     int y_text = yTop + (clusterHeight - fm.getHeight()) / 2 + fm.getAscent();
 
-                    // Highlight POC if it falls within this merged bin
                     if (pocPrice.compareTo(price) >= 0 && pocPrice.compareTo(price.add(effectivePriceStep)) < 0) {
                         g2d.setColor(pocColor);
-                        g2d.fillRect(xCenter - barWidth / 2, yTop, barWidth, clusterHeight);
+                        g2d.fillRect(xCenter - renderWidth / 2, yTop, renderWidth, clusterHeight);
                     }
 
                     String bidStr = padLeft(formatVolume(pair.bidVolume()), 5);
@@ -128,7 +135,6 @@ public class FootprintRenderer implements AbstractChartTypeRenderer {
                 }
             }
 
-            // Draw delta at bottom
             BigDecimal delta = fpBar.getTotalDelta();
             String deltaStr = formatVolume(delta);
             int yBottom = axis.priceToY(kline.low()) + g2d.getFontMetrics(DELTA_FONT).getHeight() + 4;
@@ -139,7 +145,7 @@ public class FootprintRenderer implements AbstractChartTypeRenderer {
         }
     }
 
-    private void drawRectFallbackClusters(Graphics2D g2d, ChartAxis axis, TreeMap<BigDecimal, FootprintBar.BidAskVolume> clusters, int xCenter, int barWidth, Color bullColor, Color bearColor, BigDecimal effectivePriceStep) {
+    private void drawRectFallbackClusters(Graphics2D g2d, ChartAxis axis, TreeMap<BigDecimal, FootprintBar.BidAskVolume> clusters, int xCenter, int renderWidth, Color bullColor, Color bearColor, BigDecimal effectivePriceStep) {
         for (Map.Entry<BigDecimal, FootprintBar.BidAskVolume> entry : clusters.entrySet()) {
             BigDecimal price = entry.getKey();
             FootprintBar.BidAskVolume pair = entry.getValue();
@@ -148,7 +154,7 @@ public class FootprintRenderer implements AbstractChartTypeRenderer {
             int yTop = axis.priceToY(price.add(effectivePriceStep));
             int yBottom = axis.priceToY(price);
             int height = Math.max(MIN_CLUSTER_HEIGHT, yBottom - yTop);
-            int halfWidth = barWidth / 2;
+            int halfWidth = renderWidth / 2;
 
             if (totalVolume.compareTo(BigDecimal.ZERO) > 0) {
                 int bidWidth = (int) (halfWidth * pair.bidVolume().divide(totalVolume, 4, RoundingMode.HALF_UP).doubleValue());
@@ -199,12 +205,12 @@ public class FootprintRenderer implements AbstractChartTypeRenderer {
         return String.format("%-" + length + "s", str);
     }
 
-    private BigDecimal calculateEffectivePriceStep(BigDecimal visiblePriceRange, BigDecimal originalStep) {
-        if (visiblePriceRange.compareTo(BigDecimal.ZERO) <= 0) {
-            return originalStep;
+    private BigDecimal calculateEffectivePriceStep(BigDecimal visiblePriceRange) {
+        if (visiblePriceRange == null || visiblePriceRange.compareTo(BigDecimal.ZERO) <= 0) {
+            return MIN_RENDER_STEP;
         }
         BigDecimal targetStep = visiblePriceRange.divide(BigDecimal.valueOf(TARGET_CLUSTERS), 8, RoundingMode.HALF_UP);
-        return targetStep.max(originalStep).max(MIN_PRICE_STEP);
+        return targetStep.max(MIN_RENDER_STEP);
     }
 
     private TreeMap<BigDecimal, FootprintBar.BidAskVolume> mergeClusters(TreeMap<BigDecimal, FootprintBar.BidAskVolume> originalClusters, BigDecimal mergeStep) {

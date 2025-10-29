@@ -90,6 +90,16 @@ public class FootprintBar {
         });
         isDirty = true; // Mark metrics as needing recalculation
     }
+
+    /**
+     * [NEW] Allows setting the price step after creation, primarily for initializing live bars.
+     * @param priceStep The new price step to use for binning trades.
+     */
+    public void setPriceStep(BigDecimal priceStep) {
+        if (priceStep != null && priceStep.compareTo(BigDecimal.ZERO) > 0) {
+            this.priceStep = priceStep;
+        }
+    }
     
     /**
      * Approximates footprint data from a K-line. Used for historical data where

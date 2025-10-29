@@ -27,6 +27,7 @@ import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 import java.beans.PropertyChangeSupport;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -75,6 +76,7 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
     private final Map<Instant, FootprintBar> footprintData;
 
     private volatile boolean isFetchingLiveHistory = false;
+    private BigDecimal lastCalculatedFootprintStep = new BigDecimal("0.05");
 
     private record RebuildResult(List<KLine> resampledCandles, KLine formingCandle, int newWindowStart, List<KLine> rawM1Slice) {}
 
@@ -101,7 +103,6 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
             if ((newType == ChartType.FOOTPRINT && oldType != ChartType.FOOTPRINT) ||
                 (newType != ChartType.FOOTPRINT && oldType == ChartType.FOOTPRINT)) {
                 logger.info("Chart type changed to/from Footprint. Triggering data reload.");
-                // [FIX] Call the overloaded method with forceReload = true to bypass the early exit condition.
                 loadDataset(currentSource, currentDisplayTimeframe, true);
             }
         }
@@ -309,17 +310,18 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
         }
     }
 
-    // [FIX] Public wrapper method
     public void loadDataset(DataSourceManager.ChartDataSource source, Timeframe timeframe) {
         loadDataset(source, timeframe, false);
     }
     
-    // [FIX] New private method with forceReload flag
     private void loadDataset(DataSourceManager.ChartDataSource source, Timeframe timeframe, boolean forceReload) {
-        // [FIX] Early exit condition is now conditional
         if (!forceReload && currentSource != null && currentSource.equals(source) && 
             currentDisplayTimeframe != null && currentDisplayTimeframe.equals(timeframe)) {
             return;
+        }
+
+        if (interactionManager != null) {
+            interactionManager.setAutoScalingY(true);
         }
 
         if (activeRebuildWorker != null && !activeRebuildWorker.isDone()) {
@@ -368,12 +370,47 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
             @Override
             protected Void doInBackground() throws Exception {
                 List<KLine> klineHistory = fetchDirectTfData(timeframe, getMaxHistoricalBars());
+                if (klineHistory.isEmpty()) {
+                    return null;
+                }
+
+                BigDecimal dynamicPriceStep;
+                if (klineHistory.size() > 1) {
+                    BigDecimal totalRange = BigDecimal.ZERO;
+                    int count = 0;
+                    for (KLine k : klineHistory) {
+                        BigDecimal range = k.high().subtract(k.low());
+                        if (range.compareTo(BigDecimal.ZERO) > 0) {
+                            totalRange = totalRange.add(range);
+                            count++;
+                        }
+                    }
+                    BigDecimal averageRange = (count > 0) ? totalRange.divide(BigDecimal.valueOf(count), 8, RoundingMode.HALF_UP) : BigDecimal.ZERO;
+
+                    dynamicPriceStep = averageRange.divide(BigDecimal.valueOf(15), 8, RoundingMode.HALF_UP);
+
+                    BigDecimal lastPrice = klineHistory.get(klineHistory.size() - 1).close();
+                    if (lastPrice.compareTo(BigDecimal.ZERO) > 0) {
+                        BigDecimal minReasonableStep = lastPrice.multiply(new BigDecimal("0.00001"));
+                        if (dynamicPriceStep.compareTo(minReasonableStep) < 0) {
+                            dynamicPriceStep = minReasonableStep;
+                        }
+                    }
+                } else {
+                    dynamicPriceStep = new BigDecimal("0.05");
+                }
+
+                if (dynamicPriceStep.compareTo(BigDecimal.ZERO) <= 0) {
+                    dynamicPriceStep = new BigDecimal("0.00001");
+                }
+                lastCalculatedFootprintStep = dynamicPriceStep;
+
                 finalizedCandles = new ArrayList<>(klineHistory);
                 footprintData.clear();
 
                 for (KLine kline : klineHistory) {
                     FootprintBar fpBar = new FootprintBar(kline.timestamp());
-                    fpBar.approximateFromKline(kline, new BigDecimal("0.05"));
+                    fpBar.approximateFromKline(kline, lastCalculatedFootprintStep);
                     footprintData.put(kline.timestamp(), fpBar);
                 }
                 return null;
@@ -382,10 +419,16 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
             @Override
             protected void done() {
                 try {
-                    get(); // Check for exceptions
+                    get();
                     if (liveDataProvider != null) {
+                        // [FIX] Subscribe to BOTH streams in footprint mode
+                        // 1. Trade stream for building clusters
                         liveTradeConsumer = ChartDataModel.this::onLiveTradeUpdate;
                         liveDataProvider.connectToTradeStream(currentSource.symbol(), liveTradeConsumer);
+
+                        // 2. K-line stream for candle timing and rollover
+                        liveDataConsumer = ChartDataModel.this::onLiveFootprintKLineUpdate;
+                        liveDataProvider.connectToLiveStream(currentSource.symbol(), timeframe.displayName(), liveDataConsumer);
                     }
                     if (interactionManager != null && !finalizedCandles.isEmpty()) {
                          int dataBarsOnScreen = (int) (interactionManager.getBarsPerScreen() * (1.0 - interactionManager.getRightMarginRatio()));
@@ -430,13 +473,46 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
         });
     }
 
+    /**
+     * [NEW] Special K-line handler for Footprint mode. Its only job is to detect
+     * a new candle interval and trigger a rollover. The actual H/L/C is updated by the trade stream.
+     * @param newTick The incoming K-line update from the WebSocket stream.
+     */
+    private void onLiveFootprintKLineUpdate(KLine newTick) {
+        SwingUtilities.invokeLater(() -> {
+            if (currentMode != ChartMode.LIVE || currentlyFormingCandle == null) return;
+    
+            Instant intervalStart = getIntervalStart(newTick.timestamp(), currentDisplayTimeframe);
+    
+            // If the incoming k-line tick belongs to a new interval, finalize the old one and start a new one.
+            if (!currentlyFormingCandle.timestamp().equals(intervalStart)) {
+                logger.debug("New footprint candle interval detected. Finalizing old candle, starting new.");
+                
+                finalizedCandles.add(currentlyFormingCandle);
+                
+                // The new candle starts with the data from the k-line stream.
+                // Subsequent trades from the trade stream will update it.
+                currentlyFormingCandle = newTick;
+                
+                // This call is crucial to make the chart scroll to the new candle.
+                interactionManager.onReplayTick(newTick);
+                updateView();
+            }
+        });
+    }
+
     private void onLiveTradeUpdate(TradeTick newTrade) {
         SwingUtilities.invokeLater(() -> {
             if (currentMode != ChartMode.LIVE) return;
             if (currentlyFormingCandle == null) return;
     
             Instant candleTimestamp = currentlyFormingCandle.timestamp();
-            FootprintBar currentFpBar = footprintData.computeIfAbsent(candleTimestamp, FootprintBar::new);
+
+            FootprintBar currentFpBar = footprintData.computeIfAbsent(candleTimestamp, ts -> {
+                FootprintBar newBar = new FootprintBar(ts);
+                newBar.setPriceStep(this.lastCalculatedFootprintStep);
+                return newBar;
+            });
             currentFpBar.addTrade(newTrade);
     
             currentlyFormingCandle = new KLine(
