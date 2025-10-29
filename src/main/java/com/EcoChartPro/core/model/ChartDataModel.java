@@ -164,6 +164,7 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
         }
         assembleVisibleKLines();
         calculateBoundaries();
+        triggerIndicatorRecalculation();
         fireDataUpdated();
         if (currentMode == ChartMode.REPLAY) checkForPreFetchTrigger();
     }
