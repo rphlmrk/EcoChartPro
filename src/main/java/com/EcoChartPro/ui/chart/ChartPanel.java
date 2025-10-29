@@ -465,7 +465,7 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
 
         // --- Grid and Main Chart Rendering ---
         axisRenderer.draw(g2d, chartAxis, klinesToRender, currentTimeframe);
-        chartRenderer.draw(g2d, chartType, chartAxis, klinesToRender, interactionManager.getStartIndex());
+        chartRenderer.draw(g2d, chartType, chartAxis, klinesToRender, interactionManager.getStartIndex(), this.dataModel);
 
 
         if (settings.isDaySeparatorsEnabled()) {

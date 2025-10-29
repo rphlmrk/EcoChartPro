@@ -1,5 +1,6 @@
 package com.EcoChartPro.ui.chart.render;
 
+import com.EcoChartPro.core.model.ChartDataModel;
 import com.EcoChartPro.core.settings.SettingsManager;
 import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.ui.chart.axis.ChartAxis;
@@ -12,7 +13,7 @@ import java.util.List;
 
 public class AreaRenderer implements AbstractChartTypeRenderer {
     @Override
-    public void draw(Graphics2D g2d, ChartAxis axis, List<KLine> klines, int viewStartIndex) {
+    public void draw(Graphics2D g2d, ChartAxis axis, List<KLine> klines, int viewStartIndex, ChartDataModel dataModel) {
         if (!axis.isConfigured() || klines == null || klines.isEmpty()) return;
 
         SettingsManager settings = SettingsManager.getInstance();

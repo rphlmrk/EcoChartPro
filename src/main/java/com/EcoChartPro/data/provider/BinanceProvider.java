@@ -253,12 +253,12 @@ public class BinanceProvider implements DataProvider {
 
     @Override
     public void connectToTradeStream(String symbol, Consumer<TradeTick> onTradeUpdate) {
-        logger.warn("Trade stream subscription not yet fully implemented in LiveDataManager.");
+        LiveDataManager.getInstance().subscribeTrade(symbol, onTradeUpdate);
     }
 
     @Override
     public void disconnectFromTradeStream(String symbol, Consumer<TradeTick> onTradeUpdate) {
-        logger.warn("Trade stream unsubscription not yet fully implemented in LiveDataManager.");
+        LiveDataManager.getInstance().unsubscribeTrade(symbol, onTradeUpdate);
     }
 
     private static class BinanceSymbolData {

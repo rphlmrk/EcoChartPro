@@ -3,6 +3,7 @@ package com.EcoChartPro.data;
 import com.EcoChartPro.core.settings.SettingsManager;
 import com.EcoChartPro.data.provider.*;
 import com.EcoChartPro.model.KLine;
+import com.EcoChartPro.model.TradeTick;
 import com.EcoChartPro.utils.DataSourceManager;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -43,6 +44,9 @@ public class LiveDataManager {
     private final ConcurrentMap<String, List<SubscriptionInfo>> subscribers = new ConcurrentHashMap<>();
     private final Map<String, Long> lastKLineTimestampPerStream = new ConcurrentHashMap<>();
     private final PropertyChangeSupport pcs = new PropertyChangeSupport(this); // For latency events
+
+    private record TradeSubscriptionInfo(String symbol, Consumer<TradeTick> callback) {}
+    private final ConcurrentMap<String, List<TradeSubscriptionInfo>> tradeSubscribers = new ConcurrentHashMap<>();
 
 
     private LiveDataManager() {}
@@ -101,6 +105,43 @@ public class LiveDataManager {
         }
     }
 
+    public synchronized void subscribeTrade(String symbol, Consumer<TradeTick> onTradeUpdate) {
+        String exchange = symbolToExchangeMap.get(symbol);
+        if (exchange == null) {
+            logger.error("Cannot subscribe to trade data for symbol '{}': Unknown exchange.", symbol);
+            return;
+        }
+        String streamName = buildTradeStreamName(symbol, exchange);
+        TradeSubscriptionInfo subInfo = new TradeSubscriptionInfo(symbol, onTradeUpdate);
+        tradeSubscribers.computeIfAbsent(streamName, k -> new CopyOnWriteArrayList<>()).add(subInfo);
+
+        if (activeSubscriptions.add(streamName)) {
+            logger.info("New trade subscription added: {}. Total active: {}. Updating {} client.", streamName, activeSubscriptions.size(), exchange);
+            updateClientSubscriptions(exchange);
+        }
+    }
+
+    public synchronized void unsubscribeTrade(String symbol, Consumer<TradeTick> onTradeUpdate) {
+        String exchange = symbolToExchangeMap.get(symbol);
+        if (exchange == null) {
+            logger.warn("Cannot unsubscribe from trades for symbol '{}': Unknown exchange.", symbol);
+            return;
+        }
+        String streamName = buildTradeStreamName(symbol, exchange);
+        List<TradeSubscriptionInfo> streamSubscribers = tradeSubscribers.get(streamName);
+
+        if (streamSubscribers != null) {
+            streamSubscribers.removeIf(subInfo -> subInfo.callback().equals(onTradeUpdate));
+            if (streamSubscribers.isEmpty()) {
+                tradeSubscribers.remove(streamName);
+                if (activeSubscriptions.remove(streamName)) {
+                    logger.info("Last subscriber for trade stream {} removed. Total active: {}. Updating {} client.", streamName, activeSubscriptions.size(), exchange);
+                    updateClientSubscriptions(exchange);
+                }
+            }
+        }
+    }
+
     private void updateClientSubscriptions(String exchange) {
         I_ExchangeWebSocketClient client = exchangeClients.computeIfAbsent(exchange, this::createClientForExchange);
         
@@ -153,29 +194,45 @@ public class LiveDataManager {
 
     private void handleBinanceMessage(String message) {
         JsonObject root = JsonParser.parseString(message).getAsJsonObject();
+        if (!root.has("stream") || !root.has("data")) return;
+
         String streamName = root.get("stream").getAsString();
         JsonObject data = root.getAsJsonObject("data");
         String eventType = data.get("e").getAsString();
 
-        if (!"kline".equals(eventType)) return;
+        if ("kline".equals(eventType)) {
+            List<SubscriptionInfo> streamSubscribers = subscribers.get(streamName);
+            if (streamSubscribers == null || streamSubscribers.isEmpty()) return;
 
-        List<SubscriptionInfo> streamSubscribers = subscribers.get(streamName);
-        if (streamSubscribers == null || streamSubscribers.isEmpty()) return;
+            JsonObject klineJson = data.getAsJsonObject("k");
+            KLine kline = new KLine(
+                    Instant.ofEpochMilli(klineJson.get("t").getAsLong()),
+                    new BigDecimal(klineJson.get("o").getAsString()),
+                    new BigDecimal(klineJson.get("h").getAsString()),
+                    new BigDecimal(klineJson.get("l").getAsString()),
+                    new BigDecimal(klineJson.get("c").getAsString()),
+                    new BigDecimal(klineJson.get("v").getAsString())
+            );
+            
+            lastKLineTimestampPerStream.put(streamName, kline.timestamp().toEpochMilli());
 
-        JsonObject klineJson = data.getAsJsonObject("k");
-        KLine kline = new KLine(
-                Instant.ofEpochMilli(klineJson.get("t").getAsLong()),
-                new BigDecimal(klineJson.get("o").getAsString()),
-                new BigDecimal(klineJson.get("h").getAsString()),
-                new BigDecimal(klineJson.get("l").getAsString()),
-                new BigDecimal(klineJson.get("c").getAsString()),
-                new BigDecimal(klineJson.get("v").getAsString())
-        );
-        
-        lastKLineTimestampPerStream.put(streamName, kline.timestamp().toEpochMilli());
+            for (SubscriptionInfo subInfo : streamSubscribers) {
+                subInfo.callback().accept(kline);
+            }
+        } else if ("trade".equals(eventType)) {
+            List<TradeSubscriptionInfo> streamSubscribers = tradeSubscribers.get(streamName);
+            if (streamSubscribers == null || streamSubscribers.isEmpty()) return;
 
-        for (SubscriptionInfo subInfo : streamSubscribers) {
-            subInfo.callback().accept(kline);
+            TradeTick tick = new TradeTick(
+                Instant.ofEpochMilli(data.get("T").getAsLong()),
+                new BigDecimal(data.get("p").getAsString()),
+                new BigDecimal(data.get("q").getAsString()),
+                data.get("m").getAsBoolean() ? "sell" : "buy"
+            );
+
+            for (TradeSubscriptionInfo subInfo : streamSubscribers) {
+                subInfo.callback().accept(tick);
+            }
         }
     }
     
@@ -189,27 +246,47 @@ public class LiveDataManager {
         JsonObject arg = root.getAsJsonObject("arg");
         String channel = arg.get("channel").getAsString();
         String instId = arg.get("instId").getAsString();
-        String streamName = String.format("%s:%s", channel, instId);
 
-        List<SubscriptionInfo> streamSubscribers = subscribers.get(streamName);
-        if (streamSubscribers == null || streamSubscribers.isEmpty()) return;
+        if (channel.startsWith("candle")) {
+            String streamName = String.format("%s:%s", channel, instId);
+            List<SubscriptionInfo> streamSubscribers = subscribers.get(streamName);
+            if (streamSubscribers == null || streamSubscribers.isEmpty()) return;
 
-        JsonArray dataArray = root.getAsJsonArray("data");
-        for (JsonElement candleElement : dataArray) {
-            JsonArray rawBar = candleElement.getAsJsonArray();
-            KLine kline = new KLine(
-                Instant.ofEpochMilli(Long.parseLong(rawBar.get(0).getAsString())),
-                new BigDecimal(rawBar.get(1).getAsString()), 
-                new BigDecimal(rawBar.get(2).getAsString()), 
-                new BigDecimal(rawBar.get(3).getAsString()), 
-                new BigDecimal(rawBar.get(4).getAsString()), 
-                new BigDecimal(rawBar.get(5).getAsString())
-            );
+            JsonArray dataArray = root.getAsJsonArray("data");
+            for (JsonElement candleElement : dataArray) {
+                JsonArray rawBar = candleElement.getAsJsonArray();
+                KLine kline = new KLine(
+                    Instant.ofEpochMilli(Long.parseLong(rawBar.get(0).getAsString())),
+                    new BigDecimal(rawBar.get(1).getAsString()), 
+                    new BigDecimal(rawBar.get(2).getAsString()), 
+                    new BigDecimal(rawBar.get(3).getAsString()), 
+                    new BigDecimal(rawBar.get(4).getAsString()), 
+                    new BigDecimal(rawBar.get(5).getAsString())
+                );
 
-            lastKLineTimestampPerStream.put(streamName, kline.timestamp().toEpochMilli());
+                lastKLineTimestampPerStream.put(streamName, kline.timestamp().toEpochMilli());
 
-            for (SubscriptionInfo subInfo : streamSubscribers) {
-                subInfo.callback().accept(kline);
+                for (SubscriptionInfo subInfo : streamSubscribers) {
+                    subInfo.callback().accept(kline);
+                }
+            }
+        } else if ("trades".equals(channel)) {
+            String streamName = String.format("%s:%s", channel, instId);
+            List<TradeSubscriptionInfo> streamSubscribers = tradeSubscribers.get(streamName);
+            if (streamSubscribers == null || streamSubscribers.isEmpty()) return;
+
+            JsonArray dataArray = root.getAsJsonArray("data");
+            for (JsonElement tradeElement : dataArray) {
+                JsonObject tradeJson = tradeElement.getAsJsonObject();
+                TradeTick tick = new TradeTick(
+                    Instant.ofEpochMilli(Long.parseLong(tradeJson.get("ts").getAsString())),
+                    new BigDecimal(tradeJson.get("px").getAsString()),
+                    new BigDecimal(tradeJson.get("sz").getAsString()),
+                    tradeJson.get("side").getAsString()
+                );
+                for (TradeSubscriptionInfo subInfo : streamSubscribers) {
+                    subInfo.callback().accept(tick);
+                }
             }
         }
     }
@@ -225,7 +302,7 @@ public class LiveDataManager {
         }
 
         Set<String> streamsToCheck = activeSubscriptions.stream()
-                .filter(stream -> getExchangeForStream(stream).equals(exchange))
+                .filter(stream -> getExchangeForStream(stream).equals(exchange) && !stream.contains("@trade") && !stream.startsWith("trades:"))
                 .collect(Collectors.toSet());
 
         for (String streamName : streamsToCheck) {
@@ -294,6 +371,18 @@ public class LiveDataManager {
                  return String.format("%s:%s", channel, okxSymbol);
             default:
                 throw new IllegalArgumentException("Cannot build stream name for unknown exchange: " + exchange);
+        }
+    }
+
+    private String buildTradeStreamName(String symbol, String exchange) {
+        switch (exchange) {
+            case "Binance":
+                return String.format("%s@trade", BinanceDataUtils.toBinanceSymbol(symbol));
+            case "OKX":
+                 String okxSymbol = OkxDataUtils.toOkxSymbol(symbol);
+                 return String.format("trades:%s", okxSymbol);
+            default:
+                throw new IllegalArgumentException("Cannot build trade stream name for unknown exchange: " + exchange);
         }
     }
 

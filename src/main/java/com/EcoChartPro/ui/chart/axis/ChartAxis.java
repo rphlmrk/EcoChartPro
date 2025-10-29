@@ -122,6 +122,25 @@ public class ChartAxis {
         return (double) drawableWidth / barsPerScreen;
     }
 
+    /**
+     * [NEW] Calculates the vertical pixel height corresponding to a given price range.
+     * This is useful for determining the on-screen size of price-based elements.
+     * @param priceValue The amount of price to convert to pixels.
+     * @return The height in pixels, or 0 if the axis is not configured.
+     */
+    public double priceToPixel(double priceValue) {
+        if (!isConfigured) return 0;
+
+        int drawableHeight = chartHeight - (2 * Y_AXIS_PADDING);
+        BigDecimal totalPriceRange = maxPrice.subtract(minPrice);
+        if (totalPriceRange.compareTo(BigDecimal.ZERO) <= 0) {
+            return 0;
+        }
+
+        double priceRatio = priceValue / totalPriceRange.doubleValue();
+        return priceRatio * drawableHeight;
+    }
+
     public int slotToX(int slotIndex) {
         if (!isConfigured) return 0;
         double barWidth = getBarWidth();

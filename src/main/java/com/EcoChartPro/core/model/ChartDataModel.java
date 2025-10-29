@@ -317,8 +317,8 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
                     get(); // Check for exceptions
                     totalCandleCount = Integer.MAX_VALUE;
                     if (liveDataProvider != null) {
-                        // liveTradeConsumer = ChartDataModel.this::onLiveTradeUpdate;
-                        // liveDataProvider.connectToTradeStream(currentSource.symbol(), liveTradeConsumer);
+                        liveTradeConsumer = ChartDataModel.this::onLiveTradeUpdate;
+                        liveDataProvider.connectToTradeStream(currentSource.symbol(), liveTradeConsumer);
                     }
                     updateView();
                 } catch (Exception e) {
@@ -356,6 +356,38 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
             interactionManager.onReplayTick(newTick);
             triggerIndicatorRecalculation();
             updateView();
+        });
+    }
+
+    private void onLiveTradeUpdate(TradeTick newTrade) {
+        SwingUtilities.invokeLater(() -> {
+            if (currentMode != ChartMode.LIVE) return;
+    
+            // Ensure we have a candle to attach the trade to
+            if (currentlyFormingCandle == null) {
+                // This can happen briefly when a connection starts. We'll wait for the first K-line update.
+                return;
+            }
+    
+            Instant candleTimestamp = currentlyFormingCandle.timestamp();
+            FootprintBar currentFpBar = footprintData.computeIfAbsent(candleTimestamp, FootprintBar::new);
+            
+            // Add the trade to the footprint bar for aggregation.
+            // The FootprintBar object internally handles the binning of the trade into the correct price level.
+            currentFpBar.addTrade(newTrade);
+    
+            // Also update the currently forming KLine with info from the latest trade
+            currentlyFormingCandle = new KLine(
+                currentlyFormingCandle.timestamp(),
+                currentlyFormingCandle.open(),
+                currentlyFormingCandle.high().max(newTrade.price()),
+                currentlyFormingCandle.low().min(newTrade.price()),
+                newTrade.price(), // The latest trade sets the current close price
+                currentlyFormingCandle.volume().add(newTrade.quantity())
+            );
+    
+            // Trigger a repaint to show the updated footprint and candle
+            fireDataUpdated();
         });
     }
 

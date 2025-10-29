@@ -1,5 +1,6 @@
 package com.EcoChartPro.ui.chart.render;
 
+import com.EcoChartPro.core.model.ChartDataModel;
 import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.chart.ChartType;
 import com.EcoChartPro.ui.chart.axis.ChartAxis;
@@ -37,8 +38,9 @@ public class ChartRenderer {
      * @param axis The configured chart axis.
      * @param visibleKlines The list of visible data points.
      * @param startIndex The absolute start index of the visible data.
+     * @param dataModel The chart's data model, for accessing additional data like footprints.
      */
-    public void draw(Graphics2D g2d, ChartType chartType, ChartAxis axis, List<KLine> visibleKlines, int startIndex) {
+    public void draw(Graphics2D g2d, ChartType chartType, ChartAxis axis, List<KLine> visibleKlines, int startIndex, ChartDataModel dataModel) {
         ChartType effectiveType = chartType;
 
         // Auto-switch from Footprint to Candles when zoomed out for performance and readability
@@ -51,7 +53,7 @@ public class ChartRenderer {
         AbstractChartTypeRenderer renderer = renderers.get(effectiveType);
 
         if (renderer != null) {
-            renderer.draw(g2d, axis, visibleKlines, startIndex);
+            renderer.draw(g2d, axis, visibleKlines, startIndex, dataModel);
         } else {
             // Fallback for unimplemented chart types
             String message = chartType.getDisplayName() + " chart type not yet implemented.";
