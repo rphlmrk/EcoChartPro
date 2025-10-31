@@ -532,29 +532,39 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
 
         drawInfoPanel(g2d, rawVisibleKLines); // Info panel should always show raw data
 
-        if (interactionManager.isViewingLiveEdge()) {
-            KLine lastKline = dataModel.getCurrentReplayKLine();
+        // [FIX] Draw the live price line whenever in LIVE mode, not just when auto-scrolling.
+        if (dataModel.getCurrentMode() == ChartDataModel.ChartMode.LIVE) {
+            KLine lastKline = dataModel.getCurrentReplayKLine(); // This gets the forming candle in live mode
             if (lastKline != null) {
+                // Raw price line
                 BigDecimal lastClose = lastKline.close();
                 int y = chartAxis.priceToY(lastClose);
                 boolean isBullish = lastKline.close().compareTo(lastKline.open()) >= 0;
-                Color backgroundColor = isBullish ? settings.getBullColor() : settings.getBearColor();
+                Color priceLineColor = isBullish ? settings.getBullColor() : settings.getBearColor();
 
-                int lastGlobalIndex;
-                if (dataModel.getCurrentMode() == ChartDataModel.ChartMode.LIVE) {
-                    // For live, the forming candle is at the next logical index
-                    lastGlobalIndex = dataModel.getTotalCandleCount();
-                } else {
-                    // For replay, it's the last available index
-                    lastGlobalIndex = dataModel.getTotalCandleCount() - 1;
-                }
-
+                int lastGlobalIndex = dataModel.getTotalCandleCount();
                 int slot = lastGlobalIndex - interactionManager.getStartIndex();
                 int startX = chartAxis.slotToX(slot);
+
                 Stroke dashed = new BasicStroke(1, BasicStroke.CAP_BUTT, BasicStroke.JOIN_BEVEL, 0, new float[]{5}, 0);
                 g2d.setStroke(dashed);
-                g2d.setColor(backgroundColor);
+                g2d.setColor(priceLineColor);
                 g2d.drawLine(startX, y, getWidth(), y);
+
+                // Heikin Ashi price line
+                if (settings.getCurrentChartType() == ChartType.HEIKIN_ASHI) {
+                    List<KLine> haCandles = dataModel.getHeikinAshiCandles();
+                    if (haCandles != null && !haCandles.isEmpty()) {
+                        KLine lastHaKline = haCandles.get(haCandles.size() - 1);
+                        int yHa = chartAxis.priceToY(lastHaKline.close());
+                        boolean isHaBullish = lastHaKline.close().compareTo(lastHaKline.open()) >= 0;
+                        Color haColor = isHaBullish ? settings.getBullColor() : settings.getBearColor();
+                        g2d.setColor(haColor.darker());
+                        Stroke haDashed = new BasicStroke(1, BasicStroke.CAP_BUTT, BasicStroke.JOIN_BEVEL, 0, new float[]{2, 3}, 0);
+                        g2d.setStroke(haDashed);
+                        g2d.drawLine(startX, yHa, getWidth(), yHa);
+                    }
+                }
             }
         }
 

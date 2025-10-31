@@ -8,6 +8,7 @@ import com.EcoChartPro.data.provider.BinanceProvider;
 import com.EcoChartPro.core.indicator.IndicatorManager;
 import com.EcoChartPro.core.manager.DrawingManager;
 import com.EcoChartPro.data.DataResampler;
+import com.EcoChartPro.data.DataTransformer;
 import com.EcoChartPro.data.provider.OkxProvider;
 import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.Symbol;
@@ -77,6 +78,10 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
 
     private volatile boolean isFetchingLiveHistory = false;
     private BigDecimal lastCalculatedFootprintStep = new BigDecimal("0.05");
+
+    // [NEW] Heikin Ashi Caching
+    private List<KLine> heikinAshiCandlesCache;
+    private boolean isHaCacheDirty = true;
 
     private record RebuildResult(List<KLine> resampledCandles, KLine formingCandle, int newWindowStart, List<KLine> rawM1Slice) {}
 
@@ -463,7 +468,8 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
                         currentlyFormingCandle.volume().add(newTick.volume())
                 );
             }
-    
+            
+            isHaCacheDirty = true; // [MODIFIED] Invalidate HA cache
             interactionManager.onReplayTick(newTick);
             triggerIndicatorRecalculation();
             updateView();
@@ -520,6 +526,7 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
                 currentlyFormingCandle.volume().add(newTrade.quantity())
             );
             
+            isHaCacheDirty = true; // [MODIFIED] Invalidate HA cache
             // [FIX] Call the full updateView() method to ensure all components and boundaries are refreshed.
             updateView();
         });
@@ -531,6 +538,8 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
         if (baseDataWindow != null) baseDataWindow.add(newBar);
         if (currentDisplayTimeframe == Timeframe.M1) totalCandleCount++;
         else processNewM1Bar(newBar);
+        
+        isHaCacheDirty = true; // [MODIFIED] Invalidate HA cache
         assembleVisibleKLines();
         calculateBoundaries();
         triggerIndicatorRecalculation();
@@ -605,6 +614,7 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
                         currentlyFormingCandle = null;
                     }
 
+                    isHaCacheDirty = true; // [MODIFIED] Invalidate HA cache
                     if (liveDataProvider != null) {
                         liveDataConsumer = ChartDataModel.this::onLiveKLineUpdate;
                         liveDataProvider.connectToLiveStream(currentSource.symbol(), currentDisplayTimeframe.displayName(), liveDataConsumer);
@@ -637,6 +647,7 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
         this.dataWindowStartIndex = 0;
         this.footprintData.clear();
         this.htfCache.clear();
+        this.isHaCacheDirty = true; // [MODIFIED] Invalidate HA cache
         fireDataUpdated();
     }
 
@@ -651,6 +662,7 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
         this.dataWindowStartIndex = 0;
         this.footprintData.clear();
         this.htfCache.clear();
+        this.isHaCacheDirty = true; // [MODIFIED] Invalidate HA cache
         fireDataUpdated();
     }
 
@@ -721,6 +733,7 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
         }
         currentlyFormingCandle = result.formingCandle();
         dataWindowStartIndex = result.newWindowStart();
+        isHaCacheDirty = true; // [MODIFIED] Invalidate HA cache
         
         if (currentMode == ChartMode.REPLAY) {
             if (currentDisplayTimeframe != Timeframe.M1 && !currentDisplayTimeframe.duration().isZero()) {
@@ -857,7 +870,7 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
         return Instant.ofEpochMilli(epochMillis - (epochMillis % durationMillis));
     }
     
-    private List<KLine> getAllChartableCandles() {
+    public List<KLine> getAllChartableCandles() {
         if (currentMode == ChartMode.REPLAY && currentDisplayTimeframe == Timeframe.M1) {
             return baseDataWindow != null ? baseDataWindow : Collections.emptyList();
         }
@@ -917,6 +930,22 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
             return 300;
         }
         return DATA_WINDOW_SIZE; // Default no limit
+    }
+
+    /**
+     * [NEW] Returns a list of Heikin Ashi candles corresponding to the current set of chartable raw candles.
+     * The result is cached and only recalculated when the underlying raw data changes.
+     * @return A list of Heikin Ashi K-lines.
+     */
+    public List<KLine> getHeikinAshiCandles() {
+        if (!isHaCacheDirty && heikinAshiCandlesCache != null) {
+            return heikinAshiCandlesCache;
+        }
+        List<KLine> allRaw = getAllChartableCandles();
+        logger.debug("Recalculating Heikin Ashi cache for {} raw candles.", allRaw.size());
+        heikinAshiCandlesCache = DataTransformer.transformToHeikinAshi(allRaw);
+        isHaCacheDirty = false;
+        return heikinAshiCandlesCache;
     }
 
     public ChartMode getCurrentMode() { return currentMode; }

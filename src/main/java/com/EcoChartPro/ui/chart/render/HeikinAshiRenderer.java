@@ -32,20 +32,25 @@ public class HeikinAshiRenderer implements AbstractChartTypeRenderer {
             boolean isBullish = kline.close().compareTo(kline.open()) >= 0;
             g2d.setColor(isBullish ? settings.getBullColor() : settings.getBearColor());
 
-            // Wicks
-            g2d.drawLine(xCenter, yHigh, xCenter, yLow);
+            // [FIX] Render wicks precisely relative to the candle body for accurate HA representation.
+            int bodyTopY = Math.min(yOpen, yClose);
+            int bodyBottomY = Math.max(yOpen, yClose);
+            int bodyHeight = bodyBottomY - bodyTopY;
+
+            // Draw upper wick (from high to the top of the body)
+            g2d.drawLine(xCenter, yHigh, xCenter, bodyTopY);
+
+            // Draw lower wick (from low to the bottom of the body)
+            g2d.drawLine(xCenter, yLow, xCenter, bodyBottomY);
 
             // Body
-            if (isBullish) {
-                g2d.fillRect(xCenter - candleBodyWidth / 2, yClose, candleBodyWidth, yOpen - yClose);
-            } else {
-                int bodyX = xCenter - candleBodyWidth / 2;
-                int bodyY = yOpen;
-                int bodyHeight = yClose - yOpen;
-                g2d.setColor(settings.getBearColor());
-                g2d.fillRect(bodyX, bodyY, candleBodyWidth, bodyHeight);
+            int bodyX = xCenter - candleBodyWidth / 2;
+            g2d.fillRect(bodyX, bodyTopY, candleBodyWidth, bodyHeight);
+
+            // Add an outline to bearish candles for better visibility, matching the standard candle style.
+            if (!isBullish) {
                 g2d.setColor(settings.getChartBackground());
-                g2d.drawRect(bodyX, bodyY, candleBodyWidth, bodyHeight);
+                g2d.drawRect(bodyX, bodyTopY, candleBodyWidth, bodyHeight);
             }
         }
     }

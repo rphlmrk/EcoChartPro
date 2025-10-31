@@ -10,6 +10,7 @@ import com.EcoChartPro.core.trading.PaperTradingService;
 import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.Timeframe;
 import com.EcoChartPro.model.TradeDirection;
+import com.EcoChartPro.model.chart.ChartType;
 import com.EcoChartPro.model.drawing.DrawingObject;
 import com.EcoChartPro.model.drawing.DrawingObjectPoint;
 import com.EcoChartPro.model.drawing.FibonacciExtensionObject;
@@ -78,6 +79,7 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
         sm.addPropertyChangeListener("chartColorsChanged", this);
         sm.addPropertyChangeListener("livePriceLabelFontSizeChanged", this);
         sm.addPropertyChangeListener("crosshairLabelColorChanged", this);
+        sm.addPropertyChangeListener("chartTypeChanged", this); // [NEW] Listen for chart type changes
         CrosshairManager.getInstance().addPropertyChangeListener("crosshairMoved", this);
         
         startRepaintTimer();
@@ -287,30 +289,64 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
                 return;
             }
         
-            BigDecimal lastClose = lastKline.close();
-            int yPriceLabel = yAxis.priceToY(lastClose);
-        
             SettingsManager settings = SettingsManager.getInstance();
-            boolean isBullish = lastKline.close().compareTo(lastKline.open()) >= 0;
-            
-            Color backgroundColor = isBullish ? settings.getBullColor() : settings.getBearColor();
-            Color textColor = isBullish ? settings.getLivePriceLabelBullTextColor() : settings.getLivePriceLabelBearTextColor();
-            Font liveFont = LABEL_FONT.deriveFont((float) settings.getLivePriceLabelFontSize());
         
-            String priceStr = lastClose.setScale(2, RoundingMode.HALF_UP).toPlainString();
+            // --- 1. Get Data: Real price and optional Heikin Ashi price ---
+            BigDecimal lastClose = lastKline.close();
+            BigDecimal haClose = null;
+            KLine lastHaKline = null;
+        
+            if (settings.getCurrentChartType() == ChartType.HEIKIN_ASHI) {
+                List<KLine> haCandles = dataModel.getHeikinAshiCandles();
+                if (haCandles != null && !haCandles.isEmpty()) {
+                    lastHaKline = haCandles.get(haCandles.size() - 1);
+                    haClose = lastHaKline.close();
+                }
+            }
+        
+            // --- 2. Setup common rendering variables ---
+            boolean isRawBullish = lastKline.close().compareTo(lastKline.open()) >= 0;
+            Color backgroundColor = isRawBullish ? settings.getBullColor() : settings.getBearColor();
+            Color textColor = isRawBullish ? settings.getLivePriceLabelBullTextColor() : settings.getLivePriceLabelBearTextColor();
+            Font liveFont = LABEL_FONT.deriveFont((float) settings.getLivePriceLabelFontSize());
             g2d.setFont(liveFont);
-            FontMetrics fmPrice = g2d.getFontMetrics();
-            int priceLabelHeight = fmPrice.getHeight() + 2;
+            FontMetrics fm = g2d.getFontMetrics();
+        
+            int priceLabelHeight = fm.getHeight() + 2;
             int priceRectWidth = getWidth();
-            int priceRectHeight = priceLabelHeight;
-            int yPriceRect = yPriceLabel - priceRectHeight / 2;
             int rectX = 0;
         
-            g2d.setColor(backgroundColor);
-            g2d.fillRect(rectX, yPriceRect, priceRectWidth, priceRectHeight);
-            g2d.setColor(textColor);
-            g2d.drawString(priceStr, rectX + PADDING_X, yPriceRect + fmPrice.getAscent() + 1);
+            // --- 3. Draw Real Price Label ---
+            int yRealPriceLabel = yAxis.priceToY(lastClose);
+            String realPriceStr = lastClose.setScale(2, RoundingMode.HALF_UP).toPlainString();
+            int yRealPriceRect = yRealPriceLabel - priceLabelHeight / 2;
         
+            g2d.setColor(backgroundColor);
+            g2d.fillRect(rectX, yRealPriceRect, priceRectWidth, priceLabelHeight);
+            g2d.setColor(textColor);
+            g2d.drawString(realPriceStr, rectX + PADDING_X, yRealPriceRect + fm.getAscent() + 1);
+        
+            int nextY = yRealPriceRect + priceLabelHeight;
+        
+            // --- 4. Draw Heikin Ashi Price Label (if applicable) ---
+            if (haClose != null && lastHaKline != null) {
+                boolean isHaBullish = lastHaKline.close().compareTo(lastHaKline.open()) >= 0;
+                String haPriceStr = haClose.setScale(2, RoundingMode.HALF_UP).toPlainString();
+                
+                // [MODIFIED] Use a different, shaded background color for the HA label to visually separate it.
+                Color haBackgroundColor = isHaBullish ? settings.getBullColor().darker() : settings.getBearColor().darker();
+                
+                g2d.setColor(haBackgroundColor);
+                g2d.fillRect(rectX, nextY, priceRectWidth, priceLabelHeight);
+
+                // Draw text
+                g2d.setColor(textColor);
+                g2d.drawString(haPriceStr, rectX + PADDING_X, nextY + fm.getAscent() + 1);
+                
+                nextY += priceLabelHeight;
+            }
+        
+            // --- 5. Draw Countdown Timer ---
             Timeframe timeframe = dataModel.getCurrentDisplayTimeframe();
             if (timeframe == null) {
                 return;
@@ -362,18 +398,13 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
             }
         
             if (countdownText != null) {
-                g2d.setFont(liveFont);
-                FontMetrics fmCountdown = g2d.getFontMetrics();
-                
-                int yCountdownRect = yPriceRect + priceRectHeight;
-                int countdownRectWidth = getWidth();
-                int countdownRectHeight = fmCountdown.getHeight() + 2;
+                int yCountdownRect = nextY;
+                int countdownRectHeight = fm.getHeight() + 2;
         
                 g2d.setColor(backgroundColor);
-                g2d.fillRect(rectX, yCountdownRect, countdownRectWidth, countdownRectHeight);
-                
+                g2d.fillRect(rectX, yCountdownRect, priceRectWidth, countdownRectHeight);
                 g2d.setColor(textColor);
-                g2d.drawString(countdownText, rectX + PADDING_X, yCountdownRect + fmCountdown.getAscent() + 1);
+                g2d.drawString(countdownText, rectX + PADDING_X, yCountdownRect + fm.getAscent() + 1);
             }
         }
 
