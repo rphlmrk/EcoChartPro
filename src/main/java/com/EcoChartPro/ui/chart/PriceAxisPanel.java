@@ -282,7 +282,9 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
         }
 
         private void drawLiveInfo(Graphics2D g2d) {
-            if (dataModel == null) return;
+            if (dataModel == null) {
+                return;
+            }
         
             KLine lastKline = dataModel.getCurrentReplayKLine();
             if (lastKline == null) {
@@ -290,66 +292,91 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
             }
         
             SettingsManager settings = SettingsManager.getInstance();
+            boolean isHeikinAshiMode = settings.getCurrentChartType() == ChartType.HEIKIN_ASHI;
         
-            // --- 1. Get Data: Real price and optional Heikin Ashi price ---
+            // --- 1. Get Data & Countdown ---
             BigDecimal lastClose = lastKline.close();
-            BigDecimal haClose = null;
             KLine lastHaKline = null;
-        
-            if (settings.getCurrentChartType() == ChartType.HEIKIN_ASHI) {
+            if (isHeikinAshiMode) {
                 List<KLine> haCandles = dataModel.getHeikinAshiCandles();
                 if (haCandles != null && !haCandles.isEmpty()) {
                     lastHaKline = haCandles.get(haCandles.size() - 1);
-                    haClose = lastHaKline.close();
                 }
             }
+            String countdownText = getCountdownText(lastKline, dataModel.getCurrentDisplayTimeframe());
         
-            // --- 2. Setup common rendering variables ---
+            // --- 2. Setup Rendering Variables ---
             boolean isRawBullish = lastKline.close().compareTo(lastKline.open()) >= 0;
-            Color backgroundColor = isRawBullish ? settings.getBullColor() : settings.getBearColor();
+            Color realPriceBackgroundColor = isRawBullish ? settings.getBullColor() : settings.getBearColor();
             Color textColor = isRawBullish ? settings.getLivePriceLabelBullTextColor() : settings.getLivePriceLabelBearTextColor();
             Font liveFont = LABEL_FONT.deriveFont((float) settings.getLivePriceLabelFontSize());
             g2d.setFont(liveFont);
             FontMetrics fm = g2d.getFontMetrics();
-        
+            
             int priceLabelHeight = fm.getHeight() + 2;
-            int priceRectWidth = getWidth();
             int rectX = 0;
+            int priceRectWidth = getWidth();
+            int separatorHeight = 1;
         
-            // --- 3. Draw Real Price Label ---
-            int yRealPriceLabel = yAxis.priceToY(lastClose);
-            String realPriceStr = lastClose.setScale(2, RoundingMode.HALF_UP).toPlainString();
-            int yRealPriceRect = yRealPriceLabel - priceLabelHeight / 2;
+            // --- 3. Calculate Independent Positions and Handle Overlaps ---
+            int yRealPriceCenter = yAxis.priceToY(lastClose);
+            int yRealPriceRectTop = yRealPriceCenter - priceLabelHeight / 2;
         
-            g2d.setColor(backgroundColor);
-            g2d.fillRect(rectX, yRealPriceRect, priceRectWidth, priceLabelHeight);
-            g2d.setColor(textColor);
-            g2d.drawString(realPriceStr, rectX + PADDING_X, yRealPriceRect + fm.getAscent() + 1);
+            int yHaPriceRectTop = -1;
+            if (isHeikinAshiMode && lastHaKline != null) {
+                int yHaPriceCenter = yAxis.priceToY(lastHaKline.close());
+                yHaPriceRectTop = yHaPriceCenter - priceLabelHeight / 2;
         
-            int nextY = yRealPriceRect + priceLabelHeight;
-        
-            // --- 4. Draw Heikin Ashi Price Label (if applicable) ---
-            if (haClose != null && lastHaKline != null) {
-                boolean isHaBullish = lastHaKline.close().compareTo(lastHaKline.open()) >= 0;
-                String haPriceStr = haClose.setScale(2, RoundingMode.HALF_UP).toPlainString();
-                
-                // [MODIFIED] Use a different, shaded background color for the HA label to visually separate it.
-                Color haBackgroundColor = isHaBullish ? settings.getBullColor().darker() : settings.getBearColor().darker();
-                
-                g2d.setColor(haBackgroundColor);
-                g2d.fillRect(rectX, nextY, priceRectWidth, priceLabelHeight);
-
-                // Draw text
-                g2d.setColor(textColor);
-                g2d.drawString(haPriceStr, rectX + PADDING_X, nextY + fm.getAscent() + 1);
-                
-                nextY += priceLabelHeight;
+                // Handle overlap by stacking
+                if (Math.abs(yRealPriceCenter - yHaPriceCenter) < priceLabelHeight) {
+                    if (yRealPriceCenter < yHaPriceCenter) { // Real price is higher on chart
+                        yHaPriceRectTop = yRealPriceRectTop + priceLabelHeight + separatorHeight;
+                    } else { // HA price is higher on chart
+                        yRealPriceRectTop = yHaPriceRectTop + priceLabelHeight + separatorHeight;
+                    }
+                }
             }
         
-            // --- 5. Draw Countdown Timer ---
-            Timeframe timeframe = dataModel.getCurrentDisplayTimeframe();
-            if (timeframe == null) {
-                return;
+            // --- 4. Draw Labels Sequentially ---
+        
+            // A. Draw Real Price Label
+            String realPriceStr = lastClose.setScale(2, RoundingMode.HALF_UP).toPlainString();
+            g2d.setColor(realPriceBackgroundColor);
+            g2d.fillRect(rectX, yRealPriceRectTop, priceRectWidth, priceLabelHeight);
+            g2d.setColor(textColor);
+            g2d.drawString(realPriceStr, rectX + PADDING_X, yRealPriceRectTop + fm.getAscent() + 1);
+        
+            int lowestY = yRealPriceRectTop + priceLabelHeight;
+        
+            // B. Draw HA Price Label
+            if (isHeikinAshiMode && lastHaKline != null) {
+                BigDecimal haClose = lastHaKline.close();
+                boolean isHaBullish = haClose.compareTo(lastHaKline.open()) >= 0;
+                String haPriceStr = haClose.setScale(2, RoundingMode.HALF_UP).toPlainString();
+                Color haBackgroundColor = isHaBullish ? settings.getBullColor().darker() : settings.getBearColor().darker();
+        
+                g2d.setColor(haBackgroundColor);
+                g2d.fillRect(rectX, yHaPriceRectTop, priceRectWidth, priceLabelHeight);
+                g2d.setColor(textColor);
+                g2d.drawString(haPriceStr, rectX + PADDING_X, yHaPriceRectTop + fm.getAscent() + 1);
+                
+                lowestY = Math.max(lowestY, yHaPriceRectTop + priceLabelHeight);
+            }
+            
+            // C. Draw Countdown Label
+            if (countdownText != null) {
+                int yCountdownRect = lowestY + separatorHeight;
+        
+                g2d.setColor(realPriceBackgroundColor); // Use real price background for countdown
+                g2d.fillRect(rectX, yCountdownRect, priceRectWidth, priceLabelHeight);
+                g2d.setColor(textColor);
+                g2d.drawString(countdownText, rectX + PADDING_X, yCountdownRect + fm.getAscent() + 1);
+            }
+        }
+        
+        private String getCountdownText(KLine lastKline, Timeframe timeframe) {
+             if (timeframe == null) {
+                return null;
             }
         
             String countdownText = null;
@@ -396,16 +423,7 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
                     }
                 }
             }
-        
-            if (countdownText != null) {
-                int yCountdownRect = nextY;
-                int countdownRectHeight = fm.getHeight() + 2;
-        
-                g2d.setColor(backgroundColor);
-                g2d.fillRect(rectX, yCountdownRect, priceRectWidth, countdownRectHeight);
-                g2d.setColor(textColor);
-                g2d.drawString(countdownText, rectX + PADDING_X, yCountdownRect + fm.getAscent() + 1);
-            }
+            return countdownText;
         }
 
         private void drawPriceScale(Graphics2D g2d) {
