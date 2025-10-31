@@ -532,9 +532,11 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
 
         drawInfoPanel(g2d, rawVisibleKLines); // Info panel should always show raw data
 
-        // [FIX] Draw the live price line whenever in LIVE mode, not just when auto-scrolling.
-        if (dataModel.getCurrentMode() == ChartDataModel.ChartMode.LIVE) {
-            KLine lastKline = dataModel.getCurrentReplayKLine(); // This gets the forming candle in live mode
+        // [MODIFIED] Draw the line in LIVE mode OR in REPLAY mode if viewing the live edge.
+        if (dataModel.getCurrentMode() == ChartDataModel.ChartMode.LIVE ||
+            (dataModel.isInReplayMode() && interactionManager.isViewingLiveEdge())) {
+            
+            KLine lastKline = dataModel.getCurrentReplayKLine();
             if (lastKline != null) {
                 // Raw price line
                 BigDecimal lastClose = lastKline.close();
@@ -542,10 +544,15 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
                 boolean isBullish = lastKline.close().compareTo(lastKline.open()) >= 0;
                 Color priceLineColor = isBullish ? settings.getBullColor() : settings.getBearColor();
 
-                int lastGlobalIndex = dataModel.getTotalCandleCount();
+                int lastGlobalIndex;
+                if (dataModel.getCurrentMode() == ChartDataModel.ChartMode.LIVE) {
+                    lastGlobalIndex = dataModel.getTotalCandleCount();
+                } else { // REPLAY mode
+                    lastGlobalIndex = dataModel.getTotalCandleCount() - 1;
+                }
+
                 int slot = lastGlobalIndex - interactionManager.getStartIndex();
                 int startX = chartAxis.slotToX(slot);
-
                 Stroke dashed = new BasicStroke(1, BasicStroke.CAP_BUTT, BasicStroke.JOIN_BEVEL, 0, new float[]{5}, 0);
                 g2d.setStroke(dashed);
                 g2d.setColor(priceLineColor);
