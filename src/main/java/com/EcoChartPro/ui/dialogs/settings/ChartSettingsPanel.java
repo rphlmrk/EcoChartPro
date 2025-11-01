@@ -20,6 +20,7 @@ public class ChartSettingsPanel extends JPanel {
     private final JButton backgroundColorButton;
     private final JButton gridColorButton;
     private final JButton axisTextColorButton;
+    private final JButton daySeparatorColorButton; // [MOVED]
     private final JButton crosshairColorButton;
     private final JButton crosshairLabelBgButton;
     private final JButton crosshairLabelFgButton;
@@ -28,7 +29,6 @@ public class ChartSettingsPanel extends JPanel {
     private final JSpinner livePriceFontSizeSpinner;
     private final JCheckBox daySeparatorsCheckBox;
     private final JSpinner daySeparatorTimeSpinner;
-    private final JButton daySeparatorColorButton; // [NEW]
     private final JComboBox<SettingsManager.CrosshairFPS> crosshairFpsComboBox;
     private final JCheckBox showPriceLabelsCheckbox;
     private final JCheckBox showOrdersOnAxisCheckbox;
@@ -48,6 +48,7 @@ public class ChartSettingsPanel extends JPanel {
         backgroundColorButton = createColorButton(sm.getChartBackground());
         gridColorButton = createColorButton(sm.getGridColor());
         axisTextColorButton = createColorButton(sm.getAxisTextColor());
+        daySeparatorColorButton = createColorButton(sm.getDaySeparatorColor()); // [MOVED]
         crosshairColorButton = createColorButton(sm.getCrosshairColor());
         crosshairLabelBgButton = createColorButton(sm.getCrosshairLabelBackgroundColor());
         crosshairLabelFgButton = createColorButton(sm.getCrosshairLabelForegroundColor());
@@ -63,8 +64,6 @@ public class ChartSettingsPanel extends JPanel {
         daySeparatorTimeSpinner = new JSpinner(timeModel);
         daySeparatorTimeSpinner.setEditor(new JSpinner.DateEditor(daySeparatorTimeSpinner, "HH:mm"));
         
-        daySeparatorColorButton = createColorButton(sm.getDaySeparatorColor()); // [NEW]
-
         crosshairFpsComboBox = new JComboBox<>(SettingsManager.CrosshairFPS.values());
         crosshairFpsComboBox.setSelectedItem(sm.getCrosshairFps());
         
@@ -102,6 +101,10 @@ public class ChartSettingsPanel extends JPanel {
 
         gbc.gridx = 0; gbc.gridy++; add(new JLabel("Axis Text & Labels:"), gbc);
         gbc.gridx++; add(axisTextColorButton, gbc);
+        
+        // [MOVED] Day Separator Color is now here
+        gbc.gridx = 0; gbc.gridy++; add(new JLabel("Day Separator Line:"), gbc);
+        gbc.gridx++; add(daySeparatorColorButton, gbc);
 
         gbc.gridx = 0; gbc.gridy++; add(new JLabel("Crosshair Line:"), gbc);
         gbc.gridx++; add(crosshairColorButton, gbc);
@@ -123,15 +126,11 @@ public class ChartSettingsPanel extends JPanel {
         
         gbc.gridy++; add(createSeparator("Chart Elements"), gbc);
 
-        // [MODIFIED] Day Separator layout with color picker
         gbc.gridx = 0; gbc.gridy++; add(daySeparatorsCheckBox, gbc);
         gbc.gridx = 1; 
-        JPanel daySeparatorPanel = new JPanel(new GridBagLayout());
-        GridBagConstraints dspGbc = new GridBagConstraints();
-        dspGbc.insets = new Insets(0, 0, 0, 5);
-        daySeparatorPanel.add(new JLabel("Day Start (UTC):"), dspGbc);
-        dspGbc.gridx++; daySeparatorPanel.add(daySeparatorTimeSpinner, dspGbc);
-        dspGbc.gridx++; daySeparatorPanel.add(daySeparatorColorButton, dspGbc);
+        JPanel daySeparatorPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        daySeparatorPanel.add(new JLabel("Day Start (UTC):"));
+        daySeparatorPanel.add(daySeparatorTimeSpinner);
         add(daySeparatorPanel, gbc);
         
         gbc.gridx = 0; gbc.gridy++; add(new JLabel("Crosshair Refresh Rate:"), gbc);
@@ -158,6 +157,7 @@ public class ChartSettingsPanel extends JPanel {
         sm.setChartBackground(backgroundColorButton.getBackground());
         sm.setGridColor(gridColorButton.getBackground());
         sm.setAxisTextColor(axisTextColorButton.getBackground());
+        sm.setDaySeparatorColor(daySeparatorColorButton.getBackground()); // [MOVED]
         sm.setCrosshairColor(crosshairColorButton.getBackground());
         sm.setCrosshairLabelBackgroundColor(crosshairLabelBgButton.getBackground());
         sm.setCrosshairLabelForegroundColor(crosshairLabelFgButton.getBackground());
@@ -167,7 +167,6 @@ public class ChartSettingsPanel extends JPanel {
         sm.setDaySeparatorsEnabled(daySeparatorsCheckBox.isSelected());
         Date separatorDate = (Date) daySeparatorTimeSpinner.getValue();
         sm.setDaySeparatorStartTime(separatorDate.toInstant().atZone(ZoneOffset.UTC).toLocalTime());
-        sm.setDaySeparatorColor(daySeparatorColorButton.getBackground()); // [NEW]
         sm.setCrosshairFps((SettingsManager.CrosshairFPS) crosshairFpsComboBox.getSelectedItem());
         sm.setPriceAxisLabelsEnabled(showPriceLabelsCheckbox.isSelected());
         sm.setPriceAxisLabelsShowOrders(showOrdersOnAxisCheckbox.isSelected());
