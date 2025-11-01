@@ -36,7 +36,6 @@ public class MenuBarManager {
         menuBar.add(editMenuResult.menu());
         menuBar.add(createToolsMenu());
         menuBar.add(createInsightsMenu());
-        menuBar.add(createProgressionMenu());
         menuBar.add(createHelpMenu());
 
         // --- First Spacer ---
@@ -159,19 +158,16 @@ public class MenuBarManager {
 
     private JMenu createInsightsMenu() {
         JMenu insightsMenu = new JMenu("Insights");
-        insightsMenu.setEnabled(isReplayMode);
         JMenuItem showInsightsItem = new JMenuItem("Show Insights Dialog...");
+        showInsightsItem.setEnabled(isReplayMode);
         showInsightsItem.addActionListener(e -> owner.getUiManager().openInsightsDialog());
         insightsMenu.add(showInsightsItem);
-        return insightsMenu;
-    }
-    
-    private JMenu createProgressionMenu() {
-        JMenu progressionMenu = new JMenu("Progression");
+
         JMenuItem showAchievementsItem = new JMenuItem("Show Achievements...");
         showAchievementsItem.addActionListener(e -> owner.getUiManager().openAchievementsDialog());
-        progressionMenu.add(showAchievementsItem);
-        return progressionMenu;
+        insightsMenu.add(showAchievementsItem);
+
+        return insightsMenu;
     }
 
     private JMenu createHelpMenu() {

@@ -1,7 +1,7 @@
 # Eco Chart Pro
 A Professional Charting & Backtesting Platform for Deliberate Practice.
 
-![License](https://img.shields.io/badge/license-MIT-blue.svg)
+![License](https://img.shields.io/badge/license-Custom--Pay--for--Commercial-green.svg)
 ![GitHub last commit](https://img.shields.io/github/last-commit/rphlmrk/EcoChartPro)
 ![GitHub stars](https://img.shields.io/github/stars/rphlmrk/EcoChartPro?style=social)
 
@@ -171,4 +171,9 @@ If you find Eco Chart Pro useful or believe in its vision, please consider suppo
 -   **Raphael Mark**
 
 ## License
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the **Custom Pay-for-Commercial + Contributor-Friendly License (v1.0)**.  
+It is **free for personal, educational, research, and open-source use**, but **commercial use requires a paid license** from the author.
+
+See the [LICENSE](LICENSE) file for the full terms, or contact the author for commercial licensing.
+
+**Copyright © 2025 Raphael Mark Omondi. All rights reserved.**
