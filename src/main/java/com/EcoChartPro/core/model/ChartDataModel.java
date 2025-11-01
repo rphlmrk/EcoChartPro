@@ -327,7 +327,6 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
     }
     
     private void loadDataset(DataSourceManager.ChartDataSource source, Timeframe timeframe, boolean forceReload) {
-        // Store old state for change detection and unsubscribing
         DataSourceManager.ChartDataSource oldSource = this.currentSource;
         Timeframe oldTimeframe = this.currentDisplayTimeframe;
 
@@ -346,6 +345,19 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
             activeRebuildWorker.cancel(true);
         }
 
+        // [FIX] Explicitly clear all data and cancel pre-fetches on symbol change for a clean state.
+        if (sourceChanged) {
+            logger.info("Symbol changed from {} to {}. Clearing all chart data.",
+                oldSource != null ? oldSource.symbol() : "none", source.symbol());
+            clearData();
+            if (preFetchWorker != null && !preFetchWorker.isDone()) {
+                preFetchWorker.cancel(true);
+                logger.debug("Cancelled ongoing pre-fetch worker during symbol switch.");
+            }
+            this.preFetchedResult = null;
+            this.isPreFetching = false;
+        }
+
         // Unsubscribe from old live streams if source or timeframe has changed.
         if (currentMode == ChartMode.LIVE && oldSource != null && oldTimeframe != null && (sourceChanged || timeframeChanged)) {
             if (liveDataConsumer != null) {
@@ -360,8 +372,6 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
             }
         }
         
-        clearData();
-
         // Set new state
         this.currentSource = source;
         this.currentMode = ChartMode.LIVE;
