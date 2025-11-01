@@ -55,6 +55,31 @@ public final class SettingsManager {
     private final Properties properties = new Properties();
     private static final ObjectMapper jsonMapper = new ObjectMapper();
 
+    // --- [NEW] Custom Serializer for Font ---
+    public static class FontSerializer extends JsonSerializer<Font> {
+        @Override
+        public void serialize(Font font, JsonGenerator gen, SerializerProvider serializers) throws IOException {
+            gen.writeStartObject();
+            gen.writeStringField("name", font.getName());
+            gen.writeNumberField("style", font.getStyle());
+            gen.writeNumberField("size", font.getSize());
+            gen.writeEndObject();
+        }
+    }
+
+    // --- [NEW] Custom Deserializer for Font ---
+    public static class FontDeserializer extends JsonDeserializer<Font> {
+        @Override
+        public Font deserialize(JsonParser p, DeserializationContext ctxt) throws IOException {
+            JsonNode node = p.getCodec().readTree(p);
+            String name = node.get("name").asText();
+            int style = node.get("style").asInt();
+            int size = node.get("size").asInt();
+            return new Font(name, style, size);
+        }
+    }
+
+
     public static class BasicStrokeSerializer extends JsonSerializer<BasicStroke> {
         @Override
         public void serialize(BasicStroke value, JsonGenerator gen, SerializerProvider serializers) throws IOException {
@@ -83,6 +108,9 @@ public final class SettingsManager {
         module.addDeserializer(Color.class, new SessionManager.ColorDeserializer());
         module.addSerializer(BasicStroke.class, new BasicStrokeSerializer());
         module.addDeserializer(BasicStroke.class, new BasicStrokeDeserializer());
+        // --- [NEW] Register the Font handlers ---
+        module.addSerializer(Font.class, new FontSerializer());
+        module.addDeserializer(Font.class, new FontDeserializer());
         jsonMapper.registerModule(module);
     }
 
@@ -103,7 +131,6 @@ public final class SettingsManager {
         @Override public String toString() { return displayName; }
     }
     public enum ImageSource { LIVE, LOCAL }
-    public enum PriceAxisLabelPosition { LEFT, RIGHT }
 
     // New enum for peak hours display style
     public enum PeakHoursDisplayStyle {
@@ -133,6 +160,8 @@ public final class SettingsManager {
     private Color crosshairLabelBackgroundColor, crosshairLabelForegroundColor;
     private ZoneId displayZoneId;
     private boolean daySeparatorsEnabled;
+    private LocalTime daySeparatorStartTime;
+    private Color daySeparatorColor; // [NEW]
     private boolean vrvpVisible;
     private boolean svpVisible;
     private ToolbarPosition drawingToolbarPosition;
@@ -158,7 +187,6 @@ public final class SettingsManager {
     private boolean priceAxisLabelsShowOrders;
     private boolean priceAxisLabelsShowDrawings;
     private boolean priceAxisLabelsShowFibonaccis;
-    private PriceAxisLabelPosition priceAxisLabelPosition;
     private final Map<String, List<DrawingToolTemplate>> toolTemplates = new ConcurrentHashMap<>();
     private final Map<String, UUID> activeToolTemplates = new ConcurrentHashMap<>();
     private List<String> tradeReplayAvailableTimeframes;
@@ -251,8 +279,10 @@ public final class SettingsManager {
         this.crosshairLabelForegroundColor = parseColor(properties.getProperty("crosshair.label.foregroundColor"), this.crosshairLabelForegroundColor);
         
         this.displayZoneId = ZoneId.of(properties.getProperty("chart.zoneId", ZoneId.systemDefault().getId()));
-        this.daySeparatorsEnabled = Boolean.parseBoolean(properties.getProperty("chart.daySeparators", "true"));
-        
+        this.daySeparatorsEnabled = Boolean.parseBoolean(properties.getProperty("chart.daySeparators.enabled", "true"));
+        this.daySeparatorStartTime = LocalTime.parse(properties.getProperty("chart.daySeparators.startTimeUTC", "00:00"));
+        this.daySeparatorColor = parseColor(properties.getProperty("chart.daySeparators.color"), this.daySeparatorColor); // [NEW]
+
         String vrvpProp = properties.getProperty("chart.vrvpVisible", properties.getProperty("chart.volumeProfileVisible", "false"));
         this.vrvpVisible = Boolean.parseBoolean(vrvpProp);
         this.svpVisible = Boolean.parseBoolean(properties.getProperty("chart.svpVisible", "false"));
@@ -280,7 +310,6 @@ public final class SettingsManager {
         this.priceAxisLabelsShowOrders = Boolean.parseBoolean(properties.getProperty("chart.priceAxisLabels.showOrders", "true"));
         this.priceAxisLabelsShowDrawings = Boolean.parseBoolean(properties.getProperty("chart.priceAxisLabels.showDrawings", "true"));
         this.priceAxisLabelsShowFibonaccis = Boolean.parseBoolean(properties.getProperty("chart.priceAxisLabels.showFibonaccis", "false"));
-        this.priceAxisLabelPosition = PriceAxisLabelPosition.valueOf(properties.getProperty("chart.priceAxisLabels.position", "RIGHT"));
 
         this.disciplineCoachEnabled = Boolean.parseBoolean(properties.getProperty("discipline.enabled", "true"));
         this.optimalTradeCountOverride = Integer.parseInt(properties.getProperty("discipline.tradeCountOverride", "-1"));
@@ -386,7 +415,9 @@ public final class SettingsManager {
                 properties.setProperty("crosshair.label.backgroundColor", formatColor(crosshairLabelBackgroundColor));
                 properties.setProperty("crosshair.label.foregroundColor", formatColor(crosshairLabelForegroundColor));
                 properties.setProperty("chart.zoneId", displayZoneId.getId());
-                properties.setProperty("chart.daySeparators", String.valueOf(daySeparatorsEnabled));
+                properties.setProperty("chart.daySeparators.enabled", String.valueOf(daySeparatorsEnabled));
+                properties.setProperty("chart.daySeparators.startTimeUTC", daySeparatorStartTime.toString());
+                properties.setProperty("chart.daySeparators.color", formatColor(daySeparatorColor)); // [NEW]
                 properties.setProperty("chart.vrvpVisible", String.valueOf(vrvpVisible));
                 properties.setProperty("chart.svpVisible", String.valueOf(svpVisible));
                 
@@ -412,7 +443,6 @@ public final class SettingsManager {
                 properties.setProperty("chart.priceAxisLabels.showOrders", String.valueOf(priceAxisLabelsShowOrders));
                 properties.setProperty("chart.priceAxisLabels.showDrawings", String.valueOf(priceAxisLabelsShowDrawings));
                 properties.setProperty("chart.priceAxisLabels.showFibonaccis", String.valueOf(priceAxisLabelsShowFibonaccis));
-                properties.setProperty("chart.priceAxisLabels.position", priceAxisLabelPosition.name());
 
                 properties.setProperty("discipline.enabled", String.valueOf(disciplineCoachEnabled));
                 properties.setProperty("discipline.tradeCountOverride", String.valueOf(optimalTradeCountOverride));
@@ -525,6 +555,7 @@ public final class SettingsManager {
             this.livePriceLabelBearTextColor = Color.WHITE;
             this.crosshairLabelBackgroundColor = new Color(242, 242, 242);
             this.crosshairLabelForegroundColor = Color.BLACK;
+            this.daySeparatorColor = new Color(100, 100, 100, 60); // [NEW]
 
             this.vrvpUpVolumeColor = new Color(0, 150, 136, 50);
             this.vrvpDownVolumeColor = new Color(211, 47, 47, 50);
@@ -543,6 +574,7 @@ public final class SettingsManager {
             this.livePriceLabelBearTextColor = Color.BLACK;
             this.crosshairLabelBackgroundColor = new Color(60, 63, 65);
             this.crosshairLabelForegroundColor = Color.WHITE;
+            this.daySeparatorColor = new Color(192, 192, 192, 60); // [NEW]
             
             this.vrvpUpVolumeColor = new Color(255, 140, 40, 60);
             this.vrvpDownVolumeColor = new Color(200, 200, 200, 60);
@@ -601,6 +633,26 @@ public final class SettingsManager {
         this.daySeparatorsEnabled = enabled;
         saveSettings();
         pcs.firePropertyChange("daySeparatorsEnabledChanged", oldVal, this.daySeparatorsEnabled);
+    }
+    
+    public LocalTime getDaySeparatorStartTime() { return daySeparatorStartTime; }
+    public void setDaySeparatorStartTime(LocalTime time) {
+        if (!this.daySeparatorStartTime.equals(time)) {
+            LocalTime oldVal = this.daySeparatorStartTime;
+            this.daySeparatorStartTime = time;
+            saveSettings();
+            pcs.firePropertyChange("daySeparatorsEnabledChanged", oldVal, time);
+        }
+    }
+    
+    // [NEW] Getter and setter for day separator color
+    public Color getDaySeparatorColor() { return daySeparatorColor; }
+    public void setDaySeparatorColor(Color color) {
+        if (!this.daySeparatorColor.equals(color)) {
+            this.daySeparatorColor = color;
+            saveSettings();
+            pcs.firePropertyChange("chartColorsChanged", null, null); // Fire generic repaint event
+        }
     }
     
     @Deprecated
@@ -792,16 +844,6 @@ public final class SettingsManager {
             this.priceAxisLabelsShowFibonaccis = show;
             saveSettings();
             pcs.firePropertyChange("priceAxisLabelsVisibilityChanged", !show, show);
-        }
-    }
-
-    public PriceAxisLabelPosition getPriceAxisLabelPosition() { return priceAxisLabelPosition; }
-    public void setPriceAxisLabelPosition(PriceAxisLabelPosition position) {
-        if (this.priceAxisLabelPosition != position) {
-            PriceAxisLabelPosition oldVal = this.priceAxisLabelPosition;
-            this.priceAxisLabelPosition = position;
-            saveSettings();
-            pcs.firePropertyChange("priceAxisLabelPositionChanged", oldVal, position);
         }
     }
 
@@ -1208,12 +1250,7 @@ public final class SettingsManager {
             return (Font) fontProp;
         } else if (fontProp instanceof Map) {
             try {
-                @SuppressWarnings("unchecked")
-                Map<String, Object> fontMap = (Map<String, Object>) fontProp;
-                String name = (String) fontMap.get("name");
-                int style = (Integer) fontMap.get("style");
-                int size = (Integer) fontMap.get("size");
-                return new Font(name, style, size);
+                return jsonMapper.convertValue(fontProp, Font.class);
             } catch (Exception e) {
                 logger.warn("Could not deserialize Font from map for tool {}", toolName);
                 return fallback;

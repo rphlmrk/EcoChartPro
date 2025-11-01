@@ -75,11 +75,10 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
         SettingsManager sm = SettingsManager.getInstance();
         sm.addPropertyChangeListener("priceAxisLabelsEnabledChanged", this);
         sm.addPropertyChangeListener("priceAxisLabelsVisibilityChanged", this);
-        sm.addPropertyChangeListener("priceAxisLabelPositionChanged", this);
         sm.addPropertyChangeListener("chartColorsChanged", this);
         sm.addPropertyChangeListener("livePriceLabelFontSizeChanged", this);
         sm.addPropertyChangeListener("crosshairLabelColorChanged", this);
-        sm.addPropertyChangeListener("chartTypeChanged", this); // [NEW] Listen for chart type changes
+        sm.addPropertyChangeListener("chartTypeChanged", this);
         CrosshairManager.getInstance().addPropertyChangeListener("crosshairMoved", this);
         
         startRepaintTimer();
@@ -566,7 +565,6 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
         }
 
         private void drawPriceLabel(Graphics2D g2d, PriceLabel label) {
-            SettingsManager.PriceAxisLabelPosition position = SettingsManager.getInstance().getPriceAxisLabelPosition();
             FontMetrics fm = g2d.getFontMetrics();
             int textWidth = fm.stringWidth(label.text);
             int labelHeight = fm.getHeight();
@@ -574,21 +572,12 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
             int rectHeight = labelHeight + 4;
             int y = label.y - rectHeight / 2;
 
-            int rectX, textX;
-            int[] triangleXP, triangleYP;
-
-            if (position == SettingsManager.PriceAxisLabelPosition.RIGHT) {
-                rectX = 0;
-                textX = PADDING_X;
-                triangleXP = new int[]{rectWidth, rectWidth + TRIANGLE_WIDTH, rectWidth};
-                triangleYP = new int[]{y, y + rectHeight / 2, y + rectHeight};
-            } else { // LEFT
-                int panelWidth = getWidth();
-                rectX = panelWidth - rectWidth;
-                textX = panelWidth - rectWidth + PADDING_X;
-                triangleXP = new int[]{rectX, rectX - TRIANGLE_WIDTH, rectX};
-                triangleYP = new int[]{y, y + rectHeight / 2, y + rectHeight};
-            }
+            // --- [MODIFIED] Always draw on the right edge of the axis panel ---
+            int rectX = 0;
+            int textX = PADDING_X;
+            int[] triangleXP = new int[]{rectWidth, rectWidth + TRIANGLE_WIDTH, rectWidth};
+            int[] triangleYP = new int[]{y, y + rectHeight / 2, y + rectHeight};
+            // --- End Modification ---
 
             g2d.setColor(label.color);
             g2d.fillRect(rectX, y, rectWidth, rectHeight);

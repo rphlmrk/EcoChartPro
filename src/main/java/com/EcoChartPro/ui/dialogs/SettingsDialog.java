@@ -1,5 +1,7 @@
 package com.EcoChartPro.ui.dialogs;
 
+import com.EcoChartPro.core.settings.ChecklistManager;
+import com.EcoChartPro.core.settings.MistakeManager;
 import com.EcoChartPro.core.settings.SettingsManager;
 import com.EcoChartPro.ui.dialogs.settings.*;
 
@@ -20,35 +22,27 @@ public class SettingsDialog extends JDialog {
         super(owner, "Settings", true);
         
         SettingsManager settingsManager = SettingsManager.getInstance();
+        MistakeManager mistakeManager = MistakeManager.getInstance();
         
         tabbedPane = new JTabbedPane();
 
         // Create and add each settings panel
-        GeneralSettingsPanel generalPanel = new GeneralSettingsPanel(settingsManager);
-        tabbedPane.addTab("General", generalPanel);
-        settingPanels.add(generalPanel);
-
-        ChartSettingsPanel chartPanel = new ChartSettingsPanel(settingsManager);
-        tabbedPane.addTab("Chart", chartPanel);
-        settingPanels.add(chartPanel);
-        
-        DrawingSettingsPanel drawingPanel = new DrawingSettingsPanel(settingsManager);
-        tabbedPane.addTab("Drawing", drawingPanel);
-        settingPanels.add(drawingPanel);
-        
-        TradingSettingsPanel tradingPanel = new TradingSettingsPanel(settingsManager);
-        tabbedPane.addTab("Trading & Sessions", tradingPanel);
-        settingPanels.add(tradingPanel);
-        
-        DisciplineSettingsPanel disciplinePanel = new DisciplineSettingsPanel(settingsManager);
-        tabbedPane.addTab("Discipline Coach", disciplinePanel);
-        settingPanels.add(disciplinePanel);
-        
-        VolumeProfileSettingsPanel vpPanel = new VolumeProfileSettingsPanel(settingsManager);
-        tabbedPane.addTab("Volume Profile", vpPanel);
-        settingPanels.add(vpPanel);
+        addPanel("General", new GeneralSettingsPanel(settingsManager));
+        addPanel("Chart", new ChartSettingsPanel(settingsManager));
+        addPanel("Drawing", new DrawingSettingsPanel(settingsManager));
+        addPanel("Trading & Sessions", new TradingSettingsPanel(settingsManager));
+        addPanel("Discipline Coach", new DisciplineSettingsPanel(settingsManager));
+        addPanel("Volume Profile", new VolumeProfileSettingsPanel(settingsManager));
+        addPanel("Drawing Templates", new TemplatesSettingsPanel(settingsManager));
+        addPanel("Mistake Library", new MistakesSettingsPanel(mistakeManager));
+        // Removed Checklist Panel as it's managed in the sidebar
 
         initUI();
+    }
+    
+    private void addPanel(String title, JPanel panel) {
+        tabbedPane.addTab(title, panel);
+        settingPanels.add(panel);
     }
 
     private void initUI() {
@@ -71,18 +65,20 @@ public class SettingsDialog extends JDialog {
         add(buttonPanel, BorderLayout.SOUTH);
 
         pack();
-        setMinimumSize(new Dimension(600, 450));
+        setMinimumSize(new Dimension(750, 600));
         setLocationRelativeTo(getOwner());
     }
 
     private void applyAllChanges() {
         for (JPanel panel : settingPanels) {
             if (panel instanceof GeneralSettingsPanel p) p.applyChanges();
-            if (panel instanceof ChartSettingsPanel p) p.applyChanges();
-            if (panel instanceof DrawingSettingsPanel p) p.applyChanges();
-            if (panel instanceof TradingSettingsPanel p) p.applyChanges();
-            if (panel instanceof DisciplineSettingsPanel p) p.applyChanges();
-            if (panel instanceof VolumeProfileSettingsPanel p) p.applyChanges();
+            else if (panel instanceof ChartSettingsPanel p) p.applyChanges();
+            else if (panel instanceof DrawingSettingsPanel p) p.applyChanges();
+            else if (panel instanceof TradingSettingsPanel p) p.applyChanges();
+            else if (panel instanceof DisciplineSettingsPanel p) p.applyChanges();
+            else if (panel instanceof VolumeProfileSettingsPanel p) p.applyChanges();
+            else if (panel instanceof TemplatesSettingsPanel p) p.applyChanges();
+            else if (panel instanceof MistakesSettingsPanel p) p.applyChanges();
         }
     }
 }
