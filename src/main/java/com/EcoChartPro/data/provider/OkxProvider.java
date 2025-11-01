@@ -240,22 +240,22 @@ public class OkxProvider implements DataProvider {
 
     @Override
     public void connectToLiveStream(String symbol, String timeframe, Consumer<KLine> onKLineUpdate) {
-        LiveDataManager.getInstance().subscribe(symbol, timeframe, onKLineUpdate);
+        LiveDataManager.getInstance().subscribeToKLine(symbol, timeframe, onKLineUpdate);
     }
 
     @Override
     public void disconnectFromLiveStream(String symbol, String timeframe, Consumer<KLine> onKLineUpdate) {
-        LiveDataManager.getInstance().unsubscribe(symbol, timeframe, onKLineUpdate);
+        LiveDataManager.getInstance().unsubscribeFromKLine(symbol, timeframe, onKLineUpdate);
     }
     
     @Override
     public void connectToTradeStream(String symbol, Consumer<TradeTick> onTradeUpdate) {
-        LiveDataManager.getInstance().subscribeTrade(symbol, onTradeUpdate);
+        LiveDataManager.getInstance().subscribeToTrades(symbol, onTradeUpdate);
     }
 
     @Override
     public void disconnectFromTradeStream(String symbol, Consumer<TradeTick> onTradeUpdate) {
-        LiveDataManager.getInstance().unsubscribeTrade(symbol, onTradeUpdate);
+        LiveDataManager.getInstance().unsubscribeFromTrades(symbol, onTradeUpdate);
     }
     
     private static class OkxInstrumentData {

@@ -2,6 +2,7 @@ package com.EcoChartPro.ui.dashboard.widgets;
 
 import com.EcoChartPro.data.LiveDataManager;
 import com.EcoChartPro.data.provider.BinanceProvider;
+import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.ui.dashboard.theme.UITheme;
 import com.EcoChartPro.ui.Analysis.TitledContentPanel;
 
@@ -9,6 +10,7 @@ import javax.swing.*;
 import java.awt.*;
 import java.math.BigDecimal;
 import java.text.DecimalFormat;
+import java.util.function.Consumer;
 
 public class BtcPerformanceWidget extends TitledContentPanel {
 
@@ -24,6 +26,7 @@ public class BtcPerformanceWidget extends TitledContentPanel {
     private static final String BTC_TIMEFRAME = "1m";
 
     private final BinanceProvider binanceProvider = new BinanceProvider();
+    private Consumer<KLine> liveDataConsumer; // Field to hold the consumer instance
 
     public BtcPerformanceWidget() {
         super("BTC/USDT Performance", new JPanel(new GridBagLayout()));
@@ -99,7 +102,7 @@ public class BtcPerformanceWidget extends TitledContentPanel {
     }
 
     private void subscribeToLiveData() {
-        LiveDataManager.getInstance().subscribe(BTC_SYMBOL, BTC_TIMEFRAME, kline -> {
+        this.liveDataConsumer = kline -> {
             SwingUtilities.invokeLater(() -> {
                 BigDecimal newPrice = kline.close();
                 priceLabel.setText(String.format("%,.2f", newPrice));
@@ -113,7 +116,8 @@ public class BtcPerformanceWidget extends TitledContentPanel {
                 
                 lastPrice = newPrice;
             });
-        });
+        };
+        LiveDataManager.getInstance().subscribeToKLine(BTC_SYMBOL, BTC_TIMEFRAME, this.liveDataConsumer);
     }
 
     private void update24hStats(BinanceProvider.TickerData data) {
@@ -133,6 +137,8 @@ public class BtcPerformanceWidget extends TitledContentPanel {
 
     public void cleanup() {
         // Unsubscribe from the WebSocket to prevent resource leaks
-        LiveDataManager.getInstance().unsubscribe(BTC_SYMBOL, BTC_TIMEFRAME, kline -> {});
+        if (this.liveDataConsumer != null) {
+            LiveDataManager.getInstance().unsubscribeFromKLine(BTC_SYMBOL, BTC_TIMEFRAME, this.liveDataConsumer);
+        }
     }
 }

@@ -4,6 +4,7 @@ import com.EcoChartPro.core.controller.ChartInteractionManager;
 import com.EcoChartPro.core.controller.ReplaySessionManager;
 import com.EcoChartPro.core.controller.ReplayStateListener;
 import com.EcoChartPro.data.DataProvider;
+import com.EcoChartPro.data.LiveDataManager;
 import com.EcoChartPro.data.provider.BinanceProvider;
 import com.EcoChartPro.core.indicator.IndicatorManager;
 import com.EcoChartPro.core.manager.DrawingManager;
@@ -79,7 +80,7 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
     private volatile boolean isFetchingLiveHistory = false;
     private BigDecimal lastCalculatedFootprintStep = new BigDecimal("0.05");
 
-    // [NEW] Heikin Ashi Caching
+    // Heikin Ashi Caching
     private List<KLine> heikinAshiCandlesCache;
     private boolean isHaCacheDirty = true;
 
@@ -126,10 +127,10 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
         com.EcoChartPro.core.settings.SettingsManager.getInstance().removePropertyChangeListener("chartTypeChanged", this);
         if (currentMode == ChartMode.LIVE && liveDataProvider != null && liveDataConsumer != null && currentSource != null && currentDisplayTimeframe != null) {
             logger.info("Cleaning up live data subscription for chart model on cleanup.");
-            liveDataProvider.disconnectFromLiveStream(currentSource.symbol(), currentDisplayTimeframe.displayName(), liveDataConsumer);
+            LiveDataManager.getInstance().unsubscribeFromKLine(currentSource.symbol(), currentDisplayTimeframe.displayName(), liveDataConsumer);
         }
         if (currentMode == ChartMode.LIVE && liveDataProvider != null && liveTradeConsumer != null && currentSource != null) {
-            liveDataProvider.disconnectFromTradeStream(currentSource.symbol(), liveTradeConsumer);
+            LiveDataManager.getInstance().unsubscribeFromTrades(currentSource.symbol(), liveTradeConsumer);
         }
         if (currentMode == ChartMode.REPLAY) {
             ReplaySessionManager.getInstance().removeListener(this);
@@ -147,6 +148,10 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
         pcs.addPropertyChangeListener(listener);
     }
     
+    public void addPropertyChangeListener(String propertyName, PropertyChangeListener listener) {
+        pcs.addPropertyChangeListener(propertyName, listener);
+    }
+    
     public void removePropertyChangeListener(PropertyChangeListener listener) {
         pcs.removePropertyChangeListener(listener);
     }
@@ -157,7 +162,9 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
     
     public void setDatabaseManager(DatabaseManager dbManager, DataSourceManager.ChartDataSource source) {
         this.dbManager = dbManager;
-        this.currentSource = source;
+        // [FIX] REMOVED: this.currentSource = source;
+        // This line caused a premature state update, breaking symbol-change detection in `loadDataset`.
+        // The currentSource should only be updated by `loadDataset` or `configureForReplay`.
     }
 
     public DatabaseManager getDbManager() {
@@ -320,28 +327,42 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
     }
     
     private void loadDataset(DataSourceManager.ChartDataSource source, Timeframe timeframe, boolean forceReload) {
-        if (!forceReload && currentSource != null && currentSource.equals(source) && 
-            currentDisplayTimeframe != null && currentDisplayTimeframe.equals(timeframe)) {
+        // Store old state for change detection and unsubscribing
+        DataSourceManager.ChartDataSource oldSource = this.currentSource;
+        Timeframe oldTimeframe = this.currentDisplayTimeframe;
+
+        boolean sourceChanged = (oldSource == null) || !oldSource.equals(source);
+        boolean timeframeChanged = (oldTimeframe == null) || !oldTimeframe.equals(timeframe);
+
+        if (!forceReload && !sourceChanged && !timeframeChanged) {
+            logger.debug("Load dataset skipped: source and timeframe are unchanged.");
             return;
         }
 
         if (interactionManager != null) {
             interactionManager.setAutoScalingY(true);
         }
-
         if (activeRebuildWorker != null && !activeRebuildWorker.isDone()) {
             activeRebuildWorker.cancel(true);
         }
 
-        if (currentMode == ChartMode.LIVE && liveDataProvider != null && liveDataConsumer != null && currentSource != null && currentDisplayTimeframe != null) {
-            liveDataProvider.disconnectFromLiveStream(currentSource.symbol(), currentDisplayTimeframe.displayName(), liveDataConsumer);
+        // Unsubscribe from old live streams if source or timeframe has changed.
+        if (currentMode == ChartMode.LIVE && oldSource != null && oldTimeframe != null && (sourceChanged || timeframeChanged)) {
+            if (liveDataConsumer != null) {
+                LiveDataManager.getInstance().unsubscribeFromKLine(oldSource.symbol(), oldTimeframe.displayName(), liveDataConsumer);
+                logger.info("Unsubscribed from k-line stream for previous symbol: {} ({})", oldSource.symbol(), oldTimeframe.displayName());
+                liveDataConsumer = null;
+            }
+            if (liveTradeConsumer != null) {
+                LiveDataManager.getInstance().unsubscribeFromTrades(oldSource.symbol(), liveTradeConsumer);
+                logger.info("Unsubscribed from trade stream for previous symbol: {}", oldSource.symbol());
+                liveTradeConsumer = null;
+            }
         }
-        if (currentMode == ChartMode.LIVE && liveDataProvider != null && liveTradeConsumer != null && currentSource != null) {
-            liveDataProvider.disconnectFromTradeStream(currentSource.symbol(), liveTradeConsumer);
-        }
-
+        
         clearData();
 
+        // Set new state
         this.currentSource = source;
         this.currentMode = ChartMode.LIVE;
         this.currentDisplayTimeframe = timeframe;
@@ -427,10 +448,10 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
                     get();
                     if (liveDataProvider != null) {
                         liveTradeConsumer = ChartDataModel.this::onLiveTradeUpdate;
-                        liveDataProvider.connectToTradeStream(currentSource.symbol(), liveTradeConsumer);
+                        LiveDataManager.getInstance().subscribeToTrades(currentSource.symbol(), liveTradeConsumer);
 
                         liveDataConsumer = ChartDataModel.this::onLiveFootprintKLineUpdate;
-                        liveDataProvider.connectToLiveStream(currentSource.symbol(), timeframe.displayName(), liveDataConsumer);
+                        LiveDataManager.getInstance().subscribeToKLine(currentSource.symbol(), timeframe.displayName(), liveDataConsumer);
                     }
                     if (interactionManager != null && !finalizedCandles.isEmpty()) {
                          int dataBarsOnScreen = (int) (interactionManager.getBarsPerScreen() * (1.0 - interactionManager.getRightMarginRatio()));
@@ -455,7 +476,9 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
             if (currentlyFormingCandle == null) {
                 currentlyFormingCandle = newTick;
             } else if (!currentlyFormingCandle.timestamp().equals(intervalStart)) {
-                finalizedCandles.add(currentlyFormingCandle);
+                KLine finalizedCandle = currentlyFormingCandle;
+                finalizedCandles.add(finalizedCandle);
+                pcs.firePropertyChange("liveCandleAdded", null, finalizedCandle); // Fire event for new candle
                 currentlyFormingCandle = newTick;
                 htfCache.clear();
             } else {
@@ -469,7 +492,9 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
                 );
             }
             
-            isHaCacheDirty = true; // [MODIFIED] Invalidate HA cache
+            pcs.firePropertyChange("liveTickReceived", null, currentlyFormingCandle); // Fire tick event
+            
+            isHaCacheDirty = true;
             interactionManager.onReplayTick(newTick);
             triggerIndicatorRecalculation();
             updateView();
@@ -486,7 +511,9 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
                 logger.debug("New footprint candle interval detected. Finalizing old candle, starting new.");
                 
                 if (currentlyFormingCandle != null) {
-                    finalizedCandles.add(currentlyFormingCandle);
+                    KLine finalizedCandle = currentlyFormingCandle;
+                    finalizedCandles.add(finalizedCandle);
+                    pcs.firePropertyChange("liveCandleAdded", null, finalizedCandle); // Fire event for new candle
                 }
                 
                 currentlyFormingCandle = newTick;
@@ -526,8 +553,9 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
                 currentlyFormingCandle.volume().add(newTrade.quantity())
             );
             
-            isHaCacheDirty = true; // [MODIFIED] Invalidate HA cache
-            // [FIX] Call the full updateView() method to ensure all components and boundaries are refreshed.
+            pcs.firePropertyChange("liveTickReceived", null, currentlyFormingCandle);
+            
+            isHaCacheDirty = true;
             updateView();
         });
     }
@@ -539,7 +567,7 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
         if (currentDisplayTimeframe == Timeframe.M1) totalCandleCount++;
         else processNewM1Bar(newBar);
         
-        isHaCacheDirty = true; // [MODIFIED] Invalidate HA cache
+        isHaCacheDirty = true;
         assembleVisibleKLines();
         calculateBoundaries();
         triggerIndicatorRecalculation();
@@ -567,8 +595,9 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
         htfCache.clear();
         
         if (currentMode == ChartMode.LIVE) {
-            if (liveDataProvider != null && liveDataConsumer != null && currentSource != null && this.currentDisplayTimeframe != null) {
-                liveDataProvider.disconnectFromLiveStream(currentSource.symbol(), this.currentDisplayTimeframe.displayName(), liveDataConsumer);
+            // Unsubscribe from the OLD timeframe stream
+            if (liveDataConsumer != null && currentSource != null && this.currentDisplayTimeframe != null) {
+                LiveDataManager.getInstance().unsubscribeFromKLine(currentSource.symbol(), this.currentDisplayTimeframe.displayName(), liveDataConsumer);
             }
             this.currentDisplayTimeframe = newTimeframe;
             loadLiveHistoryForCurrentTimeframe();
@@ -614,10 +643,10 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
                         currentlyFormingCandle = null;
                     }
 
-                    isHaCacheDirty = true; // [MODIFIED] Invalidate HA cache
+                    isHaCacheDirty = true;
                     if (liveDataProvider != null) {
                         liveDataConsumer = ChartDataModel.this::onLiveKLineUpdate;
-                        liveDataProvider.connectToLiveStream(currentSource.symbol(), currentDisplayTimeframe.displayName(), liveDataConsumer);
+                        LiveDataManager.getInstance().subscribeToKLine(currentSource.symbol(), currentDisplayTimeframe.displayName(), liveDataConsumer);
                     }
 
                     int dataBarsOnScreen = (int) (interactionManager.getBarsPerScreen() * (1.0 - interactionManager.getRightMarginRatio()));
@@ -647,7 +676,7 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
         this.dataWindowStartIndex = 0;
         this.footprintData.clear();
         this.htfCache.clear();
-        this.isHaCacheDirty = true; // [MODIFIED] Invalidate HA cache
+        this.isHaCacheDirty = true;
         fireDataUpdated();
     }
 
@@ -662,7 +691,7 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
         this.dataWindowStartIndex = 0;
         this.footprintData.clear();
         this.htfCache.clear();
-        this.isHaCacheDirty = true; // [MODIFIED] Invalidate HA cache
+        this.isHaCacheDirty = true;
         fireDataUpdated();
     }
 
@@ -733,7 +762,7 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
         }
         currentlyFormingCandle = result.formingCandle();
         dataWindowStartIndex = result.newWindowStart();
-        isHaCacheDirty = true; // [MODIFIED] Invalidate HA cache
+        isHaCacheDirty = true;
         
         if (currentMode == ChartMode.REPLAY) {
             if (currentDisplayTimeframe != Timeframe.M1 && !currentDisplayTimeframe.duration().isZero()) {
@@ -932,11 +961,6 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
         return DATA_WINDOW_SIZE; // Default no limit
     }
 
-    /**
-     * [NEW] Returns a list of Heikin Ashi candles corresponding to the current set of chartable raw candles.
-     * The result is cached and only recalculated when the underlying raw data changes.
-     * @return A list of Heikin Ashi K-lines.
-     */
     public List<KLine> getHeikinAshiCandles() {
         if (!isHaCacheDirty && heikinAshiCandlesCache != null) {
             return heikinAshiCandlesCache;

@@ -25,6 +25,7 @@ import java.awt.Point;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseWheelEvent;
+import java.beans.PropertyChangeEvent;
 import java.math.BigDecimal;
 import java.util.UUID;
 
@@ -50,6 +51,34 @@ public class ChartController {
         this.mainWindow = mainWindow;
         this.drawingController = view.getDrawingController();
         addListeners();
+        model.addPropertyChangeListener("liveCandleAdded", this::handleLiveCandleUpdate);
+        model.addPropertyChangeListener("liveTickReceived", this::handleLiveTickUpdate);
+    }
+
+    /**
+     * [MODIFIED] Handles finalized live candle updates from the model.
+     * This handler ensures that order execution logic is only run for the active chart in live mode.
+     * This prevents duplicate processing if multiple charts of the same symbol are open.
+     */
+    private void handleLiveCandleUpdate(PropertyChangeEvent evt) {
+        if (model.getCurrentMode() == ChartMode.LIVE && view == mainWindow.getActiveChartPanel()) {
+            if (evt.getNewValue() instanceof com.EcoChartPro.model.KLine) {
+                PaperTradingService.getInstance().onBarUpdate((com.EcoChartPro.model.KLine) evt.getNewValue());
+            }
+        }
+    }
+
+    /**
+     * [NEW] Handles live price tick updates from the model.
+     * This handler is responsible for triggering real-time P&L updates for open positions.
+     * It only acts if it's controlling the currently active chart panel.
+     */
+    private void handleLiveTickUpdate(PropertyChangeEvent evt) {
+        if (model.getCurrentMode() == ChartMode.LIVE && view == mainWindow.getActiveChartPanel()) {
+            if (evt.getNewValue() instanceof com.EcoChartPro.model.KLine) {
+                PaperTradingService.getInstance().updateLivePnl((com.EcoChartPro.model.KLine) evt.getNewValue());
+            }
+        }
     }
 
     private void addListeners() {

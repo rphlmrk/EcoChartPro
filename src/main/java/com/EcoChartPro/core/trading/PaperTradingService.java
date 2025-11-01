@@ -216,6 +216,22 @@ public class PaperTradingService implements TradingService {
         }
     }
 
+    /**
+     * [NEW] Specifically for live mode to update P&L on every tick without triggering order checks.
+     * @param currentBar The currently forming bar with the latest price.
+     */
+    public void updateLivePnl(KLine currentBar) {
+        // This is only for the active symbol in the current session type.
+        if (getActiveContext().activeSymbol == null || currentBar == null) return;
+
+        List<Position> openPositions = getOpenPositions();
+        if (!openPositions.isEmpty()) {
+            Map<UUID, BigDecimal> pnlMap = PnlCalculationService.getInstance()
+                    .calculateUnrealizedPnl(openPositions, currentBar);
+            pcs.firePropertyChange("unrealizedPnlCalculated", null, pnlMap);
+        }
+    }
+
     private void checkPendingOrders(KLine bar, String symbol) {
         Map<UUID, Order> symbolOrders = getActiveContext().pendingOrdersBySymbol.get(symbol);
         if (symbolOrders == null || symbolOrders.isEmpty()) return;

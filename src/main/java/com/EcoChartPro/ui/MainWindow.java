@@ -626,11 +626,8 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
                 if (isReplayMode) {
                     handleReplaySymbolChange();
                 } else {
-                    // In live mode, load the new source for ALL visible charts.
-                    for (ChartPanel panel : workspaceManager.getChartPanels()) {
-                        Timeframe currentTf = panel.getDataModel().getCurrentDisplayTimeframe();
-                        panel.getDataModel().loadDataset(newSource, currentTf);
-                    }
+                    // In live mode, load the new source and update all relevant services and charts.
+                    loadChartForSource(newSource);
                 }
             } 
             // --- 2. Handle Timeframe Change ---

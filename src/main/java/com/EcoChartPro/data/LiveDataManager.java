@@ -65,7 +65,7 @@ public class LiveDataManager {
         logger.info("LiveDataManager initialized with {} symbol-to-exchange mappings.", symbolToExchangeMap.size());
     }
 
-    public synchronized void subscribe(String symbol, String timeframe, Consumer<KLine> onKLineUpdate) {
+    public synchronized void subscribeToKLine(String symbol, String timeframe, Consumer<KLine> onKLineUpdate) {
         String exchange = symbolToExchangeMap.get(symbol);
         if (exchange == null) {
             logger.error("Cannot subscribe to live data for symbol '{}': Unknown exchange.", symbol);
@@ -82,7 +82,7 @@ public class LiveDataManager {
         }
     }
 
-    public synchronized void unsubscribe(String symbol, String timeframe, Consumer<KLine> onKLineUpdate) {
+    public synchronized void unsubscribeFromKLine(String symbol, String timeframe, Consumer<KLine> onKLineUpdate) {
         String exchange = symbolToExchangeMap.get(symbol);
         if (exchange == null) {
             logger.warn("Cannot unsubscribe for symbol '{}': Unknown exchange.", symbol);
@@ -105,7 +105,7 @@ public class LiveDataManager {
         }
     }
 
-    public synchronized void subscribeTrade(String symbol, Consumer<TradeTick> onTradeUpdate) {
+    public synchronized void subscribeToTrades(String symbol, Consumer<TradeTick> onTradeUpdate) {
         String exchange = symbolToExchangeMap.get(symbol);
         if (exchange == null) {
             logger.error("Cannot subscribe to trade data for symbol '{}': Unknown exchange.", symbol);
@@ -121,7 +121,7 @@ public class LiveDataManager {
         }
     }
 
-    public synchronized void unsubscribeTrade(String symbol, Consumer<TradeTick> onTradeUpdate) {
+    public synchronized void unsubscribeFromTrades(String symbol, Consumer<TradeTick> onTradeUpdate) {
         String exchange = symbolToExchangeMap.get(symbol);
         if (exchange == null) {
             logger.warn("Cannot unsubscribe from trades for symbol '{}': Unknown exchange.", symbol);
