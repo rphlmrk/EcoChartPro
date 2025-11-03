@@ -21,7 +21,7 @@ import java.util.List;
 public class TradeReplayChartPanel extends JPanel {
 
     private List<KLine> klines = Collections.emptyList(); // This holds the currently DISPLAYED (resampled) klines
-    private List<KLine> rawOneMinuteKlines = Collections.emptyList(); // FIX: This will store the original 1m data
+    private List<KLine> rawOneMinuteKlines = Collections.emptyList(); // This will store the original 1m data
     private Trade trade;
     private int currentIndex = 0;
     private final Timer replayTimer;

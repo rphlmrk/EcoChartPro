@@ -230,7 +230,7 @@ public class SidebarCalendarPanel extends JPanel {
             JButton yearButton = createDayButton(String.valueOf(year));
             yearButton.addActionListener(e -> {
                 this.selectedDate = this.selectedDate.withYear(year);
-                this.currentViewMode = ViewMode.YEAR; // This is the fix
+                this.currentViewMode = ViewMode.YEAR;
                 updateView();
             });
             if (year == currentYear) {

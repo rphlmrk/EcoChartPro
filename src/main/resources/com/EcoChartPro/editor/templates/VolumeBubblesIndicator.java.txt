@@ -124,7 +124,7 @@ public class VolumeBubblesIndicator implements CustomIndicator {
                 int bubbleSize = (int) (minSize + (maxSize - minSize) * scaleFactor);
                 Color baseColor = isBullishCandle ? buyColor : sellColor;
 
-                // [FIX] Opacity scaling now respects the user-selected alpha as the maximum.
+                // Opacity scaling now respects the user-selected alpha as the maximum.
                 int maxAlpha = baseColor.getAlpha();
                 int minAlpha = 30; // Bubbles are at least slightly visible
                 int scaledAlpha = (int) (minAlpha + (maxAlpha - minAlpha) * scaleFactor);

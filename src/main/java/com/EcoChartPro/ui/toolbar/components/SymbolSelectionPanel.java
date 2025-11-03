@@ -23,7 +23,7 @@ import java.util.Vector;
 import java.util.stream.Collectors;
 
 /**
- * [MODIFIED] A self-contained panel for selecting a symbol.
+ * A self-contained panel for selecting a symbol.
  * For live charting, it provides a searchable and filterable list of all available data sources.
  * For replay mode, it shows local files with their backtesting progress.
  */
@@ -31,7 +31,6 @@ public class SymbolSelectionPanel extends JPanel implements PropertyChangeListen
 
     private static final Logger logger = LoggerFactory.getLogger(SymbolSelectionPanel.class);
     private final EventListenerList listenerList = new EventListenerList();
-    private final List<SymbolProgressCache.SymbolProgressInfo> fullDataList;
     private final DefaultListModel<SymbolProgressCache.SymbolProgressInfo> listModel = new DefaultListModel<>();
     private final JList<SymbolProgressCache.SymbolProgressInfo> suggestionsList;
     private final boolean isReplayMode;
@@ -45,17 +44,6 @@ public class SymbolSelectionPanel extends JPanel implements PropertyChangeListen
         this.isReplayMode = isReplayMode;
         setLayout(new BorderLayout());
         setBackground(UIManager.getColor("Panel.background"));
-
-        // 1. Data Loading from cache with filtering based on mode
-        this.fullDataList = SymbolProgressCache.getInstance().getAllProgressInfo().stream()
-                .filter(info -> {
-                    boolean isLocalData = info.source().dbPath() != null;
-                    // If in replay mode, we want local data. If not in replay mode, we want non-local (live) data.
-                    return isReplayMode == isLocalData;
-                })
-                .sorted(Comparator.comparing(info -> info.source().displayName()))
-                .collect(Collectors.toList());
-        listModel.addAll(this.fullDataList);
 
         // 2. UI Components
         searchField = createSearchField();
@@ -85,6 +73,7 @@ public class SymbolSelectionPanel extends JPanel implements PropertyChangeListen
         add(scrollPane, BorderLayout.CENTER);
         setPreferredSize(new Dimension(300, 350));
         
+        filterList(); // Initial population
         SettingsManager.getInstance().addPropertyChangeListener("favoritesChanged", this);
     }
 
@@ -101,7 +90,7 @@ public class SymbolSelectionPanel extends JPanel implements PropertyChangeListen
     }
     
     /**
-     * [NEW] Creates a panel with toggle buttons for filtering by exchange/provider.
+     * Creates a panel with toggle buttons for filtering by exchange/provider.
      * This replaces the flickering JComboBox.
      */
     private JPanel createProviderFilterPanel() {
@@ -116,7 +105,7 @@ public class SymbolSelectionPanel extends JPanel implements PropertyChangeListen
         panel.add(allButton);
 
         // Populate with providers found in our live data list
-        List<String> providers = fullDataList.stream()
+        List<String> providers = SymbolProgressCache.getInstance().getFilteredProgressInfo("", "All", false, isReplayMode).stream()
                 .map(info -> info.source().providerName())
                 .distinct()
                 .sorted()
@@ -149,21 +138,13 @@ public class SymbolSelectionPanel extends JPanel implements PropertyChangeListen
     }
 
     private void filterList() {
-        String searchText = searchField.getText().toLowerCase().trim();
-        
+        String searchText = searchField.getText();
         ButtonModel selectedModel = providerButtonGroup.getSelection();
         String selectedProvider = (selectedModel != null) ? selectedModel.getActionCommand() : "All";
         boolean showOnlyFavorites = favoritesToggle.isSelected();
-        SettingsManager sm = SettingsManager.getInstance();
 
-        List<SymbolProgressCache.SymbolProgressInfo> filtered = fullDataList.stream()
-                .filter(info -> {
-                    boolean matchesFavorites = !showOnlyFavorites || sm.isFavoriteSymbol(info.source().symbol());
-                    boolean matchesProvider = "All".equals(selectedProvider) || selectedProvider.equals(info.source().providerName());
-                    boolean matchesSearch = info.source().displayName().toLowerCase().contains(searchText);
-                    return matchesFavorites && matchesProvider && matchesSearch;
-                })
-                .collect(Collectors.toList());
+        List<SymbolProgressCache.SymbolProgressInfo> filtered = SymbolProgressCache.getInstance()
+                .getFilteredProgressInfo(searchText, selectedProvider, showOnlyFavorites, isReplayMode);
         
         listModel.clear();
         listModel.addAll(filtered);

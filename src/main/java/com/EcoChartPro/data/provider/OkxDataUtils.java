@@ -20,7 +20,7 @@ public final class OkxDataUtils {
     }
 
     /**
-     * [FIXED] Converts an EcoChartPro Timeframe display name to OKX's 'bar' string format.
+     * Converts an EcoChartPro Timeframe display name to OKX's 'bar' string format.
      * This method now explicitly maps common timeframes to ensure the correct case and format
      * are used for WebSocket channel subscriptions.
      * @param timeframe The timeframe string from the application (e.g., "5m", "1H").

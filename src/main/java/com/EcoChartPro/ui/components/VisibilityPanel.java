@@ -54,7 +54,7 @@ public class VisibilityPanel extends JPanel {
      * @return A map of timeframes to their visibility state.
      */
     public Map<Timeframe, Boolean> getVisibilityMap() {
-        // [FIX] EnumMap is only for enums. Use a general-purpose map.
+        // EnumMap is only for enums. Use a general-purpose map.
         Map<Timeframe, Boolean> visibilityMap = new LinkedHashMap<>();
         for (Map.Entry<Timeframe, JCheckBox> entry : checkBoxMap.entrySet()) {
             visibilityMap.put(entry.getKey(), entry.getValue().isSelected());

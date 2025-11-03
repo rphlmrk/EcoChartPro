@@ -17,7 +17,7 @@ public class AchievementsDialog extends JDialog {
         super(owner, "Achievements & Goals", true);
         setSize(850, 600);
         setLocationRelativeTo(owner);
-        // FIX: Switched to GridBagLayout for more reliable component placement.
+        // Switched to GridBagLayout for more reliable component placement.
         setLayout(new GridBagLayout());
 
         GamificationService gamificationService = GamificationService.getInstance();
@@ -53,7 +53,7 @@ public class AchievementsDialog extends JDialog {
         scrollPane.setOpaque(false);
         scrollPane.getVerticalScrollBar().setUnitIncrement(16);
         
-        // FIX: Use GridBagConstraints to correctly position the header and the list.
+        // Use GridBagConstraints to correctly position the header and the list.
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.gridx = 0;
         gbc.gridy = 0;

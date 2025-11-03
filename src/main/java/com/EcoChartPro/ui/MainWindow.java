@@ -75,12 +75,12 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
     private JMenuItem undoMenuItem;
     private JMenuItem redoMenuItem;
     private final boolean isReplayMode;
-    // [NEW] Menu bar status labels
+    // Menu bar status labels
     private final JLabel connectivityStatusLabel;
     private final JLabel latencyLabel;
 
     public MainWindow(boolean isReplayMode) {
-        super(); // *** FIX: Removed title from here ***
+        super();
         this.isReplayMode = isReplayMode;
         setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
         setSize(1280, 720);
@@ -633,6 +633,7 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
             // --- 2. Handle Timeframe Change ---
             else if (command.startsWith("timeframeChanged")) {
                 Timeframe newTimeframe = null;
+                // --- Custom Timeframe Dialog ---
                 if (e.getSource() instanceof Timeframe) {
                     newTimeframe = (Timeframe) e.getSource();
                 } else {
@@ -728,6 +729,27 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
              if (!workspaceManager.getChartPanels().isEmpty()) {
                 workspaceManager.getChartPanels().get(0).getDataModel().clearData();
              }
+        }
+    }
+
+    /**
+     * Changes the active symbol for the current chart window.
+     * This method is designed to be called from the KeyboardShortcutManager.
+     * @param newSource The new data source to load.
+     */
+    public void changeActiveSymbol(DataSourceManager.ChartDataSource newSource) {
+        if (newSource == null) return;
+
+        // Update the UI component that shows the current symbol
+        topToolbarPanel.setCurrentSymbol(newSource);
+
+        // Trigger the actual data loading / session switching
+        if (isReplayMode) {
+            // This method reads the source from the toolbar, which we just set.
+            handleReplaySymbolChange();
+        } else {
+            // This method handles loading a new source in live mode.
+            loadChartForSource(newSource);
         }
     }
 }

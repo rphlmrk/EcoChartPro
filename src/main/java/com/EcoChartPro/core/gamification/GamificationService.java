@@ -279,7 +279,7 @@ public final class GamificationService {
             }
         }
         
-        // FIX: Centralize the challenge completion check here, after all historical processing is done.
+        //Centralize the challenge completion check here, after all historical processing is done.
         evaluateDailyChallengeCompletion(allTrades);
 
         this.lastTradeDate = sortedTradesByDay.lastKey();
@@ -303,7 +303,7 @@ public final class GamificationService {
         checkAchievements(allTrades, hadProfitableDay);
     }
     
-    // FIX: New centralized method for checking daily challenge completion against real-world time.
+    // New centralized method for checking daily challenge completion against real-world time.
     private void evaluateDailyChallengeCompletion(List<Trade> allTrades) {
         if (activeDailyChallenge == null || activeDailyChallenge.isComplete() || !activeDailyChallenge.dateAssigned().equals(LocalDate.now())) {
             return; // No active challenge for today.
@@ -373,7 +373,7 @@ public final class GamificationService {
     }
     
     private void generateDailyChallenge(List<Trade> allTrades) {
-        // FIX: Generate a new challenge if none exists OR if the current one is outdated.
+        // Generate a new challenge if none exists OR if the current one is outdated.
         if (activeDailyChallenge != null && activeDailyChallenge.dateAssigned().equals(LocalDate.now())) {
             return; // Challenge for today already exists
         }

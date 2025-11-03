@@ -12,6 +12,9 @@ import com.EcoChartPro.ui.Analysis.TradeExplorerPanel;
 import com.EcoChartPro.ui.dashboard.theme.UITheme;
 import com.EcoChartPro.utils.report.HtmlReportGenerator;
 import com.EcoChartPro.utils.report.PdfReportGenerator;
+import com.EcoChartPro.utils.report.ReportDataAggregator;
+import com.EcoChartPro.utils.report.ReportDataAggregator.ReportData;
+
 
 import javax.swing.*;
 import javax.swing.filechooser.FileNameExtensionFilter;
@@ -20,12 +23,9 @@ import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
 import java.io.File;
 import java.time.LocalDate;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.concurrent.ExecutionException;
-import java.util.stream.Collectors;
 
 /**
  * A comprehensive dialog that provides deep insights into trading performance.
@@ -58,7 +58,7 @@ public class InsightsDialog extends JDialog {
         loadingLabel.setForeground(UIManager.getColor("Label.disabledForeground"));
         loadingPanel.add(loadingLabel);
 
-        // [FIX] Use a JLayeredPane to create a floating button over the content.
+        // Use a JLayeredPane to create a floating button over the content.
         JLayeredPane layeredContentPane = new JLayeredPane();
         
         insightsContainer = new JPanel();
@@ -129,56 +129,27 @@ public class InsightsDialog extends JDialog {
         
         setContentPane(mainPanel);
     }
-    
-    private record AnalysisResult(
-        List<CoachingInsight> insights,
-        Map<String, MistakeStats> mistakeStats
-    ) {}
 
     public void loadSessionData(ReplaySessionState state) {
         this.currentSessionState = state; // Store state for export functionality
         cardLayout.show(mainPanel, "loading");
         
-        SwingWorker<AnalysisResult, Void> worker = new SwingWorker<>() {
+        // ---  Use ReportData as the result type ---
+        SwingWorker<ReportData, Void> worker = new SwingWorker<>() {
             @Override
-            protected AnalysisResult doInBackground() throws Exception {
-                // [FIXED] Collect all trades from all symbols for a comprehensive analysis
-                List<Trade> allTrades = new ArrayList<>();
-                if (state != null && state.symbolStates() != null) {
-                    state.symbolStates().values().forEach(s -> {
-                        if (s.tradeHistory() != null) {
-                            allTrades.addAll(s.tradeHistory());
-                        }
-                    });
-                }
-                
-                // Perform all heavy analysis in the background
-                CoachingService coachingService = CoachingService.getInstance();
-                com.EcoChartPro.core.journal.JournalAnalysisService journalService = new com.EcoChartPro.core.journal.JournalAnalysisService();
-                
-                int optimalTrades = com.EcoChartPro.core.gamification.GamificationService.getInstance().getOptimalTradeCount();
-                List<Integer> peakHours = com.EcoChartPro.core.gamification.GamificationService.getInstance().getPeakPerformanceHours();
-                
-                List<CoachingInsight> insights = coachingService.analyze(allTrades, optimalTrades, peakHours, Optional.empty());
-                Map<String, MistakeStats> mistakeStats = journalService.analyzeMistakes(allTrades);
-                
-                return new AnalysisResult(insights, mistakeStats);
+            protected ReportData doInBackground() throws Exception {
+                // --- All analysis is now done in the aggregator ---
+                return ReportDataAggregator.prepareReportData(state);
             }
 
             @Override
             protected void done() {
                 try {
-                    AnalysisResult result = get();
+                    // --- Get the comprehensive ReportData object ---
+                    ReportData result = get();
 
-                    // [FIXED] Collect all trades again for UI panels
-                    List<Trade> allTrades = new ArrayList<>();
-                    if (state != null && state.symbolStates() != null) {
-                        state.symbolStates().values().forEach(s -> {
-                            if (s.tradeHistory() != null) {
-                                allTrades.addAll(s.tradeHistory());
-                            }
-                        });
-                    }
+                    // --- Use the canonical list of trades from the analysis result ---
+                    List<Trade> allTrades = result.stats().trades();
                     
                     insightsContainer.removeAll();
                     if (result.insights().isEmpty()) {
@@ -192,8 +163,10 @@ public class InsightsDialog extends JDialog {
                     insightsContainer.revalidate();
                     insightsContainer.repaint();
 
+                    // Note: performancePanel could also be refactored to accept `result.stats()` directly
+                    // but leaving as-is respects its current API.
                     performancePanel.loadSessionData(state);
-                    mistakePanel.updateData(result.mistakeStats());
+                    mistakePanel.updateData(result.mistakeAnalysis());
                     journalPanel.loadSessionData(allTrades);
                     comparativePanel.loadData(allTrades);
                     explorerPanel.loadData(allTrades);

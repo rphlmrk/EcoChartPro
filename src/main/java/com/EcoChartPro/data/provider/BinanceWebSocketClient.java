@@ -45,7 +45,8 @@ public class BinanceWebSocketClient implements I_ExchangeWebSocketClient {
     private Consumer<String> reconnectHandler;
     private volatile boolean wasUnintentionalDisconnect = false;
     private volatile Set<String> activeSubscriptions = Set.of();
-    private volatile boolean needsReconnectAfterUpdate = false; // [FIX] Flag to manage update-driven reconnects
+    // Flag to manage update-driven reconnects
+    private volatile boolean needsReconnectAfterUpdate = false; 
 
     @Override
     public void setMessageHandler(Consumer<String> messageHandler) {
@@ -63,7 +64,8 @@ public class BinanceWebSocketClient implements I_ExchangeWebSocketClient {
         logger.info("Updating Binance subscriptions. New set has {} streams. Triggering reconnect.", streamNames.size());
         
         if (webSocketClient != null && webSocketClient.isOpen()) {
-            needsReconnectAfterUpdate = true; // [FIX] Signal that this close requires a reconnect
+            // Signal that this close requires a reconnect for the update
+            needsReconnectAfterUpdate = true; 
             state = ConnectionState.CLOSING; // Signal intent to close for subscription update
             webSocketClient.close();
         } else {
@@ -124,7 +126,7 @@ public class BinanceWebSocketClient implements I_ExchangeWebSocketClient {
                 public void onClose(int code, String reason, boolean remote) {
                     logger.warn("Binance WebSocket closed. Code: {}, Reason: {}, Remote: {}", code, reason, remote);
                     
-                    // [FIX] Updated reconnect logic
+                    // Updated reconnect logic using the dedicated flag
                     boolean isUpdateClose = needsReconnectAfterUpdate;
                     boolean isPermanentClose = (state == ConnectionState.CLOSING && !isUpdateClose);
                     

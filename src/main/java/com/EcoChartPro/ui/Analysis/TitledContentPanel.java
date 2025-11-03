@@ -30,7 +30,7 @@ public class TitledContentPanel extends JPanel {
     }
 
     /**
-     * [FIX] Added this method to provide access to the content panel,
+     * Added this method to provide access to the content panel,
      * resolving the compilation error in subclasses.
      * @return The JComponent passed to the constructor.
      */

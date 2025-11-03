@@ -143,7 +143,7 @@ public class WorkspaceManager {
         ChartInteractionManager interactionManager = new ChartInteractionManager(model);
         model.setInteractionManager(interactionManager);
         
-        // --- START OF FIX: Ensure new panels get the correct context ---
+        // --- Ensure new panels get the correct context ---
         DataSourceManager.ChartDataSource sourceToLoad = owner.getCurrentSource();
         // Fallback if the main source isn't set yet (e.g., during initial window creation)
         if (sourceToLoad == null && !chartPanels.isEmpty() && chartPanels.get(0).getDataModel().getCurrentSymbol() != null) {
@@ -163,7 +163,6 @@ public class WorkspaceManager {
             // Live mode: ensure DB manager is set, even if source is from API
             model.setDatabaseManager(owner.getActiveDbManager(), sourceToLoad);
         }
-        // --- END OF FIX ---
 
         ChartAxis chartAxis = new ChartAxis();
         PriceAxisPanel priceAxisPanel = new PriceAxisPanel(model, chartAxis, interactionManager);
@@ -186,13 +185,12 @@ public class WorkspaceManager {
         Timeframe targetTimeframe = (tf != null) ? tf : Timeframe.fromString(selectedTfString);
         if (targetTimeframe == null) targetTimeframe = Timeframe.H1;
 
-        // --- START OF FIX: Load data immediately for the new panel ---
+        // --- Load data immediately for the new panel ---
         if (isReplay) {
             model.setDisplayTimeframe(targetTimeframe, true);
         } else if (sourceToLoad != null) {
             model.loadDataset(sourceToLoad, targetTimeframe);
         }
-        // --- END OF FIX ---
 
         JPanel container = new JPanel(new BorderLayout());
         container.add(chartPanel, BorderLayout.CENTER);

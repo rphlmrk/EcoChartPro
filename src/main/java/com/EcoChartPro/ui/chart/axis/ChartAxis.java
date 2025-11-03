@@ -191,7 +191,7 @@ public class ChartAxis {
         }
 
         Instant firstVisibleTime = visibleKLines.get(0).timestamp();
-        // [FIX] Use the record's accessor method 'duration()'
+        // Use the record's accessor method 'duration()'
         Duration timePerBar = timeframe.duration();
 
         if (timePerBar.isZero()) {

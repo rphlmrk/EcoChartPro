@@ -256,7 +256,7 @@ public class TimeAxisPanel extends JPanel implements PropertyChangeListener {
                 Color axisTextColor = settings.getAxisTextColor();
                 Color openingRangeColor = new Color(axisTextColor.getRed(), axisTextColor.getGreen(), axisTextColor.getBlue(), 50);
 
-                // [FIX] Use the record's accessor method 'duration()'
+                // Use the record's accessor method 'duration()'
                 if (tf != null && tf.duration().compareTo(Duration.ofMinutes(15)) <= 0) {
                     double barWidth = chartAxis.getBarWidth();
                     for (int i = 0; i < klines.size(); i++) {

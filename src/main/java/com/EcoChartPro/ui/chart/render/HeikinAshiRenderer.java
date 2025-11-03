@@ -32,7 +32,7 @@ public class HeikinAshiRenderer implements AbstractChartTypeRenderer {
             boolean isBullish = kline.close().compareTo(kline.open()) >= 0;
             g2d.setColor(isBullish ? settings.getBullColor() : settings.getBearColor());
 
-            // [FIX] Render wicks precisely relative to the candle body for accurate HA representation.
+            // Render wicks precisely relative to the candle body for accurate HA representation.
             int bodyTopY = Math.min(yOpen, yClose);
             int bodyBottomY = Math.max(yOpen, yClose);
             int bodyHeight = bodyBottomY - bodyTopY;

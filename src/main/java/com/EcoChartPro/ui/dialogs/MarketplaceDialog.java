@@ -88,7 +88,7 @@ public class MarketplaceDialog extends JDialog {
                     } else {
                         for (PluginInfo plugin : filteredPlugins) {
                             pluginsPanel.add(new PluginEntryPanel(plugin, marketplaceService, MarketplaceDialog.this));
-                            // [FIX] Use a proper separator instead of a strut for better visuals
+                            // Use a proper separator instead of a strut for better visuals
                             pluginsPanel.add(new JSeparator());
                         }
                     }
@@ -126,7 +126,7 @@ public class MarketplaceDialog extends JDialog {
             this.service = service;
             this.parentDialog = parentDialog;
             
-            // [FIX] Use GridBagLayout for precise control over component sizing and alignment.
+            // Use GridBagLayout for precise control over component sizing and alignment.
             setLayout(new GridBagLayout());
             setBorder(new EmptyBorder(10, 10, 10, 10));
             setOpaque(false); // Let the list background show through
@@ -134,7 +134,7 @@ public class MarketplaceDialog extends JDialog {
             GridBagConstraints gbc = new GridBagConstraints();
 
             // --- Icon ---
-            // [FIX] Reduced icon size for a more compact look.
+            // Reduced icon size for a more compact look.
             JLabel iconLabel = new JLabel(UITheme.getIcon(UITheme.Icons.PLUGIN_JAVA, 24, 24));
             gbc.gridx = 0;
             gbc.gridy = 0;
@@ -159,7 +159,7 @@ public class MarketplaceDialog extends JDialog {
             infoPanel.add(Box.createVerticalStrut(5));
             infoPanel.add(descLabel);
             
-            // [FIX] Make the info panel expand horizontally to fill space.
+            // Make the info panel expand horizontally to fill space.
             gbc.gridx = 1;
             gbc.weightx = 1.0;
             gbc.fill = GridBagConstraints.HORIZONTAL;
@@ -171,7 +171,7 @@ public class MarketplaceDialog extends JDialog {
             actionButton = new JButton();
             updateButtonState();
             
-            // [FIX] The button will now only take its preferred size, not stretch vertically.
+            // The button will now only take its preferred size, not stretch vertically.
             gbc.gridx = 2;
             gbc.weightx = 0;
             gbc.fill = GridBagConstraints.NONE;

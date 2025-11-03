@@ -1,6 +1,6 @@
 package com.EcoChartPro.ui.Analysis;
 
-import com.EcoChartPro.model.MistakeStats; // <-- THIS LINE IS THE FIX
+import com.EcoChartPro.model.MistakeStats;
 
 import javax.swing.*;
 import javax.swing.table.AbstractTableModel;

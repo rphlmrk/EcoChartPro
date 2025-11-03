@@ -162,7 +162,7 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
     
     public void setDatabaseManager(DatabaseManager dbManager, DataSourceManager.ChartDataSource source) {
         this.dbManager = dbManager;
-        // [FIX] REMOVED: this.currentSource = source;
+        // REMOVED: this.currentSource = source;
         // This line caused a premature state update, breaking symbol-change detection in `loadDataset`.
         // The currentSource should only be updated by `loadDataset` or `configureForReplay`.
     }
@@ -345,7 +345,7 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
             activeRebuildWorker.cancel(true);
         }
 
-        // [FIX] Explicitly clear all data and cancel pre-fetches on symbol change for a clean state.
+        // Explicitly clear all data and cancel pre-fetches on symbol change for a clean state.
         if (sourceChanged) {
             logger.info("Symbol changed from {} to {}. Clearing all chart data.",
                 oldSource != null ? oldSource.symbol() : "none", source.symbol());

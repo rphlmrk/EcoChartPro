@@ -38,7 +38,7 @@ public class DataSourceManager {
     public record ChartDataSource(String providerName, String symbol, String displayName, Path dbPath, List<String> timeframes) {
         @Override
         public String toString() {
-            // [FIX] Always use the displayName for the JComboBox representation.
+            // Always use the displayName for the JComboBox representation.
             return displayName;
         }
     }

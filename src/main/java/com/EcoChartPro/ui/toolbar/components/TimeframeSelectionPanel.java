@@ -37,7 +37,7 @@ public class TimeframeSelectionPanel extends JPanel {
         customButton.setFocusPainted(false);
         customButton.setMargin(new Insets(4, 8, 4, 8));
         customButton.addActionListener(e -> {
-            // --- START OF FIX for Custom Timeframe Dialog ---
+            // --- Custom Timeframe Dialog ---
             Frame owner = (Frame) SwingUtilities.getWindowAncestor(this);
             CustomTimeframeDialog dialog = new CustomTimeframeDialog(owner);
             dialog.setVisible(true); 
@@ -48,7 +48,6 @@ public class TimeframeSelectionPanel extends JPanel {
                 ActionEvent customEvent = new ActionEvent(customTf, ActionEvent.ACTION_PERFORMED, "timeframeChanged");
                 fireCustomActionPerformed(customEvent);
             }
-            // --- END OF FIX ---
         });
         add(customButton);
     }
@@ -71,7 +70,7 @@ public class TimeframeSelectionPanel extends JPanel {
         }
     }
 
-    // --- START OF FIX for Custom Timeframe Dialog ---
+    // --- Custom Timeframe Dialog ---
     protected void fireCustomActionPerformed(ActionEvent e) {
         // Find the parent JPopupMenu and hide it before firing the event.
         Component parent = this;

@@ -22,7 +22,7 @@ import java.util.TreeMap;
 public class FootprintRenderer implements AbstractChartTypeRenderer {
     private static final Logger logger = LoggerFactory.getLogger(FootprintRenderer.class);
     private static final int MIN_CLUSTER_HEIGHT = 1;
-    // [FIX] Increased base font sizes for better readability when zoomed in
+    // Increased base font sizes for better readability when zoomed in
     private static final Font BASE_CLUSTER_FONT = new Font("Monospaced", Font.PLAIN, 13);
     private static final Font DELTA_FONT = new Font("Monospaced", Font.BOLD, 13);
     private static final double IMBALANCE_RATIO = 3.0;
@@ -95,7 +95,7 @@ public class FootprintRenderer implements AbstractChartTypeRenderer {
 
             double pixelsPerCluster = axis.priceToPixel(effectivePriceStep.doubleValue());
             
-            // [FIX] Increased minimum font size for better readability
+            // Increased minimum font size for better readability
             int fontSize = Math.max(9, (int) (pixelsPerCluster * 0.9));
             Font clusterFont = BASE_CLUSTER_FONT.deriveFont((float) fontSize);
             g2d.setFont(clusterFont);

@@ -82,7 +82,6 @@ public class InfoPanel extends JPanel {
             }
         }
 
-        // --- FIX ---
         // For a manually rendered component not in a visible hierarchy, we must
         // force the layout manager to calculate its preferred size and then synchronously
         // lay out the child components within those new bounds.

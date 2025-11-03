@@ -121,7 +121,7 @@ public class PerformanceAnalyticsPanel extends JPanel {
             challengePanel.setVisible(false);
         }
 
-        // [FIXED] Collect all trades from the multi-symbol state
+        // Collect all trades from the multi-symbol state
         List<Trade> allTrades = new ArrayList<>();
         if (state != null && state.symbolStates() != null) {
             state.symbolStates().values().forEach(s -> {
@@ -148,7 +148,7 @@ public class PerformanceAnalyticsPanel extends JPanel {
         pnlDistributionChart.updateData(pnlDistribution);
 
         // --- Update MFE vs MAE Chart ---
-        // [FIXED] Use lastActiveSymbol to find the correct data source for analysis
+        // Use lastActiveSymbol to find the correct data source for analysis
         Optional<DataSourceManager.ChartDataSource> sourceOpt = DataSourceManager.getInstance().getAvailableSources().stream()
                 .filter(s -> s.symbol().equalsIgnoreCase(state.lastActiveSymbol())).findFirst();
 

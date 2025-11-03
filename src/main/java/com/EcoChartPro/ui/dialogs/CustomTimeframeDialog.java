@@ -11,7 +11,7 @@ public class CustomTimeframeDialog extends JDialog {
     private final JSpinner valueSpinner;
     private final JComboBox<String> unitComboBox;
 
-    // [FIX] Reverted constructor to accept Frame, as the ultimate owner should be a top-level Frame.
+    // constructor to accept Frame, as the ultimate owner should be a top-level Frame.
     public CustomTimeframeDialog(Frame owner) {
         super(owner, "Custom Timeframe", true);
         setLayout(new BorderLayout(10, 10));

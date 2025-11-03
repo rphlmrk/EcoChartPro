@@ -73,7 +73,7 @@ public class SessionDialog extends JDialog {
         setLayout(new GridBagLayout());
         setResizable(false);
         
-        // --- FIX: Initialize all final fields at the top of the constructor ---
+        // --- Initialize all final fields at the top of the constructor ---
         providerComboBox = new JComboBox<>();
         symbolComboBox = new JComboBox<>();
         standardModeRadioButton = new JRadioButton("Live Paper Trading", true);

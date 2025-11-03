@@ -1,5 +1,6 @@
 package com.EcoChartPro.ui.toolbar.components;
 
+import com.EcoChartPro.core.settings.SettingsManager;
 import com.EcoChartPro.core.state.ReplaySessionState;
 import com.EcoChartPro.core.state.SymbolSessionState;
 import com.EcoChartPro.model.Symbol;
@@ -12,6 +13,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -19,7 +21,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
- * A singleton cache for storing the backtesting progress of each symbol.
  * This data is loaded once at startup to ensure the symbol selection UI is responsive.
  */
 public final class SymbolProgressCache {
@@ -60,7 +61,7 @@ public final class SymbolProgressCache {
         progressCache.clear();
         List<ChartDataSource> allSources = DataSourceManager.getInstance().getAvailableSources();
 
-        // [MODIFIED] Logic to handle new multi-symbol session state
+        // Logic to handle new multi-symbol session state
         Optional<ReplaySessionState> latestSessionOpt = SessionManager.getInstance().getLatestSessionState();
 
         for (ChartDataSource source : allSources) {
@@ -79,20 +80,13 @@ public final class SymbolProgressCache {
         logger.info("Symbol progress cache built successfully with {} entries.", progressCache.size());
     }
 
-    /**
-     * [DEPRECATED] Efficiently updates the progress for a single symbol in the cache from a legacy state.
-     * This will be removed once the old ReplaySessionState is fully phased out from all call sites.
-     */
     @Deprecated
     public void updateProgressForSymbol(String symbol, ReplaySessionState state) {
-        // This is a temporary method to handle calls that might still use the old state object.
-        // The old state object no longer has a replayHeadIndex, so this method is now a no-op.
-        // The correct update path is the overload that takes a SymbolSessionState.
         logger.warn("Called deprecated updateProgressForSymbol with ReplaySessionState. Update logic has been moved.");
     }
     
     /**
-     * [NEW OVERLOAD] Efficiently updates the progress for a single symbol in the cache.
+     * Efficiently updates the progress for a single symbol in the cache.
      * @param symbol The symbol identifier (e.g., "btcusdt").
      * @param state  The symbol-specific session state that was just saved.
      */
@@ -117,6 +111,10 @@ public final class SymbolProgressCache {
     }
 
     private int calculateProgress(ChartDataSource source, int replayHeadIndex) {
+        // Ensure source is a local file before proceeding
+        if (source.dbPath() == null) {
+            return 0;
+        }
         int progress = 0;
         try (DatabaseManager tempDb = new DatabaseManager("jdbc:sqlite:" + source.dbPath().toAbsolutePath())) {
             int totalBars = tempDb.getTotalKLineCount(new Symbol(source.symbol()), "1m");
@@ -135,5 +133,42 @@ public final class SymbolProgressCache {
      */
     public List<SymbolProgressInfo> getAllProgressInfo() {
         return Collections.unmodifiableList(new ArrayList<>(progressCache.values()));
+    }
+
+    /**
+     * Retrieves a filtered list of symbol information based on various criteria.
+     * This is the centralized filtering logic for any UI component that needs to search for symbols.
+     * The results are sorted with favorite symbols appearing first.
+     * @param query The search text to filter by display name (case-insensitive).
+     * @param selectedProvider The provider/exchange name to filter by. Use "All" to ignore this filter.
+     * @param showOnlyFavorites If true, only returns symbols marked as favorites.
+     * @param isReplayMode If true, returns only local file-based data sources. If false, returns only live/remote sources.
+     * @return A new list of SymbolProgressInfo objects that match the criteria, sorted by favorite status then display name.
+     */
+    public List<SymbolProgressInfo> getFilteredProgressInfo(String query, String selectedProvider, boolean showOnlyFavorites, boolean isReplayMode) {
+        String lowerCaseQuery = (query != null) ? query.toLowerCase().trim() : "";
+        SettingsManager sm = SettingsManager.getInstance();
+
+        return progressCache.values().stream()
+                .filter(info -> {
+                    // Filter 1: Match the mode (Replay vs. Live)
+                    boolean isLocalData = info.source().dbPath() != null;
+                    return isReplayMode == isLocalData;
+                })
+                .filter(info -> {
+                    // Filter 2: Match favorites if the filter is active
+                    return !showOnlyFavorites || sm.isFavoriteSymbol(info.source().symbol());
+                })
+                .filter(info -> {
+                    // Filter 3: Match the provider/exchange if not "All"
+                    return "All".equalsIgnoreCase(selectedProvider) || selectedProvider.equals(info.source().providerName());
+                })
+                .filter(info -> {
+                    // Filter 4: Match the search text
+                    return lowerCaseQuery.isEmpty() || info.source().displayName().toLowerCase().contains(lowerCaseQuery);
+                })
+                .sorted(Comparator.comparing((SymbolProgressInfo info) -> !sm.isFavoriteSymbol(info.source().symbol()))
+                                  .thenComparing(info -> info.source().displayName()))
+                .collect(Collectors.toList());
     }
 }

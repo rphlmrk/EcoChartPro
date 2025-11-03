@@ -30,7 +30,7 @@ public class CoachingInsightRenderer extends JPanel {
         gbc.gridx = 0;
         gbc.gridy = 0;
         gbc.weightx = 0; // Icon column does not stretch horizontally
-        gbc.anchor = GridBagConstraints.NORTH; // **FIX**: Align icon to the top of its cell
+        gbc.anchor = GridBagConstraints.NORTH; // Align icon to the top of its cell
         gbc.insets = new Insets(0, 0, 0, 15); // Padding to the right of the icon
         add(iconLabel, gbc);
 

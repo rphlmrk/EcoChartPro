@@ -49,7 +49,8 @@ public class OkxWebSocketClient implements I_ExchangeWebSocketClient {
     private final Gson gson = new Gson();
     private final PropertyChangeSupport pcs = new PropertyChangeSupport(this);
     private long pingSentTimeNs = 0;
-    private volatile boolean needsReconnectAfterUpdate = false; // [FIX] Flag to manage update-driven reconnects
+    // Flag to manage update-driven reconnects
+    private volatile boolean needsReconnectAfterUpdate = false; 
 
     @Override
     public void setMessageHandler(Consumer<String> messageHandler) {
@@ -67,7 +68,8 @@ public class OkxWebSocketClient implements I_ExchangeWebSocketClient {
         logger.info("Updating OKX subscriptions. New set has {} streams. Triggering reconnect.", streamNames.size());
         
         if (webSocketClient != null && webSocketClient.isOpen()) {
-            needsReconnectAfterUpdate = true; // [FIX] Signal that this close requires a reconnect
+            // Signal that this close requires a reconnect for the update
+            needsReconnectAfterUpdate = true; 
             state = ConnectionState.CLOSING; // Signal intent to close for subscription update
             webSocketClient.close();
         } else {
@@ -130,13 +132,13 @@ public class OkxWebSocketClient implements I_ExchangeWebSocketClient {
                 @Override
                 public void onClose(int code, String reason, boolean remote) {
                     logger.warn("OKX WebSocket closed. Code: {}, Reason: {}, Remote: {}", code, reason, remote);
-                    stopPingTimer();
-
-                    // [FIX] Updated reconnect logic
+                    
+                    // Updated reconnect logic using the dedicated flag
                     boolean isUpdateClose = needsReconnectAfterUpdate;
                     boolean isPermanentClose = (state == ConnectionState.CLOSING && !isUpdateClose);
                     
                     state = ConnectionState.DISCONNECTED;
+                    stopPingTimer();
                     
                     if (isUpdateClose) {
                         needsReconnectAfterUpdate = false; // Reset the flag
@@ -165,6 +167,10 @@ public class OkxWebSocketClient implements I_ExchangeWebSocketClient {
     }
 
     private void sendSubscriptionRequest() {
+        if (activeSubscriptions.isEmpty()) {
+            return;
+        }
+        
         List<Map<String, String>> args = activeSubscriptions.stream().map(stream -> {
             String[] parts = stream.split(":", 2);
             return Map.of("channel", parts[0], "instId", parts[1]);
