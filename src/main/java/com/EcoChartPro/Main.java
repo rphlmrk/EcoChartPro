@@ -1,5 +1,6 @@
 package com.EcoChartPro;
 
+import com.EcoChartPro.core.controller.LiveSessionTrackerService;
 import com.EcoChartPro.core.gamification.AchievementService;
 import com.EcoChartPro.core.plugin.PluginManager;
 import com.EcoChartPro.core.service.InternetConnectivityService;
@@ -10,13 +11,14 @@ import com.EcoChartPro.ui.dashboard.DashboardFrame;
 import com.EcoChartPro.ui.toolbar.components.SymbolProgressCache;
 import com.EcoChartPro.utils.AppDataManager;
 import com.EcoChartPro.utils.DataSourceManager;
-
+import com.EcoChartPro.utils.SessionManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -24,6 +26,7 @@ import javax.swing.JDialog;
 import javax.swing.JFrame;
 import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
+import com.EcoChartPro.utils.DatabaseManager;
 
 public class Main {
 
@@ -45,6 +48,22 @@ public class Main {
 
         logger = LoggerFactory.getLogger(Main.class);
 
+        // [MODIFIED] Add a startup task to prune old trade candle data
+        new SwingWorker<Void, Void>() {
+            @Override
+            protected Void doInBackground() throws Exception {
+                logger.info("Performing startup maintenance: Pruning old trade candle data...");
+                int retentionMonths = SettingsManager.getInstance().getTradeCandleRetentionMonths();
+                if (retentionMonths == -1) {
+                    logger.info("Trade candle retention is set to 'Forever'. Skipping pruning.");
+                    return null;
+                }
+                Instant olderThan = Instant.now().minus(retentionMonths * 30L, java.time.temporal.ChronoUnit.DAYS);
+                DatabaseManager.getInstance().pruneOldTradeCandles(olderThan);
+                return null;
+            }
+        }.execute();
+
         logger.info("Application is running with Java from: {}", System.getProperty("java.home"));
 
         // shutdown hook to handle application restarts.
@@ -58,10 +77,13 @@ public class Main {
                 }
             } else {
                 logger.info("Application shutting down normally.");
+                // [MODIFIED] Clean up live session file on normal shutdown
+                SessionManager.getInstance().deleteLiveAutoSaveFile();
                 com.EcoChartPro.core.gamification.GamificationService.getInstance().saveState();
                 AchievementService.getInstance().saveState();
                 com.EcoChartPro.core.controller.ReplaySessionManager.getInstance().shutdown();
-                InternetConnectivityService.getInstance().stop(); // [NEW] Stop the service on shutdown
+                InternetConnectivityService.getInstance().stop(); 
+                LiveSessionTrackerService.getInstance().stop(); // [NEW] Stop the tracker
             }
         }));
 
@@ -86,6 +108,9 @@ public class Main {
 
         // [NEW] Start the internet connectivity checker
         InternetConnectivityService.getInstance().start();
+        
+        // [NEW] Start the live session tracker
+        LiveSessionTrackerService.getInstance().start();
 
         try {
             DataSourceManager.getInstance().scanDataDirectory();

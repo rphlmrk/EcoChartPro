@@ -211,6 +211,7 @@ public final class SettingsManager {
     private List<TradingSession> preferredTradingSessions;
     private int footprintCandleOpacity;
     private List<String> favoriteSymbols;
+    private int tradeCandleRetentionMonths; // [NEW]
 
 
     private SettingsManager() {
@@ -360,6 +361,7 @@ public final class SettingsManager {
         this.simulatedSpreadPoints = new BigDecimal(properties.getProperty("simulation.simulatedSpreadPoints", "0.0"));
         this.autoJournalOnTradeClose = Boolean.parseBoolean(properties.getProperty("simulation.autoJournalOnTradeClose", "true"));
         this.sessionHighlightingEnabled = Boolean.parseBoolean(properties.getProperty("chart.sessionHighlighting.enabled", "true"));
+        this.tradeCandleRetentionMonths = Integer.parseInt(properties.getProperty("trading.candleRetentionMonths", "12")); // [NEW]
         String timeframesStr = properties.getProperty("tradeReplay.availableTimeframes", "1m,5m,15m");
         this.footprintCandleOpacity = Integer.parseInt(properties.getProperty("footprint.candleOpacity", "20"));
         this.tradeReplayAvailableTimeframes = new ArrayList<>(Arrays.asList(timeframesStr.split(",")));
@@ -473,6 +475,7 @@ public final class SettingsManager {
                 properties.setProperty("simulation.simulatedSpreadPoints", simulatedSpreadPoints.toPlainString());
                 properties.setProperty("simulation.autoJournalOnTradeClose", String.valueOf(autoJournalOnTradeClose));
                 properties.setProperty("chart.sessionHighlighting.enabled", String.valueOf(sessionHighlightingEnabled));
+                properties.setProperty("trading.candleRetentionMonths", String.valueOf(tradeCandleRetentionMonths)); // [NEW]
                 properties.setProperty("tradeReplay.availableTimeframes", String.join(",", this.tradeReplayAvailableTimeframes));
                 properties.setProperty("footprint.candleOpacity", String.valueOf(footprintCandleOpacity));
                 properties.setProperty("favorite.symbols", String.join(",", this.favoriteSymbols));
@@ -1041,6 +1044,16 @@ public final class SettingsManager {
             this.sessionHighlightingEnabled = enabled;
             saveSettings();
             pcs.firePropertyChange("sessionHighlightingChanged", oldVal, this.sessionHighlightingEnabled);
+        }
+    }
+
+    // [NEW] Getter and Setter
+    public int getTradeCandleRetentionMonths() { return tradeCandleRetentionMonths; }
+    public void setTradeCandleRetentionMonths(int months) {
+        if (this.tradeCandleRetentionMonths != months) {
+            this.tradeCandleRetentionMonths = months;
+            saveSettings();
+            // No property change event needed as this is not a live-updating UI feature
         }
     }
 

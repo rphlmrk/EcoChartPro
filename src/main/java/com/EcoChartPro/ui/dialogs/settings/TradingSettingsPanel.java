@@ -14,6 +14,7 @@ import java.util.Date;
 import java.util.EnumMap;
 import java.util.Map;
 import java.util.function.Consumer;
+import com.EcoChartPro.utils.DatabaseManager;
 
 public class TradingSettingsPanel extends JPanel {
     private final SettingsManager sm;
@@ -22,6 +23,7 @@ public class TradingSettingsPanel extends JPanel {
     private final JFormattedTextField spreadField;
     private final JCheckBox autoJournalCheckbox;
     private final JCheckBox sessionHighlightCheckbox;
+    private final JSpinner candleRetentionSpinner; 
 
     // Session components
     private final Map<SettingsManager.TradingSession, JCheckBox> sessionEnabledCheckboxes = new EnumMap<>(SettingsManager.TradingSession.class);
@@ -56,6 +58,9 @@ public class TradingSettingsPanel extends JPanel {
         sessionHighlightCheckbox = new JCheckBox("Enable session highlighting on chart");
         sessionHighlightCheckbox.setSelected(sm.isSessionHighlightingEnabled());
 
+        // [MODIFIED] Spinner model now starts at -1 to represent "Forever"
+        candleRetentionSpinner = new JSpinner(new SpinnerNumberModel(sm.getTradeCandleRetentionMonths(), -1, 120, 1));
+
         initUI();
     }
 
@@ -63,7 +68,6 @@ public class TradingSettingsPanel extends JPanel {
         GridBagConstraints gbc = createGbc(0, 0);
         gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.weightx = 1.0;
-
 
         // Simulation Settings
         JPanel simulationPanel = new JPanel(new GridBagLayout());
@@ -80,6 +84,16 @@ public class TradingSettingsPanel extends JPanel {
 
         gbc.gridy++; gbc.insets = new Insets(10,0,2,0); add(autoJournalCheckbox, gbc);
         gbc.gridy++; gbc.insets = new Insets(2,0,2,0); add(sessionHighlightCheckbox, gbc);
+        
+        // [MODIFIED] Add retention setting with "Clear Now" button
+        gbc.gridy++; gbc.insets = new Insets(10,0,2,0); 
+        JPanel retentionPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        retentionPanel.add(new JLabel("Trade Candle Retention (-1 for forever):"));
+        retentionPanel.add(candleRetentionSpinner);
+        JButton clearDataButton = new JButton("Clear All Cached Candles Now");
+        clearDataButton.addActionListener(e -> clearTradeCandleData());
+        retentionPanel.add(clearDataButton);
+        add(retentionPanel, gbc);
 
         gbc.gridy++;
         gbc.insets = new Insets(15,0,5,0);
@@ -94,6 +108,32 @@ public class TradingSettingsPanel extends JPanel {
         gbc.gridy++;
         gbc.weighty = 1.0;
         add(new JPanel(), gbc);
+    }
+    
+    // [NEW] Logic for the "Clear Now" button
+    private void clearTradeCandleData() {
+        int choice = JOptionPane.showConfirmDialog(
+            this,
+            "This will permanently delete all saved candle data for past trades.\n" +
+            "This action cannot be undone. Are you sure you want to proceed?",
+            "Confirm Data Deletion",
+            JOptionPane.YES_NO_OPTION,
+            JOptionPane.WARNING_MESSAGE
+        );
+
+        if (choice == JOptionPane.YES_OPTION) {
+            new SwingWorker<Void, Void>() {
+                @Override
+                protected Void doInBackground() throws Exception {
+                    DatabaseManager.getInstance().clearAllTradeCandles();
+                    return null;
+                }
+                @Override
+                protected void done() {
+                    JOptionPane.showMessageDialog(TradingSettingsPanel.this, "All cached trade candle data has been deleted.", "Success", JOptionPane.INFORMATION_MESSAGE);
+                }
+            }.execute();
+        }
     }
 
     private JPanel createSessionEditor() {
@@ -171,6 +211,7 @@ public class TradingSettingsPanel extends JPanel {
         sm.setSimulatedSpreadPoints((BigDecimal) spreadField.getValue());
         sm.setAutoJournalOnTradeClose(autoJournalCheckbox.isSelected());
         sm.setSessionHighlightingEnabled(sessionHighlightCheckbox.isSelected());
+        sm.setTradeCandleRetentionMonths((Integer) candleRetentionSpinner.getValue());
 
         for (SettingsManager.TradingSession session : SettingsManager.TradingSession.values()) {
             sm.setSessionEnabled(session, sessionEnabledCheckboxes.get(session).isSelected());

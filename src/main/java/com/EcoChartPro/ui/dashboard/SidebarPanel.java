@@ -61,6 +61,7 @@ public class SidebarPanel extends JPanel {
 
     private JToggleButton createNavigationTab(String text, String viewName, boolean selected) {
         JToggleButton button = new JToggleButton(text, selected);
+        button.setActionCommand(viewName); // Use action command to identify the button
         button.setFocusPainted(false);
         button.setBorderPainted(false);
         button.setContentAreaFilled(false);
@@ -81,9 +82,10 @@ public class SidebarPanel extends JPanel {
             mainContentPanel.switchToView(viewName);
             backgroundPane.updateBackgroundImage(viewName);
 
-            SessionType type = "LIVE".equals(viewName) ? SessionType.LIVE : SessionType.REPLAY;
-            PaperTradingService.getInstance().setActiveSessionType(type);
-            LiveSessionTrackerService.getInstance().setActiveSessionType(type);
+            // This logic is now redundant here as it's handled in DashboardFrame's propertyChange
+            // SessionType type = "LIVE".equals(viewName) ? SessionType.LIVE : SessionType.REPLAY;
+            // PaperTradingService.getInstance().setActiveSessionType(type);
+            // LiveSessionTrackerService.getInstance().setActiveSessionType(type);
 
             for (Component comp : getComponents()) {
                 if (comp instanceof AbstractButton) {
@@ -98,6 +100,21 @@ public class SidebarPanel extends JPanel {
 
         navigationGroup.add(button);
         return button;
+    }
+
+    /**
+     * [NEW] Programmatically sets the active view by simulating a click on the corresponding button.
+     * @param viewName The key of the view to activate (e.g., "LIVE", "REPLAY").
+     */
+    public void setActiveView(String viewName) {
+        for (Component comp : getComponents()) {
+            if (comp instanceof JToggleButton button) {
+                if (viewName.equals(button.getActionCommand())) {
+                    button.doClick(); // This will trigger the action listener and all associated logic.
+                    break;
+                }
+            }
+        }
     }
 
     @Override

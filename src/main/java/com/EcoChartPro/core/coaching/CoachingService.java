@@ -328,28 +328,43 @@ public final class CoachingService {
     }
 
     private List<CoachingInsight> findTradeManagementPatterns(List<Trade> trades, Optional<DataSourceManager.ChartDataSource> sourceOpt) {
-        if (sourceOpt.isEmpty()) {
+        if (sourceOpt.isEmpty() || trades.size() < MIN_TRADES_FOR_PATTERN * 2) {
             return Collections.emptyList();
         }
 
-        List<Trade> winners = trades.stream().filter(t -> t.profitAndLoss().signum() > 0).collect(Collectors.toList());
-        List<Trade> losers = trades.stream().filter(t -> t.profitAndLoss().signum() < 0).collect(Collectors.toList());
+        JournalAnalysisService analysisService = new JournalAnalysisService();
+        List<JournalAnalysisService.TradeMfeMae> mfeMaeData = analysisService.calculateMfeMaeForAllTrades(trades, sourceOpt.get());
+
+        List<JournalAnalysisService.TradeMfeMae> winners = mfeMaeData.stream().filter(d -> d.pnl().signum() > 0).collect(Collectors.toList());
+        List<JournalAnalysisService.TradeMfeMae> losers = mfeMaeData.stream().filter(d -> d.pnl().signum() < 0).collect(Collectors.toList());
 
         if (winners.size() < MIN_TRADES_FOR_PATTERN || losers.size() < MIN_TRADES_FOR_PATTERN) {
             return Collections.emptyList();
         }
 
-        JournalAnalysisService analysisService = new JournalAnalysisService();
-        JournalAnalysisService.TradeEfficiencyStats efficiencyStats = analysisService.calculateTradeEfficiency(trades, sourceOpt.get());
+        // Calculate winner stats
+        BigDecimal totalWinnerPnl = winners.stream().map(JournalAnalysisService.TradeMfeMae::pnl).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal totalWinnerMfe = winners.stream().map(JournalAnalysisService.TradeMfeMae::mfe).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal avgWinnerPnl = totalWinnerPnl.divide(BigDecimal.valueOf(winners.size()), 2, RoundingMode.HALF_UP);
+        BigDecimal avgWinnerMfe = totalWinnerMfe.divide(BigDecimal.valueOf(winners.size()), 2, RoundingMode.HALF_UP);
+        BigDecimal winningEfficiency = (avgWinnerMfe.signum() == 0) ? BigDecimal.ZERO : avgWinnerPnl.divide(avgWinnerMfe, 2, RoundingMode.HALF_UP);
+
+        // Calculate loser stats
+        BigDecimal totalLoserPnl = losers.stream().map(d -> d.pnl().abs()).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal totalLoserMae = losers.stream().map(JournalAnalysisService.TradeMfeMae::mae).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal avgLoserPnl = totalLoserPnl.divide(BigDecimal.valueOf(losers.size()), 2, RoundingMode.HALF_UP);
+        BigDecimal avgLoserMae = totalLoserMae.divide(BigDecimal.valueOf(losers.size()), 2, RoundingMode.HALF_UP);
+        BigDecimal loserPainRatio = (avgLoserPnl.signum() == 0) ? BigDecimal.ZERO : avgLoserMae.divide(avgLoserPnl, 2, RoundingMode.HALF_UP);
+        
         List<CoachingInsight> foundInsights = new ArrayList<>();
 
         // Check for "Leaving Money on the Table"
-        if (efficiencyStats.averageWinningTradeEfficiency().compareTo(WINNING_EFFICIENCY_THRESHOLD) < 0) {
+        if (winningEfficiency.compareTo(WINNING_EFFICIENCY_THRESHOLD) < 0) {
             String description = String.format(
                 "Your winning trades reach an average peak profit of $%.2f, but you are only capturing $%.2f of it (%.0f%% efficiency). Consider using a trailing stop or setting higher profit targets to maximize your winners.",
-                efficiencyStats.averageWinnerMfe(),
-                efficiencyStats.averageWinnerPnl(),
-                efficiencyStats.averageWinningTradeEfficiency().multiply(BigDecimal.valueOf(100))
+                avgWinnerMfe,
+                avgWinnerPnl,
+                winningEfficiency.multiply(BigDecimal.valueOf(100))
             );
             foundInsights.add(new CoachingInsight(
                 "TRADE_MGMT_PREMATURE_PROFIT",
@@ -361,11 +376,11 @@ public final class CoachingService {
         }
 
         // Check for "Letting Losers Run"
-        if (efficiencyStats.averageLoserPainRatio().compareTo(LOSER_PAIN_RATIO_THRESHOLD) > 0) {
+        if (loserPainRatio.compareTo(LOSER_PAIN_RATIO_THRESHOLD) > 0) {
             String description = String.format(
                 "On average, your losing trades go against you by $%.2f before you exit, for an average final loss of $%.2f. This suggests you are enduring significant drawdown before accepting the loss. Respect your initial stop-loss to protect your capital.",
-                efficiencyStats.averageLoserMae(),
-                efficiencyStats.averageLoserPnl()
+                avgLoserMae,
+                avgLoserPnl
             );
             foundInsights.add(new CoachingInsight(
                 "TRADE_MGMT_LETTING_LOSERS_RUN",

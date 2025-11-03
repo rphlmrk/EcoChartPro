@@ -502,96 +502,40 @@ public class JournalAnalysisService {
         ));
     }
 
-    public TradeEfficiencyStats calculateTradeEfficiency(List<Trade> trades, DataSourceManager.ChartDataSource source) {
-        if (trades == null || trades.isEmpty() || source == null) {
-            return new TradeEfficiencyStats(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO);
-        }
-
-        List<Trade> winners = trades.stream().filter(t -> t.profitAndLoss().signum() > 0).collect(Collectors.toList());
-        List<Trade> losers = trades.stream().filter(t -> t.profitAndLoss().signum() < 0).collect(Collectors.toList());
-
-        if (winners.isEmpty() && losers.isEmpty()) {
-            return new TradeEfficiencyStats(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO);
-        }
-
-        Optional<Instant> minInstantOpt = trades.stream().map(Trade::entryTime).min(Instant::compareTo);
-        Optional<Instant> maxInstantOpt = trades.stream().map(Trade::exitTime).max(Instant::compareTo);
-
-        if (minInstantOpt.isEmpty() || maxInstantOpt.isEmpty()) {
-            return new TradeEfficiencyStats(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO);
-        }
-        
-        List<KLine> allKlines;
-        try (DatabaseManager db = new DatabaseManager("jdbc:sqlite:" + source.dbPath().toAbsolutePath())) {
-            allKlines = db.getKLinesBetween(new Symbol(source.symbol()), "1m", minInstantOpt.get(), maxInstantOpt.get());
-        } catch (Exception e) {
-            logger.error("Failed to retrieve K-lines for trade efficiency analysis.", e);
-            return new TradeEfficiencyStats(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO);
-        }
-        
-        if (allKlines.isEmpty()) {
-            return new TradeEfficiencyStats(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO);
-        }
-
-        BigDecimal totalMfeForWinners = BigDecimal.ZERO;
-        for (Trade winner : winners) {
-            List<KLine> tradeKlines = allKlines.stream()
-                .filter(k -> !k.timestamp().isBefore(winner.entryTime()) && !k.timestamp().isAfter(winner.exitTime()))
-                .collect(Collectors.toList());
-            MfeMaeResult result = calculateMfeMaeForTrade(winner, tradeKlines);
-            totalMfeForWinners = totalMfeForWinners.add(result.mfe());
-        }
-
-        BigDecimal grossWinPnl = calculateTotalPnl(winners);
-        BigDecimal avgWinPnl = winners.isEmpty() ? BigDecimal.ZERO : grossWinPnl.divide(BigDecimal.valueOf(winners.size()), 4, RoundingMode.HALF_UP);
-        BigDecimal avgMfeWinners = winners.isEmpty() ? BigDecimal.ZERO : totalMfeForWinners.divide(BigDecimal.valueOf(winners.size()), 4, RoundingMode.HALF_UP);
-        BigDecimal winningEfficiency = (avgMfeWinners.signum() == 0) ? BigDecimal.ZERO : avgWinPnl.divide(avgMfeWinners, 4, RoundingMode.HALF_UP);
-
-        BigDecimal totalMaeForLosers = BigDecimal.ZERO;
-        for (Trade loser : losers) {
-            List<KLine> tradeKlines = allKlines.stream()
-                .filter(k -> !k.timestamp().isBefore(loser.entryTime()) && !k.timestamp().isAfter(loser.exitTime()))
-                .collect(Collectors.toList());
-            MfeMaeResult result = calculateMfeMaeForTrade(loser, tradeKlines);
-            totalMaeForLosers = totalMaeForLosers.add(result.mae());
-        }
-
-        BigDecimal grossLossPnl = calculateTotalPnl(losers).abs();
-        BigDecimal avgLossPnl = losers.isEmpty() ? BigDecimal.ZERO : grossLossPnl.divide(BigDecimal.valueOf(losers.size()), 4, RoundingMode.HALF_UP);
-        BigDecimal avgMaeLosers = losers.isEmpty() ? BigDecimal.ZERO : totalMaeForLosers.divide(BigDecimal.valueOf(losers.size()), 4, RoundingMode.HALF_UP);
-        BigDecimal loserPainRatio = (avgLossPnl.signum() == 0) ? BigDecimal.ZERO : avgMaeLosers.divide(avgLossPnl, 4, RoundingMode.HALF_UP);
-        
-        return new TradeEfficiencyStats(winningEfficiency, loserPainRatio, avgWinPnl, avgMfeWinners, avgLossPnl, avgMaeLosers);
-    }
-    
     public List<TradeMfeMae> calculateMfeMaeForAllTrades(List<Trade> trades, DataSourceManager.ChartDataSource source) {
-        if (trades == null || trades.isEmpty() || source == null) {
+        if (trades == null || trades.isEmpty()) {
             return Collections.emptyList();
         }
 
-        Optional<Instant> minInstantOpt = trades.stream().map(Trade::entryTime).min(Instant::compareTo);
-        Optional<Instant> maxInstantOpt = trades.stream().map(Trade::exitTime).max(Instant::compareTo);
-
-        if (minInstantOpt.isEmpty() || maxInstantOpt.isEmpty()) {
-            return Collections.emptyList();
-        }
-
-        List<KLine> allKlines;
-        try (DatabaseManager db = new DatabaseManager("jdbc:sqlite:" + source.dbPath().toAbsolutePath())) {
-            allKlines = db.getKLinesBetween(new Symbol(source.symbol()), "1m", minInstantOpt.get(), maxInstantOpt.get());
-        } catch (Exception e) {
-            logger.error("Failed to retrieve K-lines for MFE/MAE analysis.", e);
-            return Collections.emptyList();
-        }
-
-        if (allKlines.isEmpty()) {
-            return Collections.emptyList();
-        }
-
+        // [MODIFIED] Logic to be DB-first, API-fallback
         return trades.stream().map(trade -> {
-            List<KLine> tradeKlines = allKlines.stream()
-                .filter(k -> !k.timestamp().isBefore(trade.entryTime()) && !k.timestamp().isAfter(trade.exitTime()))
-                .collect(Collectors.toList());
+            // 1. Attempt to get candles from the central trade database first.
+            List<KLine> tradeKlines = DatabaseManager.getInstance().getCandlesForTrade(trade.id(), "1m");
+
+            // 2. If no candles are found in the DB (e.g., old trade, import error), fall back to the API.
+            if (tradeKlines.isEmpty()) {
+                logger.warn("No cached candles found for trade {}. Falling back to API fetch.", trade.id());
+                Optional<DataSourceManager.ChartDataSource> tradeSourceOpt = DataSourceManager.getInstance().getAvailableSources().stream()
+                    .filter(s -> s.symbol().equalsIgnoreCase(trade.symbol().name())).findFirst();
+                
+                if (tradeSourceOpt.isPresent()) {
+                    try (DatabaseManager db = new DatabaseManager("jdbc:sqlite:" + tradeSourceOpt.get().dbPath().toAbsolutePath())) {
+                        Instant startTime = trade.entryTime().minus(Duration.ofMinutes(1));
+                        Instant endTime = trade.exitTime().plus(Duration.ofMinutes(1));
+                        tradeKlines = db.getKLinesBetween(new Symbol(trade.symbol().name()), "1m", startTime, endTime);
+
+                        // [ENHANCEMENT] Save the fetched data back to the DB for next time.
+                        if (!tradeKlines.isEmpty()) {
+                            DatabaseManager.getInstance().saveTradeCandles(trade.id(), trade.symbol().name(), "1m", tradeKlines);
+                            logger.info("Backfilled and saved {} candles for trade {}.", tradeKlines.size(), trade.id());
+                        }
+                    } catch (Exception e) {
+                        logger.error("Fallback K-line fetch failed for trade {}", trade.id(), e);
+                        tradeKlines = Collections.emptyList();
+                    }
+                }
+            }
+
             MfeMaeResult result = calculateMfeMaeForTrade(trade, tradeKlines);
             return new TradeMfeMae(result.mfe(), result.mae(), trade.profitAndLoss());
         }).collect(Collectors.toList());

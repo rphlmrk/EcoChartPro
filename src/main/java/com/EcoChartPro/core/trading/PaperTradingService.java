@@ -7,6 +7,9 @@ import com.EcoChartPro.core.settings.SettingsManager;
 import com.EcoChartPro.core.manager.DrawingManager;
 import com.EcoChartPro.core.state.ReplaySessionState;
 import com.EcoChartPro.core.state.SymbolSessionState;
+import com.EcoChartPro.data.DataProvider;
+import com.EcoChartPro.data.provider.BinanceProvider;
+import com.EcoChartPro.data.provider.OkxProvider;
 import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.Symbol;
 import com.EcoChartPro.model.Trade;
@@ -21,6 +24,7 @@ import org.slf4j.LoggerFactory;
 
 import java.beans.PropertyChangeListener;
 import java.beans.PropertyChangeSupport;
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -59,6 +63,10 @@ public class PaperTradingService implements TradingService {
 
     private final PropertyChangeSupport pcs = new PropertyChangeSupport(this);
     private final AutomatedTaggingService automatedTaggingService;
+
+    // [NEW] In-memory cache for K-lines of active trades in the current session.
+    private final Map<UUID, List<KLine>> activeTradeCandles = new ConcurrentHashMap<>();
+    private static final int CANDLE_BUFFER = 10; // Number of candles to save before a trade
 
     private PaperTradingService() {
         contexts.put(SessionType.REPLAY, new SessionContext());
@@ -202,8 +210,18 @@ public class PaperTradingService implements TradingService {
 
     @Override
     public void onBarUpdate(KLine newBar) {
-        // All updates happen for the currently active symbol during replay ticks.
+        // All updates happen for the currently active symbol.
         if (getActiveContext().activeSymbol == null) return;
+        
+        // [NEW] Append the new bar to any active trade caches for the current symbol in live mode.
+        if (activeSessionType == SessionType.LIVE) {
+            for (Position position : getOpenPositions()) { // getOpenPositions is already filtered by active symbol
+                List<KLine> candles = activeTradeCandles.get(position.id());
+                if (candles != null) {
+                    candles.add(newBar);
+                }
+            }
+        }
         
         checkPendingOrders(newBar, getActiveContext().activeSymbol);
         updateTrailingStops(newBar, getActiveContext().activeSymbol);
@@ -362,6 +380,13 @@ public class PaperTradingService implements TradingService {
         );
         context.openPositionsBySymbol.computeIfAbsent(symbol, k -> new ConcurrentHashMap<>()).put(newPosition.id(), newPosition);
 
+        // [NEW] Pre-fetch buffer candles and initialize the cache for this new position.
+        if (activeSessionType == SessionType.LIVE) {
+            List<KLine> entryBuffer = fetchCandleBuffer(symbol, timestamp, CANDLE_BUFFER);
+            activeTradeCandles.put(newPosition.id(), Collections.synchronizedList(new ArrayList<>(entryBuffer)));
+            logger.info("Initialized candle cache for new position {} with {} buffer candles.", newPosition.id(), entryBuffer.size());
+        }
+
         BigDecimal commission = SettingsManager.getInstance().getCommissionPerTrade();
         if (commission != null && commission.compareTo(BigDecimal.ZERO) > 0) {
             context.accountBalance = context.accountBalance.subtract(commission);
@@ -390,15 +415,30 @@ public class PaperTradingService implements TradingService {
             }
         }
 
-        ReplaySessionManager rsm = ReplaySessionManager.getInstance();
         List<String> autoTags = new ArrayList<>();
-        if (rsm.getCurrentSource() != null && rsm.getCurrentSource().symbol().equals(symbol)) {
-            try (DatabaseManager db = new DatabaseManager("jdbc:sqlite:" + rsm.getCurrentSource().dbPath().toAbsolutePath())) {
-                List<KLine> tradeKlines = db.getKLinesBetween(new Symbol(symbol), "1m", position.openTimestamp(), exitTime);
+        if (activeSessionType == SessionType.LIVE) {
+            List<KLine> cachedCandles = activeTradeCandles.get(position.id());
+            if (cachedCandles != null && !cachedCandles.isEmpty()) {
                 Trade tempTrade = new Trade(position.id(), position.symbol(), position.direction(), position.openTimestamp(), position.entryPrice(), exitTime, exitPrice, position.size(), pnl, planFollowed);
-                autoTags = automatedTaggingService.generateTags(tempTrade, tradeKlines);
-            } catch (Exception e) {
-                logger.error("Failed to retrieve K-lines for automated tagging.", e);
+                autoTags = automatedTaggingService.generateTags(tempTrade, cachedCandles);
+            }
+            // Now remove and save the candles to the database
+            List<KLine> candlesToSave = activeTradeCandles.remove(position.id());
+            if (candlesToSave != null && !candlesToSave.isEmpty()) {
+                DatabaseManager.getInstance().saveTradeCandles(position.id(), symbol, "1m", candlesToSave);
+            } else {
+                logger.warn("No cached candles found for closing trade {}. Data will not be saved.", position.id());
+            }
+        } else { // REPLAY mode
+            ReplaySessionManager rsm = ReplaySessionManager.getInstance();
+            if (rsm.getCurrentSource() != null && rsm.getCurrentSource().symbol().equals(symbol)) {
+                try (DatabaseManager db = new DatabaseManager("jdbc:sqlite:" + rsm.getCurrentSource().dbPath().toAbsolutePath())) {
+                    List<KLine> tradeKlines = db.getKLinesBetween(new Symbol(symbol), "1m", position.openTimestamp(), exitTime);
+                    Trade tempTrade = new Trade(position.id(), position.symbol(), position.direction(), position.openTimestamp(), position.entryPrice(), exitTime, exitPrice, position.size(), pnl, planFollowed);
+                    autoTags = automatedTaggingService.generateTags(tempTrade, tradeKlines);
+                } catch (Exception e) {
+                    logger.error("Failed to retrieve K-lines for automated tagging in replay mode.", e);
+                }
             }
         }
         
@@ -417,6 +457,33 @@ public class PaperTradingService implements TradingService {
         
         logger.info("Trade finalized for {}. Position: {}. PnL: {}. Plan Followed: {}. New Balance: {}. Auto-tags: {}", symbol, position.id(), pnl, planFollowed, context.accountBalance, autoTags);
         return completedTrade;
+    }
+    
+    /**
+     * [NEW] Fetches a buffer of candles leading up to a specific timestamp.
+     * This is used to capture the market context before a trade was entered.
+     */
+    private List<KLine> fetchCandleBuffer(String symbol, Instant beforeTime, int limit) {
+        DataProvider provider = null;
+        // Determine the correct provider (this could be improved with a provider registry)
+        if (symbol.contains("-")) { // Heuristic for OKX
+            provider = new OkxProvider();
+        } else { // Default to Binance
+            provider = new BinanceProvider();
+        }
+
+        try {
+            if (provider instanceof BinanceProvider bp) {
+                // Binance endTime is inclusive, so we fetch up to the millisecond before entry
+                return bp.getHistoricalData(symbol, "1m", limit, null, beforeTime.toEpochMilli() - 1);
+            } else if (provider instanceof OkxProvider op) {
+                // OKX 'before' is exclusive, so using the exact timestamp is correct
+                return op.getHistoricalData(symbol, "1m", limit, null, beforeTime.toEpochMilli());
+            }
+        } catch (IOException e) {
+            logger.error("Failed to fetch pre-trade candle buffer for symbol {}: {}", symbol, e.getMessage());
+        }
+        return Collections.emptyList();
     }
 
     @Override
@@ -563,6 +630,7 @@ public class PaperTradingService implements TradingService {
         contextToReset.tradeHistoryBySymbol.clear();
         contextToReset.sessionTradeHistory.clear();
         contextToReset.activeSymbol = null;
+        activeTradeCandles.clear(); // [NEW] Clear the candle cache on session reset
 
         // If the reset context is the active one, notify UI
         if (type == this.activeSessionType) {

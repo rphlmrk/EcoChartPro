@@ -34,6 +34,7 @@ import java.beans.PropertyChangeListener;
 import java.io.File;
 import java.io.IOException;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.nio.file.Path;
 import java.text.DecimalFormat;
 import java.time.Duration;
@@ -363,8 +364,18 @@ public class ComprehensiveReportPanel extends JPanel implements Scrollable, Prop
                 .findFirst();
 
         if (sourceOpt.isPresent()) {
-            JournalAnalysisService.TradeEfficiencyStats efficiencyStats = service.calculateTradeEfficiency(stats.trades(), sourceOpt.get());
-            BigDecimal efficiency = efficiencyStats.averageWinningTradeEfficiency();
+            List<JournalAnalysisService.TradeMfeMae> mfeMaeData = service.calculateMfeMaeForAllTrades(stats.trades(), sourceOpt.get());
+            List<JournalAnalysisService.TradeMfeMae> winners = mfeMaeData.stream().filter(d -> d.pnl().signum() > 0).collect(Collectors.toList());
+            
+            BigDecimal efficiency = BigDecimal.ZERO;
+            if (!winners.isEmpty()) {
+                BigDecimal totalWinnerPnl = winners.stream().map(JournalAnalysisService.TradeMfeMae::pnl).reduce(BigDecimal.ZERO, BigDecimal::add);
+                BigDecimal totalWinnerMfe = winners.stream().map(JournalAnalysisService.TradeMfeMae::mfe).reduce(BigDecimal.ZERO, BigDecimal::add);
+                if (totalWinnerMfe.signum() > 0) {
+                    efficiency = totalWinnerPnl.divide(totalWinnerMfe, 4, RoundingMode.HALF_UP);
+                }
+            }
+
             GaugeChart efficiencyGauge = new GaugeChart(GaugeChart.GaugeType.FULL_CIRCLE);
             efficiencyGauge.setData(efficiency.doubleValue());
             tradeEfficiencyWidget.setOverallValue(percentFormat.format(efficiency.multiply(BigDecimal.valueOf(100))), UIManager.getColor("Label.foreground"));

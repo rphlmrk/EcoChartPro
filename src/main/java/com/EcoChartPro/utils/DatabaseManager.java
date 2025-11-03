@@ -19,6 +19,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 public final class DatabaseManager implements AutoCloseable {
 
@@ -70,6 +71,28 @@ public final class DatabaseManager implements AutoCloseable {
     private static final String CREATE_TRADES_INDEX_SQL = """
         CREATE INDEX IF NOT EXISTS idx_trades_query
         ON trades (symbol, timestamp_ms);
+    """;
+
+    // [NEW] Schema for trade-specific K-line data
+    private static final String CREATE_TRADE_KLINES_TABLE_SQL = """
+        CREATE TABLE IF NOT EXISTS trade_kline_data (
+            trade_id TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            timeframe TEXT NOT NULL,
+            timestamp_sec INTEGER NOT NULL,
+            open TEXT NOT NULL,
+            high TEXT NOT NULL,
+            low TEXT NOT NULL,
+            close TEXT NOT NULL,
+            volume TEXT NOT NULL,
+            PRIMARY KEY (trade_id, timeframe, timestamp_sec)
+        );
+    """;
+    
+    // [NEW] Index for efficient querying of a trade's candles
+    private static final String CREATE_TRADE_KLINES_INDEX_SQL = """
+        CREATE INDEX IF NOT EXISTS idx_trade_kline_query
+        ON trade_kline_data (trade_id, timeframe, timestamp_sec);
     """;
 
     private DatabaseManager() {
@@ -135,6 +158,9 @@ public final class DatabaseManager implements AutoCloseable {
             stmt.execute(CREATE_INDEX_SQL);
             stmt.execute(CREATE_TRADES_TABLE_SQL);
             stmt.execute(CREATE_TRADES_INDEX_SQL);
+            // [NEW] Create the new table on initialization
+            stmt.execute(CREATE_TRADE_KLINES_TABLE_SQL);
+            stmt.execute(CREATE_TRADE_KLINES_INDEX_SQL);
         }
     }
 
@@ -455,6 +481,109 @@ public final class DatabaseManager implements AutoCloseable {
             logger.error("Failed to retrieve trades between timestamps.", e);
         }
         return trades;
+    }
+    
+    /**
+     * [NEW] Saves a list of K-lines associated with a specific trade ID.
+     * Uses INSERT OR IGNORE to prevent duplicates if data is saved multiple times.
+     */
+    public void saveTradeCandles(UUID tradeId, String symbol, String timeframe, List<KLine> candles) {
+        String sql = "INSERT OR IGNORE INTO trade_kline_data (trade_id, symbol, timeframe, timestamp_sec, open, high, low, close, volume) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        try {
+            connection.setAutoCommit(false);
+            try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
+                for (KLine kline : candles) {
+                    pstmt.setString(1, tradeId.toString());
+                    pstmt.setString(2, symbol);
+                    pstmt.setString(3, timeframe);
+                    pstmt.setLong(4, kline.timestamp().getEpochSecond());
+                    pstmt.setString(5, kline.open().toPlainString());
+                    pstmt.setString(6, kline.high().toPlainString());
+                    pstmt.setString(7, kline.low().toPlainString());
+                    pstmt.setString(8, kline.close().toPlainString());
+                    pstmt.setString(9, kline.volume().toPlainString());
+                    pstmt.addBatch();
+                }
+                pstmt.executeBatch();
+                connection.commit();
+                logger.debug("Saved batch of {} candles for trade {}", candles.size(), tradeId);
+            } catch (SQLException e) {
+                connection.rollback();
+                logger.error("Error during trade candle batch insert, transaction rolled back.", e);
+            } finally {
+                connection.setAutoCommit(true);
+            }
+        } catch (SQLException e) {
+            logger.error("Failed to set transaction properties for saving trade candles.", e);
+        }
+    }
+
+    /**
+     * [NEW] Retrieves all K-lines associated with a specific trade ID and timeframe.
+     */
+    public List<KLine> getCandlesForTrade(UUID tradeId, String timeframe) {
+        List<KLine> klines = new ArrayList<>();
+        String sql = "SELECT * FROM trade_kline_data WHERE trade_id = ? AND timeframe = ? ORDER BY timestamp_sec ASC";
+        try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
+            pstmt.setString(1, tradeId.toString());
+            pstmt.setString(2, timeframe);
+
+            try (ResultSet rs = pstmt.executeQuery()) {
+                while (rs.next()) {
+                    klines.add(new KLine(
+                        Instant.ofEpochSecond(rs.getLong("timestamp_sec")),
+                        new BigDecimal(rs.getString("open")),
+                        new BigDecimal(rs.getString("high")),
+                        new BigDecimal(rs.getString("low")),
+                        new BigDecimal(rs.getString("close")),
+                        new BigDecimal(rs.getString("volume"))
+                    ));
+                }
+            }
+        } catch (SQLException e) {
+            logger.error("Failed to retrieve K-lines for trade {}", tradeId, e);
+        }
+        return klines;
+    }
+
+    /**
+     * [NEW] Deletes all candle data for trades that were closed before the specified timestamp.
+     */
+    public void pruneOldTradeCandles(Instant olderThan) {
+        // This query finds all trade_ids where the last candle for that trade is older than the retention period.
+        String sql = """
+            DELETE FROM trade_kline_data
+            WHERE trade_id IN (
+                SELECT trade_id
+                FROM trade_kline_data
+                GROUP BY trade_id
+                HAVING MAX(timestamp_sec) < ?
+            )
+        """;
+        try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
+            pstmt.setLong(1, olderThan.getEpochSecond());
+            int rowsAffected = pstmt.executeUpdate();
+            if (rowsAffected > 0) {
+                logger.info("Pruned candle data for old trades. {} records removed.", rowsAffected);
+            } else {
+                logger.debug("No old trade candle data to prune.");
+            }
+        } catch (SQLException e) {
+            logger.error("Failed to prune old trade candle data.", e);
+        }
+    }
+    
+    /**
+     * [NEW] Deletes all records from the trade_kline_data table.
+     */
+    public void clearAllTradeCandles() {
+        String sql = "DELETE FROM trade_kline_data;";
+        try (Statement stmt = connection.createStatement()) {
+            int rowsAffected = stmt.executeUpdate(sql);
+            logger.info("Cleared all cached trade candle data. {} records deleted.", rowsAffected);
+        } catch (SQLException e) {
+            logger.error("Failed to clear trade candle data.", e);
+        }
     }
     
     @Override
