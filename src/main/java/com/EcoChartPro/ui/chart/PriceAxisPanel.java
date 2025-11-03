@@ -240,8 +240,8 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
                 drawDynamicPriceLabels(g2d);
             }
 
-            drawCrosshairPrice(g2d);
             drawLiveInfo(g2d);
+            drawCrosshairPrice(g2d);
             
             g2d.dispose();
         }
