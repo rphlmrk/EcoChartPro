@@ -135,15 +135,14 @@ public final class LiveSessionTrackerService implements ReplayStateListener, Pro
         
         PaperTradingService tradingService = PaperTradingService.getInstance();
         
-        // Only save if there is something to save (open positions, etc.)
-        if (tradingService.hasAnyTradesOrPositions()) {
-            ReplaySessionState liveState = tradingService.getCurrentSessionState();
-            try {
-                SessionManager.getInstance().saveLiveSession(liveState);
-                logger.debug("Live session state auto-saved.");
-            } catch (IOException e) {
-                logger.error("Failed to auto-save live session state.", e);
-            }
+        // [MODIFIED] Always save the live session state, even if no trades have been made.
+        // This preserves the user's setup (symbol, balance, etc.) for a better resume experience.
+        ReplaySessionState liveState = tradingService.getCurrentSessionState();
+        try {
+            SessionManager.getInstance().saveLiveSession(liveState);
+            logger.debug("Live session state auto-saved.");
+        } catch (IOException e) {
+            logger.error("Failed to auto-save live session state.", e);
         }
     }
 

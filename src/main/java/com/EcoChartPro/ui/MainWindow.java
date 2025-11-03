@@ -577,9 +577,13 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
         setVisible(true);
     }
 
-    public void loadReplaySession(ReplaySessionState state) {
+    public void loadSessionState(ReplaySessionState state) {
         DrawingManager.getInstance().clearAllDrawingsForAllSymbols();
-        ReplaySessionManager.getInstance().startSessionFromState(state);
+        
+        // [MODIFIED] Only initialize replay-specific managers if in replay mode
+        if (isReplayMode) {
+            ReplaySessionManager.getInstance().startSessionFromState(state);
+        }
 
         Optional<ChartDataSource> sourceOpt = DataSourceManager.getInstance().getAvailableSources().stream()
                 .filter(s -> s.symbol().equalsIgnoreCase(state.lastActiveSymbol())).findFirst();
@@ -600,7 +604,12 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
         
         workspaceManager.applyLayout(WorkspaceManager.LayoutType.ONE);
         if (!workspaceManager.getChartPanels().isEmpty()) {
-            workspaceManager.getChartPanels().get(0).getDataModel().setDisplayTimeframe(Timeframe.M5);
+            // When loading a live session, we need to load the chart data for the active symbol
+            if (!isReplayMode) {
+                loadChartForSource(sourceOpt.get());
+            } else {
+                workspaceManager.getChartPanels().get(0).getDataModel().setDisplayTimeframe(Timeframe.M5);
+            }
             workspaceManager.setActiveChartPanel(workspaceManager.getChartPanels().get(0));
         }
         setVisible(true);

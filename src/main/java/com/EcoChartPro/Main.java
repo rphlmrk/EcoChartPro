@@ -20,7 +20,8 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.concurrent.atomic.AtomicBoolean;
+// MODIFIED: Removed AtomicBoolean as it's ineffective across classloaders
+// import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.swing.JDialog;
 import javax.swing.JFrame;
@@ -31,14 +32,17 @@ import com.EcoChartPro.utils.DatabaseManager;
 public class Main {
 
     private static Logger logger;
-    private static final AtomicBoolean hasInitialized = new AtomicBoolean(false);
+    // MODIFIED: Replaced AtomicBoolean with a System Property check for a true global lock.
+    private static final String INITIALIZED_PROPERTY = "ecochartpro.initialized";
 
 
     public static void main(String[] args) {
-        if (hasInitialized.getAndSet(true)) {
+        // MODIFIED: Use a system property to ensure single initialization across the entire JVM.
+        if ("true".equals(System.getProperty(INITIALIZED_PROPERTY))) {
             System.out.println("Application already initialized. Ignoring subsequent main() call.");
             return;
         }
+        System.setProperty(INITIALIZED_PROPERTY, "true");
 
         // Configure Logback's log directory FIRST
         AppDataManager.getLogDirectory().ifPresent(path -> {
@@ -77,13 +81,12 @@ public class Main {
                 }
             } else {
                 logger.info("Application shutting down normally.");
-                // [MODIFIED] Clean up live session file on normal shutdown
-                SessionManager.getInstance().deleteLiveAutoSaveFile();
+                // [MODIFIED] Save the live session state on normal shutdown
+                LiveSessionTrackerService.getInstance().stop(); // This will perform a final save
                 com.EcoChartPro.core.gamification.GamificationService.getInstance().saveState();
                 AchievementService.getInstance().saveState();
                 com.EcoChartPro.core.controller.ReplaySessionManager.getInstance().shutdown();
                 InternetConnectivityService.getInstance().stop(); 
-                LiveSessionTrackerService.getInstance().stop(); // [NEW] Stop the tracker
             }
         }));
 

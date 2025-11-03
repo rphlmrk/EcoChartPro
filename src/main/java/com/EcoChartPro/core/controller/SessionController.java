@@ -72,7 +72,7 @@ public class SessionController {
 
     public void startNewLiveSession(DataSourceManager.ChartDataSource source, BigDecimal startingBalance, BigDecimal leverage) {
         SwingUtilities.invokeLater(() -> {
-            // Explicitly clear any old live session
+            // [MODIFIED] Explicitly clear any old live session file when starting a NEW one
             SessionManager.getInstance().deleteLiveAutoSaveFile();
             
             findAndSetDashboardVisible(false);
@@ -93,8 +93,8 @@ public class SessionController {
             PaperTradingService.getInstance().restoreState(state);
             
             MainWindow mainWindow = new MainWindow(false);
-            // We load the session state into the existing MainWindow instance
-            mainWindow.loadReplaySession(state);
+            // [MODIFIED] We load the session state into the existing MainWindow instance
+            mainWindow.loadSessionState(state);
         });
     }
 
@@ -114,7 +114,7 @@ public class SessionController {
             }
             findAndSetDashboardVisible(false);
             MainWindow mainWindow = new MainWindow(true);
-            mainWindow.loadReplaySession(state);
+            mainWindow.loadSessionState(state);
         });
     }
 

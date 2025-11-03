@@ -177,9 +177,9 @@ public class PaperTradingService implements TradingService {
 
 
     public void restoreState(ReplaySessionState state) {
-        // Restoring a state always applies to the REPLAY context.
-        resetSession(SessionType.REPLAY, state.accountBalance(), BigDecimal.ONE); // Leverage is not saved in state yet
-        SessionContext context = contexts.get(SessionType.REPLAY);
+        // [MODIFIED] Restore state to the currently active context (LIVE or REPLAY)
+        resetSession(this.activeSessionType, state.accountBalance(), BigDecimal.ONE); 
+        SessionContext context = getActiveContext(); // Use the active context
 
         if (state.symbolStates() != null) {
             for (Map.Entry<String, SymbolSessionState> entry : state.symbolStates().entrySet()) {
@@ -205,7 +205,7 @@ public class PaperTradingService implements TradingService {
         // Set the active symbol from the loaded state
         switchActiveSymbol(state.lastActiveSymbol());
 
-        logger.info("Paper trading multi-symbol state restored for REPLAY session. Active Symbol: {}. Balance: {}", context.activeSymbol, context.accountBalance);
+        logger.info("Paper trading multi-symbol state restored for {} session. Active Symbol: {}. Balance: {}", this.activeSessionType, context.activeSymbol, context.accountBalance);
     }
 
     @Override
