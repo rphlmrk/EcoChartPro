@@ -380,26 +380,35 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
         
             String countdownText = null;
             if (dataModel.getCurrentMode() == ChartDataModel.ChartMode.LIVE) {
-                long durationMillis = timeframe.duration().toMillis();
-                if (durationMillis > 0) {
-                    long intervalStartMillis = getIntervalStart(lastKline.timestamp(), timeframe).toEpochMilli();
-                    long nextIntervalStartMillis = intervalStartMillis + durationMillis;
-                    long currentSystemMillis = Instant.now().toEpochMilli();
-                    long millisRemaining = nextIntervalStartMillis - currentSystemMillis;
-        
-                    if (millisRemaining > 0 && millisRemaining <= durationMillis) {
-                        long totalSecondsRemaining = TimeUnit.MILLISECONDS.toSeconds(millisRemaining);
-                        long hours = TimeUnit.SECONDS.toHours(totalSecondsRemaining);
-                        long minutes = TimeUnit.SECONDS.toMinutes(totalSecondsRemaining) % 60;
-                        long seconds = totalSecondsRemaining % 60;
-                        
-                        if (hours > 0) {
-                            countdownText = String.format("-%d:%02d:%02d", hours, minutes, seconds);
-                        } else {
-                            countdownText = String.format("-%02d:%02d", minutes, seconds);
-                        }
-                    }
-                }
+                 long durationMillis = timeframe.duration().toMillis();
+                 if (durationMillis <= 0) return null;
+ 
+                 long lastKlineIntervalStart = getIntervalStart(lastKline.timestamp(), timeframe).toEpochMilli();
+                 long systemNow = Instant.now().toEpochMilli();
+                 long currentSystemIntervalStart = getIntervalStart(Instant.ofEpochMilli(systemNow), timeframe).toEpochMilli();
+ 
+                 // Determine the start time of the candle we should be counting down for.
+                 // If the last kline data is from the current system interval, use its start time.
+                 // Otherwise (if data is stale), use the system clock's current interval start time.
+                 long relevantIntervalStart = (lastKlineIntervalStart == currentSystemIntervalStart)
+                                              ? lastKlineIntervalStart
+                                              : currentSystemIntervalStart;
+ 
+                 long nextIntervalStart = relevantIntervalStart + durationMillis;
+                 long millisRemaining = nextIntervalStart - systemNow;
+ 
+                 if (millisRemaining > 0 && millisRemaining <= durationMillis) {
+                     long totalSecondsRemaining = TimeUnit.MILLISECONDS.toSeconds(millisRemaining);
+                     long hours = TimeUnit.SECONDS.toHours(totalSecondsRemaining);
+                     long minutes = TimeUnit.SECONDS.toMinutes(totalSecondsRemaining) % 60;
+                     long seconds = totalSecondsRemaining % 60;
+ 
+                     if (hours > 0) {
+                         countdownText = String.format("-%d:%02d:%02d", hours, minutes, seconds);
+                     } else {
+                         countdownText = String.format("-%02d:%02d", minutes, seconds);
+                     }
+                 }
             } else { // REPLAY Mode
                 ReplaySessionManager manager = ReplaySessionManager.getInstance();
                 if (manager.isPlaying() && timeframe != Timeframe.M1) {
