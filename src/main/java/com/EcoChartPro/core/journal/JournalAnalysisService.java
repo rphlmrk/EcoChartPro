@@ -507,36 +507,16 @@ public class JournalAnalysisService {
             return Collections.emptyList();
         }
 
-        // [MODIFIED] Logic to be DB-first, API-fallback
         return trades.stream().map(trade -> {
-            // 1. Attempt to get candles from the central trade database first.
+            // 1. Attempt to get candles from the central trade database ONLY.
             List<KLine> tradeKlines = DatabaseManager.getInstance().getCandlesForTrade(trade.id(), "1m");
 
-            // 2. If no candles are found in the DB (e.g., old trade, import error), fall back to the API.
+            // 2. If no candles are found in the central DB, skip analysis for this trade.
             if (tradeKlines.isEmpty()) {
-                logger.warn("No cached candles found for trade {}. Falling back to API fetch.", trade.id());
-                Optional<DataSourceManager.ChartDataSource> tradeSourceOpt = DataSourceManager.getInstance().getAvailableSources().stream()
-                    .filter(s -> s.symbol().equalsIgnoreCase(trade.symbol().name())).findFirst();
-                
-                if (tradeSourceOpt.isPresent()) {
-                    try (DatabaseManager db = new DatabaseManager("jdbc:sqlite:" + tradeSourceOpt.get().dbPath().toAbsolutePath())) {
-                        Instant startTime = trade.entryTime().minus(Duration.ofMinutes(1));
-                        Instant endTime = trade.exitTime().plus(Duration.ofMinutes(1));
-                        tradeKlines = db.getKLinesBetween(new Symbol(trade.symbol().name()), "1m", startTime, endTime);
-
-                        // [ENHANCEMENT] Save the fetched data back to the DB for next time.
-                        if (!tradeKlines.isEmpty()) {
-                            DatabaseManager.getInstance().saveTradeCandles(trade.id(), trade.symbol().name(), "1m", tradeKlines);
-                            logger.info("Backfilled and saved {} candles for trade {}.", tradeKlines.size(), trade.id());
-                        }
-                    } catch (Exception e) {
-                        logger.error("Fallback K-line fetch failed for trade {}", trade.id(), e);
-                        tradeKlines = Collections.emptyList();
-                    }
-                }
+                logger.warn("No cached candles found for trade {}. MFE/MAE analysis will be skipped.", trade.id());
             }
 
-            MfeMaeResult result = calculateMfeMaeForTrade(trade, tradeKlines);
+            MfeMaeResult result = calculateMfeMaeForTrade(trade, tradeKlines); // This will correctly return 0s if list is empty
             return new TradeMfeMae(result.mfe(), result.mae(), trade.profitAndLoss());
         }).collect(Collectors.toList());
     }
