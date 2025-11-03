@@ -1,8 +1,5 @@
 package com.EcoChartPro.ui.dashboard.utils;
 
-import okhttp3.OkHttpClient;
-import okhttp3.Request;
-import okhttp3.Response;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -11,7 +8,6 @@ import javax.swing.SwingUtilities;
 import java.awt.Image;
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -25,7 +21,6 @@ import java.util.stream.Stream;
 
 public class ImageProvider {
 
-    private static final OkHttpClient client = new OkHttpClient();
     private static final Logger logger = LoggerFactory.getLogger(ImageProvider.class);
     private static final Map<String, Image> imageCache = new ConcurrentHashMap<>();
     private static final Path PICTURES_DIRECTORY = Paths.get(System.getProperty("user.home"), "Pictures");
@@ -60,25 +55,21 @@ public class ImageProvider {
     }
 
     /**
-     * Fetches an image from a given resource identifier (URL or local file path).
-     * Uses a cache to avoid re-downloading or re-reading from disk.
+     * Fetches an image from a local file path.
+     * Uses a cache to avoid re-reading from disk.
      *
-     * @param resourceIdentifier The URL string or absolute path string of the image.
-     * @param onComplete         The callback to execute with the loaded image.
+     * @param localPathString The absolute path string of the image.
+     * @param onComplete      The callback to execute with the loaded image.
      */
-    public static void fetchImage(String resourceIdentifier, Consumer<Image> onComplete) {
-        if (resourceIdentifier == null) return;
+    public static void fetchImage(String localPathString, Consumer<Image> onComplete) {
+        if (localPathString == null) return;
 
-        if (imageCache.containsKey(resourceIdentifier)) {
-            onComplete.accept(imageCache.get(resourceIdentifier));
+        if (imageCache.containsKey(localPathString)) {
+            onComplete.accept(imageCache.get(localPathString));
             return;
         }
 
-        if (resourceIdentifier.startsWith("http")) {
-            fetchRemoteImage(resourceIdentifier, onComplete);
-        } else {
-            fetchLocalImage(resourceIdentifier, onComplete);
-        }
+        fetchLocalImage(localPathString, onComplete);
     }
     
     /**
@@ -105,27 +96,6 @@ public class ImageProvider {
                 }
             } catch (IOException e) {
                 logger.error("Failed to load local image: {}", pathString, e);
-            }
-        }).start();
-    }
-    
-    private static void fetchRemoteImage(String url, Consumer<Image> onComplete) {
-        new Thread(() -> {
-            Request request = new Request.Builder().url(url).build();
-            try (Response response = client.newCall(request).execute()) {
-                if (!response.isSuccessful()) {
-                    logger.error("Failed to download image from {}: {}", url, response.code());
-                    return;
-                }
-                try (InputStream inputStream = response.body().byteStream()) {
-                    Image image = ImageIO.read(inputStream);
-                    if (image != null) {
-                        imageCache.put(url, image);
-                        SwingUtilities.invokeLater(() -> onComplete.accept(image));
-                    }
-                }
-            } catch (Exception e) {
-                logger.error("Exception while fetching image from " + url, e);
             }
         }).start();
     }

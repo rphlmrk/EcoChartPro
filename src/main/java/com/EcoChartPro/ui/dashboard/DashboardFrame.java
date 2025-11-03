@@ -5,7 +5,6 @@ import com.EcoChartPro.core.trading.PaperTradingService;
 import com.EcoChartPro.core.trading.SessionType;
 import com.EcoChartPro.ui.dashboard.theme.UITheme;
 import com.EcoChartPro.ui.dashboard.utils.ImageProvider;
-import com.EcoChartPro.core.settings.SettingsManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -16,7 +15,7 @@ import java.awt.event.WindowEvent;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 import java.nio.file.Path;
-import java.util.HashMap;
+import java.util.ArrayList;
 import java.util.Map;
 import java.util.Optional;
 
@@ -73,7 +72,6 @@ public class DashboardFrame extends JFrame implements PropertyChangeListener {
         JPanel topRightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 15, 0));
         topRightPanel.setOpaque(false);
         topRightPanel.add(xpBarPanel);
-        topRightPanel.add(createSettingsButton());
 
         gbc.anchor = GridBagConstraints.NORTHEAST;
         gbc.insets = new Insets(10, 0, 0, 10);
@@ -111,49 +109,12 @@ public class DashboardFrame extends JFrame implements PropertyChangeListener {
     private void preloadBackgroundImages() {
         int i = 0;
         for (String key : floatingNavPanel.getBackgroundKeys()) {
-            String liveUrl = backgroundPane.getLiveUrlForKey(key);
-            ImageProvider.fetchImage(liveUrl, img -> {});
-
             final int index = i;
             ImageProvider.getLocalImage(index).ifPresent(path -> {
                 ImageProvider.fetchImage(path.toAbsolutePath().toString(), img -> {});
             });
             i++;
         }
-    }
-    
-    private JButton createSettingsButton() {
-        JButton button = new JButton(UITheme.getIcon(UITheme.Icons.SETTINGS, 20, 20));
-        button.setOpaque(false);
-        button.setContentAreaFilled(false);
-        button.setBorderPainted(false);
-        button.setFocusPainted(false);
-        button.setCursor(new Cursor(Cursor.HAND_CURSOR));
-
-        button.addActionListener(e -> {
-            JPopupMenu menu = createImageSourceMenu();
-            menu.show(button, 0, button.getHeight());
-        });
-        return button;
-    }
-    
-    private JPopupMenu createImageSourceMenu() {
-        JPopupMenu menu = new JPopupMenu();
-        ButtonGroup group = new ButtonGroup();
-        SettingsManager settings = SettingsManager.getInstance();
-
-        JRadioButtonMenuItem liveItem = new JRadioButtonMenuItem("Live Images", settings.getImageSource() == SettingsManager.ImageSource.LIVE);
-        liveItem.addActionListener(e -> settings.setImageSource(SettingsManager.ImageSource.LIVE));
-        
-        JRadioButtonMenuItem localItem = new JRadioButtonMenuItem("Local Images", settings.getImageSource() == SettingsManager.ImageSource.LOCAL);
-        localItem.addActionListener(e -> settings.setImageSource(SettingsManager.ImageSource.LOCAL));
-
-        group.add(liveItem);
-        group.add(localItem);
-        menu.add(liveItem);
-        menu.add(localItem);
-        
-        return menu;
     }
 
     @Override
@@ -191,50 +152,29 @@ public class DashboardFrame extends JFrame implements PropertyChangeListener {
         xpBarPanel.updateProgress(service.getCurrentLevel(), progress.currentXpInLevel(), progress.requiredXpForLevel());
     }
 
-    public class BackgroundLayeredPane extends JLayeredPane implements PropertyChangeListener {
+    public class BackgroundLayeredPane extends JLayeredPane {
         private Image backgroundImage;
-        private final Map<String, String> liveUrls = new HashMap<>();
-
-        public BackgroundLayeredPane() {
-            SettingsManager.getInstance().addPropertyChangeListener(this);
-            
-            liveUrls.put("DASHBOARD", "https://picsum.photos/1090/640");
-            liveUrls.put("REPLAY", "https://picsum.photos/1090/640?grayscale&blur=6");
-            liveUrls.put("LIVE", "https://picsum.photos/1090/640");
-        }
+        private static final float BACKGROUND_IMAGE_OPACITY = 0.4f; // Value between 0.0f (transparent) and 1.0f (opaque)
 
         public void updateBackgroundImage(String viewKey) {
-            SettingsManager.ImageSource source = SettingsManager.getInstance().getImageSource();
-            String resourceIdentifier = null;
+            String resourceIdentifier;
 
-            if (source == SettingsManager.ImageSource.LOCAL) {
-                int index = java.util.Arrays.asList(floatingNavPanel.getBackgroundKeys()).indexOf(viewKey);
-                Optional<Path> localPath = ImageProvider.getLocalImage(index);
-                if (localPath.isPresent()) {
-                    resourceIdentifier = localPath.get().toAbsolutePath().toString();
-                } else {
-                    logger.warn("Local image for {} not found, falling back to live URL.", viewKey);
-                    resourceIdentifier = getLiveUrlForKey(viewKey);
-                }
-            } else { // LIVE
-                resourceIdentifier = getLiveUrlForKey(viewKey);
+            int index = new ArrayList<>(floatingNavPanel.getBackgroundKeys()).indexOf(viewKey);
+            Optional<Path> localPath = ImageProvider.getLocalImage(index);
+            if (localPath.isPresent()) {
+                resourceIdentifier = localPath.get().toAbsolutePath().toString();
+            } else {
+                logger.warn("No local image found for view {}. Background will be blank.", viewKey);
+                // Set background to null and repaint to clear it
+                this.backgroundImage = null;
+                repaint();
+                return;
             }
             
             ImageProvider.fetchImage(resourceIdentifier, (img) -> {
                 this.backgroundImage = img;
                 repaint();
             });
-        }
-        
-        public String getLiveUrlForKey(String key) {
-            return liveUrls.getOrDefault(key, liveUrls.get("DASHBOARD"));
-        }
-
-        @Override
-        public void propertyChange(PropertyChangeEvent evt) {
-            if ("imageSource".equals(evt.getPropertyName())) {
-                updateBackgroundImage(floatingNavPanel.getSelectedViewKey());
-            }
         }
 
         @Override
@@ -243,7 +183,19 @@ public class DashboardFrame extends JFrame implements PropertyChangeListener {
             if (backgroundImage != null) {
                 Graphics2D g2d = (Graphics2D) g.create();
                 g2d.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+
+                // --- MODIFICATION START ---
+                // Save the original composite
+                Composite oldComposite = g2d.getComposite();
+                // Set the new composite with the desired opacity
+                g2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, BACKGROUND_IMAGE_OPACITY));
+
                 g2d.drawImage(backgroundImage, 0, 0, getWidth(), getHeight(), this);
+
+                // Restore the original composite so other components (like buttons) are not affected
+                g2d.setComposite(oldComposite);
+                // --- MODIFICATION END ---
+
                 g2d.dispose();
             }
         }
