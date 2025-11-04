@@ -34,6 +34,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -80,6 +81,8 @@ public class SessionController {
             LiveSessionTrackerService.getInstance().setActiveSessionType(SessionType.LIVE);
             PaperTradingService.getInstance().resetSession(startingBalance, leverage);
             
+            LiveWindowManager.getInstance().startSession(source);
+
             MainWindow mainWindow = new MainWindow(false);
             mainWindow.startLiveSession(source);
         });
@@ -91,6 +94,21 @@ public class SessionController {
             PaperTradingService.getInstance().setActiveSessionType(SessionType.LIVE);
             LiveSessionTrackerService.getInstance().setActiveSessionType(SessionType.LIVE);
             PaperTradingService.getInstance().restoreState(state);
+            
+            Optional<DataSourceManager.ChartDataSource> sourceOpt = DataSourceManager.getInstance().getAvailableSources().stream()
+                    .filter(s -> s.symbol().equalsIgnoreCase(state.lastActiveSymbol())).findFirst();
+
+            if (sourceOpt.isPresent()) {
+                LiveWindowManager.getInstance().startSession(sourceOpt.get());
+            } else {
+                // [FIX] More robust error handling
+                String symbol = state.lastActiveSymbol();
+                String message = "Could not resume live session.\nData source for symbol '" + (symbol == null ? "null" : symbol) + "' not found.";
+                logger.error("Could not start LiveWindowManager session: data source for {} not found.", symbol);
+                JOptionPane.showMessageDialog(null, message, "Load Error", JOptionPane.ERROR_MESSAGE);
+                findAndSetDashboardVisible(true); // Go back to dashboard
+                return; // Abort the launch
+            }
             
             MainWindow mainWindow = new MainWindow(false);
             // [MODIFIED] We load the session state into the existing MainWindow instance
@@ -123,7 +141,7 @@ public class SessionController {
         boolean hasAnyTrades = pts.hasAnyTradesOrPositions();
         
         if (!hasAnyTrades) {
-            endSessionAndShowDashboard(window);
+            endSessionAndShowDashboard(window, isReplayMode);
             return;
         }
 
@@ -148,10 +166,13 @@ public class SessionController {
             }
         }
         
-        endSessionAndShowDashboard(window);
+        endSessionAndShowDashboard(window, isReplayMode);
     }
 
-    public void endSessionAndShowDashboard(Window window) {
+    public void endSessionAndShowDashboard(Window window, boolean isReplayMode) {
+        if (!isReplayMode) {
+            LiveWindowManager.getInstance().endSession();
+        }
         SessionManager.getInstance().deleteAutoSaveFile(); // This is for replay mode's tick-by-tick auto-save
         window.dispose();
         findAndSetDashboardVisible(true);

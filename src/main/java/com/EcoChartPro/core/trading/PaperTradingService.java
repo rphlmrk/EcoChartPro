@@ -1,5 +1,6 @@
 package com.EcoChartPro.core.trading;
 
+import com.EcoChartPro.core.controller.LiveWindowManager;
 import com.EcoChartPro.core.controller.ReplaySessionManager;
 import com.EcoChartPro.core.journal.AutomatedTaggingService;
 import com.EcoChartPro.core.service.PnlCalculationService;
@@ -166,7 +167,19 @@ public class PaperTradingService implements TradingService {
             allSymbolStates.put(symbol, symbolState);
         }
         
-        String lastActiveSymbol = (activeSessionType == SessionType.REPLAY) ? rsm.getActiveSymbol() : context.activeSymbol;
+        String lastActiveSymbol;
+        if (activeSessionType == SessionType.REPLAY) {
+            lastActiveSymbol = rsm.getActiveSymbol();
+        } else { // LIVE
+            // [FIX] Prioritize LiveWindowManager's symbol as the source of truth.
+            // Fall back to the context's symbol only if the manager is not active.
+            LiveWindowManager lwm = LiveWindowManager.getInstance();
+            if (lwm.isActive() && lwm.getActiveDataSource() != null) {
+                lastActiveSymbol = lwm.getActiveDataSource().symbol();
+            } else {
+                lastActiveSymbol = context.activeSymbol;
+            }
+        }
 
         return new ReplaySessionState(
             context.accountBalance,
@@ -436,8 +449,12 @@ public class PaperTradingService implements TradingService {
                     List<KLine> tradeKlines = db.getKLinesBetween(new Symbol(symbol), "1m", position.openTimestamp(), exitTime);
                     Trade tempTrade = new Trade(position.id(), position.symbol(), position.direction(), position.openTimestamp(), position.entryPrice(), exitTime, exitPrice, position.size(), pnl, planFollowed);
                     autoTags = automatedTaggingService.generateTags(tempTrade, tradeKlines);
+                    // [FIX] Save the retrieved candles to the central database for future analysis.
+                    if (tradeKlines != null && !tradeKlines.isEmpty()) {
+                        DatabaseManager.getInstance().saveTradeCandles(position.id(), symbol, "1m", tradeKlines);
+                    }
                 } catch (Exception e) {
-                    logger.error("Failed to retrieve K-lines for automated tagging in replay mode.", e);
+                    logger.error("Failed to retrieve or save K-lines for replay mode trade.", e);
                 }
             }
         }

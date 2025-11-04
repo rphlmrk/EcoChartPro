@@ -14,6 +14,7 @@ import com.EcoChartPro.core.journal.JournalAnalysisService.OverallStats;
 import com.EcoChartPro.core.service.ReviewReminderService;
 import com.EcoChartPro.core.state.ReplaySessionState;
 import com.EcoChartPro.core.state.SymbolSessionState;
+import com.EcoChartPro.core.trading.PaperTradingService;
 import com.EcoChartPro.model.Trade;
 import com.EcoChartPro.ui.dashboard.theme.UITheme;
 import com.EcoChartPro.ui.dialogs.AchievementsDialog;
@@ -176,9 +177,22 @@ public class ComprehensiveReportPanel extends JPanel implements Scrollable, Prop
 
         coachingCardPanel.addInsightsButtonListener(e -> {
             Window owner = SwingUtilities.getWindowAncestor(this);
-            if (owner instanceof InsightsDialog) { owner.toFront(); return; }
+            if (owner instanceof InsightsDialog) {
+                owner.toFront();
+                return;
+            }
             InsightsDialog insightsDialog = new InsightsDialog((Frame) owner);
-            if (this.currentSessionState != null) { insightsDialog.loadSessionData(this.currentSessionState); }
+            
+            ReplaySessionState stateToLoad;
+            if (isLiveMode) {
+                stateToLoad = PaperTradingService.getInstance().getCurrentSessionState();
+            } else {
+                stateToLoad = this.currentSessionState;
+            }
+
+            if (stateToLoad != null) {
+                insightsDialog.loadSessionData(stateToLoad);
+            }
             insightsDialog.setVisible(true);
         });
         
@@ -431,8 +445,8 @@ public class ComprehensiveReportPanel extends JPanel implements Scrollable, Prop
         this.isShowingLiveView = true;
         this.liveSessionTracker = tracker;
         this.liveSessionTracker.addPropertyChangeListener(this);
-        cosmeticRotationTimer.stop();
         liveViewRotationTimer.start();
+        cosmeticRotationTimer.start();
         clearAllWidgetsForLiveMode();
         logger.info("Dashboard report panel switched to LIVE mode.");
     }

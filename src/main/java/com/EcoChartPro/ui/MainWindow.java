@@ -3,6 +3,7 @@ package com.EcoChartPro.ui;
 import com.EcoChartPro.api.indicator.CustomIndicator;
 import com.EcoChartPro.api.indicator.IndicatorType;
 import com.EcoChartPro.core.controller.LiveSessionTrackerService;
+import com.EcoChartPro.core.controller.LiveWindowManager;
 import com.EcoChartPro.core.controller.ReplayController;
 import com.EcoChartPro.core.controller.ReplaySessionManager;
 import com.EcoChartPro.core.controller.SessionController;
@@ -474,13 +475,24 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
     }
     
     public void openNewSyncedWindow() {
-        if (ReplaySessionManager.getInstance().getCurrentSource() != null) {
-            SwingUtilities.invokeLater(() -> {
-                MainWindow newSyncedWindow = new MainWindow(true);
-                newSyncedWindow.joinReplaySession();
-            });
-        } else {
-            JOptionPane.showMessageDialog(this, "A replay session must be active to open a new synced window.", "No Active Session", JOptionPane.INFORMATION_MESSAGE);
+        if (isReplayMode) {
+            if (ReplaySessionManager.getInstance().getCurrentSource() != null) {
+                SwingUtilities.invokeLater(() -> {
+                    MainWindow newSyncedWindow = new MainWindow(true);
+                    newSyncedWindow.joinReplaySession();
+                });
+            } else {
+                JOptionPane.showMessageDialog(this, "A replay session must be active to open a new synced window.", "No Active Session", JOptionPane.INFORMATION_MESSAGE);
+            }
+        } else { // Live mode
+            if (LiveWindowManager.getInstance().isActive()) {
+                SwingUtilities.invokeLater(() -> {
+                    MainWindow newSyncedWindow = new MainWindow(false);
+                    newSyncedWindow.joinLiveSession();
+                });
+            } else {
+                 JOptionPane.showMessageDialog(this, "A live session must be active to open a new synced window.", "No Active Session", JOptionPane.INFORMATION_MESSAGE);
+            }
         }
     }
 
@@ -500,6 +512,19 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
             workspaceManager.setActiveChartPanel(workspaceManager.getChartPanels().get(0));
         }
         setVisible(true);
+    }
+
+    public void joinLiveSession() {
+        ChartDataSource source = LiveWindowManager.getInstance().getActiveDataSource();
+        if (source == null) {
+            JOptionPane.showMessageDialog(this, "No active live session to join.", "Error", JOptionPane.ERROR_MESSAGE);
+            dispose();
+            return;
+        }
+
+        this.titleBarManager.setStaticTitle("(Synced Live)");
+        this.loadChartForSource(source);
+        this.setVisible(true);
     }
 
     private void setupLiveMode() {

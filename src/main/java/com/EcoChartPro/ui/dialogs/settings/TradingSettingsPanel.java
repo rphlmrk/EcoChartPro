@@ -8,6 +8,7 @@ import javax.swing.text.NumberFormatter;
 import java.awt.*;
 import java.math.BigDecimal;
 import java.text.DecimalFormat;
+import java.text.ParseException;
 import java.time.LocalTime;
 import java.time.ZoneOffset;
 import java.util.Date;
@@ -58,8 +59,45 @@ public class TradingSettingsPanel extends JPanel {
         sessionHighlightCheckbox = new JCheckBox("Enable session highlighting on chart");
         sessionHighlightCheckbox.setSelected(sm.isSessionHighlightingEnabled());
 
-        // [MODIFIED] Spinner model now starts at -1 to represent "Forever"
+        // [MODIFIED] Correctly create and configure the spinner for candle retention
         candleRetentionSpinner = new JSpinner(new SpinnerNumberModel(sm.getTradeCandleRetentionMonths(), -1, 120, 1));
+        JSpinner.NumberEditor editor = (JSpinner.NumberEditor) candleRetentionSpinner.getEditor();
+        JFormattedTextField textField = editor.getTextField();
+        
+        // Use a FormatterFactory to provide a custom formatter
+        textField.setFormatterFactory(new JFormattedTextField.AbstractFormatterFactory() {
+            @Override
+            public JFormattedTextField.AbstractFormatter getFormatter(JFormattedTextField tf) {
+                NumberFormatter customFormatter = new NumberFormatter(new DecimalFormat("#")) {
+                    @Override
+                    public String valueToString(Object value) throws ParseException {
+                        if (value instanceof Number && ((Number) value).intValue() == -1) {
+                            return "Forever";
+                        }
+                        return super.valueToString(value) + " months";
+                    }
+
+                    @Override
+                    public Object stringToValue(String text) throws ParseException {
+                        if ("Forever".equalsIgnoreCase(text.trim())) {
+                            return -1;
+                        }
+                        String cleanedText = text.replace(" months", "").trim();
+                        try {
+                            return super.stringToValue(cleanedText);
+                        } catch (ParseException e) {
+                             // Allow empty or partial input without throwing an error immediately
+                            return -1;
+                        }
+                    }
+                };
+                customFormatter.setValueClass(Integer.class);
+                customFormatter.setAllowsInvalid(false);
+                customFormatter.setCommitsOnValidEdit(true);
+                return customFormatter;
+            }
+        });
+
 
         initUI();
     }
@@ -85,12 +123,12 @@ public class TradingSettingsPanel extends JPanel {
         gbc.gridy++; gbc.insets = new Insets(10,0,2,0); add(autoJournalCheckbox, gbc);
         gbc.gridy++; gbc.insets = new Insets(2,0,2,0); add(sessionHighlightCheckbox, gbc);
         
-        // [MODIFIED] Add retention setting with "Clear Now" button
         gbc.gridy++; gbc.insets = new Insets(10,0,2,0); 
         JPanel retentionPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
-        retentionPanel.add(new JLabel("Trade Candle Retention (-1 for forever):"));
+        retentionPanel.add(new JLabel("Keep trade candle data for:"));
         retentionPanel.add(candleRetentionSpinner);
-        JButton clearDataButton = new JButton("Clear All Cached Candles Now");
+        JButton clearDataButton = new JButton("Clear Cache");
+        clearDataButton.setToolTipText("Immediately delete all cached candle data for past trades from the central database.");
         clearDataButton.addActionListener(e -> clearTradeCandleData());
         retentionPanel.add(clearDataButton);
         add(retentionPanel, gbc);
@@ -110,11 +148,10 @@ public class TradingSettingsPanel extends JPanel {
         add(new JPanel(), gbc);
     }
     
-    // [NEW] Logic for the "Clear Now" button
     private void clearTradeCandleData() {
         int choice = JOptionPane.showConfirmDialog(
             this,
-            "This will permanently delete all saved candle data for past trades.\n" +
+            "This will permanently delete all saved candle data for past trades from the central database.\n" +
             "This action cannot be undone. Are you sure you want to proceed?",
             "Confirm Data Deletion",
             JOptionPane.YES_NO_OPTION,

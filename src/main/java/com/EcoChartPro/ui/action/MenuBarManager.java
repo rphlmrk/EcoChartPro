@@ -81,25 +81,27 @@ public class MenuBarManager {
 
     private JMenu createFileMenu() {
         JMenu fileMenu = new JMenu("File");
-        if (isReplayMode) {
-            JMenuItem newSyncedWindowItem = new JMenuItem("New Synced Window");
-            newSyncedWindowItem.addActionListener(e -> owner.openNewSyncedWindow());
-            fileMenu.add(newSyncedWindowItem);
+        
+        JMenuItem newSyncedWindowItem = new JMenuItem("New Synced Window");
+        newSyncedWindowItem.addActionListener(e -> owner.openNewSyncedWindow());
+        fileMenu.add(newSyncedWindowItem);
 
+        if (isReplayMode) {
             JMenuItem saveSessionItem = new JMenuItem("Save Replay Session...");
             saveSessionItem.addActionListener(e -> owner.getSessionController().saveSessionWithUI(owner, isReplayMode));
             fileMenu.add(saveSessionItem);
-            fileMenu.addSeparator();
-
-            JMenuItem importTradesItem = new JMenuItem("Import Trade History from CSV...");
-            importTradesItem.addActionListener(e -> owner.getSessionController().importTradeHistory(owner));
-            fileMenu.add(importTradesItem);
-
-            JMenuItem exportTradesItem = new JMenuItem("Export Trade History to CSV...");
-            exportTradesItem.addActionListener(e -> owner.getSessionController().exportTradeHistory(owner));
-            fileMenu.add(exportTradesItem);
-            fileMenu.addSeparator();
         }
+        fileMenu.addSeparator();
+
+        JMenuItem importTradesItem = new JMenuItem("Import Trade History from CSV...");
+        importTradesItem.addActionListener(e -> owner.getSessionController().importTradeHistory(owner));
+        fileMenu.add(importTradesItem);
+
+        JMenuItem exportTradesItem = new JMenuItem("Export Trade History to CSV...");
+        exportTradesItem.addActionListener(e -> owner.getSessionController().exportTradeHistory(owner));
+        fileMenu.add(exportTradesItem);
+        fileMenu.addSeparator();
+        
         JMenuItem closeItem = new JMenuItem("Close Window");
         closeItem.addActionListener(e -> owner.getSessionController().handleWindowClose(owner, isReplayMode));
         fileMenu.add(closeItem);
@@ -159,7 +161,8 @@ public class MenuBarManager {
     private JMenu createInsightsMenu() {
         JMenu insightsMenu = new JMenu("Insights");
         JMenuItem showInsightsItem = new JMenuItem("Show Insights Dialog...");
-        showInsightsItem.setEnabled(isReplayMode);
+        // [FIX] Insights are available for both live and replay modes.
+        showInsightsItem.setEnabled(true); 
         showInsightsItem.addActionListener(e -> owner.getUiManager().openInsightsDialog());
         insightsMenu.add(showInsightsItem);
 
