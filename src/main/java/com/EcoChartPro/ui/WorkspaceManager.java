@@ -101,6 +101,8 @@ public class WorkspaceManager {
     public void setActiveChartPanel(ChartPanel panel) {
         if (activeChartPanel == panel) return;
 
+        ChartPanel oldPanel = this.activeChartPanel;
+
         if (activeChartPanel != null) {
             activeChartPanel.removeComponentListener(activeChartListener);
             activeChartPanel.getDataModel().getIndicatorManager().removePropertyChangeListener(owner);
@@ -133,9 +135,9 @@ public class WorkspaceManager {
         }
         
         for (ChartPanel p : chartPanels) p.setActive(p == activeChartPanel);
-        if (activeChartPanel != null && activeChartPanel.getDataModel().getCurrentDisplayTimeframe() != null) {
-            owner.getTopToolbarPanel().selectTimeframe(activeChartPanel.getDataModel().getCurrentDisplayTimeframe().displayName());
-        }
+
+        // [NEW] Notify the main window of the change so it can update shared UI like the toolbar.
+        owner.onActivePanelChanged(oldPanel, activeChartPanel);
     }
 
     public Component createNewChartView(Timeframe tf, boolean activateOnClick) {

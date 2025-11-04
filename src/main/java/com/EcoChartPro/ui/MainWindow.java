@@ -697,12 +697,14 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
             } 
             // --- 4. Handle Chart Type Change ---
             else if (command.startsWith("chartTypeChanged:")) {
-                try {
-                    String typeName = command.substring("chartTypeChanged:".length());
-                    ChartType type = ChartType.valueOf(typeName);
-                    SettingsManager.getInstance().setCurrentChartType(type);
-                } catch (IllegalArgumentException ex) {
-                    System.err.println("Invalid chart type received: " + command);
+                if (activePanel != null) { // [MODIFIED] Check for active panel
+                    try {
+                        String typeName = command.substring("chartTypeChanged:".length());
+                        ChartType type = ChartType.valueOf(typeName);
+                        activePanel.setChartType(type); // [MODIFIED] Command the active panel
+                    } catch (IllegalArgumentException ex) {
+                        System.err.println("Invalid chart type received: " + command);
+                    }
                 }
             }
             // --- 5. Handle Trading Actions ---
@@ -710,6 +712,23 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
                 handleTradeAction(command);
             }
         });
+    }
+
+    /**
+     * [NEW] A callback method invoked by WorkspaceManager when the active chart panel changes.
+     * This method is responsible for synchronizing shared UI elements, like the top toolbar,
+     * with the state of the newly activated panel.
+     * @param oldPanel The previously active panel (can be null).
+     * @param newPanel The newly active panel (can be null).
+     */
+    public void onActivePanelChanged(ChartPanel oldPanel, ChartPanel newPanel) {
+        if (newPanel != null) {
+            // Update the toolbar's UI to reflect the new active panel's state
+            topToolbarPanel.updateChartTypeDisplay(newPanel.getChartType());
+            if (newPanel.getDataModel().getCurrentDisplayTimeframe() != null) {
+                topToolbarPanel.selectTimeframe(newPanel.getDataModel().getCurrentDisplayTimeframe().displayName());
+            }
+        }
     }
 
     private void handleReplaySymbolChange() {

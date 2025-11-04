@@ -86,6 +86,7 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
     private final TimeAxisPanel timeAxisPanel;
     private final FloatingPropertiesToolbar propertiesToolbar;
     private final InfoPanel infoPanel;
+    private ChartType chartType; // [NEW]
     private static final Font SYMBOL_FONT = new Font("SansSerif", Font.BOLD, 16);
     private static final Border INACTIVE_BORDER = BorderFactory.createEmptyBorder(2, 2, 2, 2);
     private OrderRenderer.InteractiveZone dragPreview = null;
@@ -126,6 +127,7 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
         this.svpRenderer = new SessionVolumeProfileRenderer();
         this.drawingController = new DrawingController(this, onToolStateChange);
         this.infoPanel = new InfoPanel();
+        this.chartType = SettingsManager.getInstance().getCurrentChartType(); // [NEW] Initialize with default
 
         // Ensure double buffering is enabled for smooth rendering performance
         setDoubleBuffered(true);
@@ -164,6 +166,23 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
                 positionOverlayButtons();
             }
         });
+    }
+
+    // [NEW] Getter for the panel-specific chart type
+    public ChartType getChartType() {
+        return this.chartType;
+    }
+
+    // [NEW] Setter for the panel-specific chart type. Notifies the data model for special cases like Footprint.
+    public void setChartType(ChartType newChartType) {
+        if (this.chartType != newChartType) {
+            ChartType oldChartType = this.chartType;
+            this.chartType = newChartType;
+            if (dataModel != null) {
+                dataModel.onChartTypeChanged(oldChartType, newChartType);
+            }
+            repaint();
+        }
     }
 
     public DrawingObjectPoint getSnappingPoint(MouseEvent e) {
@@ -325,7 +344,8 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
     public void propertyChange(PropertyChangeEvent evt) {
         String propName = evt.getPropertyName();
 
-        if ("chartColorsChanged".equals(propName) || "chartTypeChanged".equals(propName) || "volumeProfileVisibilityChanged".equals(propName) || "peakHoursLinesVisibilityChanged".equals(propName) || "peakHoursOverrideChanged".equals(propName) || "peakHoursSettingsChanged".equals(propName)) {
+        // [MODIFIED] Removed "chartTypeChanged" from this condition to decouple state.
+        if ("chartColorsChanged".equals(propName) || "volumeProfileVisibilityChanged".equals(propName) || "peakHoursLinesVisibilityChanged".equals(propName) || "peakHoursOverrideChanged".equals(propName) || "peakHoursSettingsChanged".equals(propName)) {
             SettingsManager settings = SettingsManager.getInstance();
             setBackground(settings.getChartBackground());
             if (getBorder() != INACTIVE_BORDER) {
@@ -457,15 +477,16 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
         }
 
         // --- Data Transformation Step ---
-        ChartType chartType = settings.getCurrentChartType();
+        // [MODIFIED] Use the panel's local chartType field
         List<KLine> klinesToRender = rawVisibleKLines;
-        if (chartType == ChartType.HEIKIN_ASHI) {
+        if (this.chartType == ChartType.HEIKIN_ASHI) {
             klinesToRender = DataTransformer.transformToHeikinAshi(rawVisibleKLines);
         }
 
         // --- Grid and Main Chart Rendering ---
         axisRenderer.draw(g2d, chartAxis, klinesToRender, currentTimeframe);
-        chartRenderer.draw(g2d, chartType, chartAxis, klinesToRender, interactionManager.getStartIndex(), this.dataModel);
+        // [MODIFIED] Use the panel's local chartType field
+        chartRenderer.draw(g2d, this.chartType, chartAxis, klinesToRender, interactionManager.getStartIndex(), this.dataModel);
 
 
         if (settings.isDaySeparatorsEnabled()) {
@@ -559,7 +580,8 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
                 g2d.drawLine(startX, y, getWidth(), y);
 
                 // Heikin Ashi price line
-                if (settings.getCurrentChartType() == ChartType.HEIKIN_ASHI) {
+                // [MODIFIED] Use the panel's local chartType field
+                if (this.chartType == ChartType.HEIKIN_ASHI) {
                     List<KLine> haCandles = dataModel.getHeikinAshiCandles();
                     if (haCandles != null && !haCandles.isEmpty()) {
                         KLine lastHaKline = haCandles.get(haCandles.size() - 1);

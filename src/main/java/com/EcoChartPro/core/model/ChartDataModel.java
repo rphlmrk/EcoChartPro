@@ -94,7 +94,7 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
         this.indicatorManager = new IndicatorManager();
         this.baseDataWindow = new ArrayList<>();
         DrawingManager.getInstance().addPropertyChangeListener("activeSymbolChanged", this);
-        com.EcoChartPro.core.settings.SettingsManager.getInstance().addPropertyChangeListener("chartTypeChanged", this);
+        // [REMOVED] SettingsManager listener for chart type is no longer needed here.
     }
 
     @Override
@@ -103,15 +103,8 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
             fireDataUpdated();
         } else if ("viewStateChanged".equals(evt.getPropertyName())) {
             updateView();
-        } else if ("chartTypeChanged".equals(evt.getPropertyName())) {
-            ChartType newType = (ChartType) evt.getNewValue();
-            ChartType oldType = (ChartType) evt.getOldValue();
-            if ((newType == ChartType.FOOTPRINT && oldType != ChartType.FOOTPRINT) ||
-                (newType != ChartType.FOOTPRINT && oldType == ChartType.FOOTPRINT)) {
-                logger.info("Chart type changed to/from Footprint. Triggering data reload.");
-                loadDataset(currentSource, currentDisplayTimeframe, true);
-            }
         }
+        // [REMOVED] "chartTypeChanged" handler block is gone.
     }
 
     public void setInteractionManager(ChartInteractionManager interactionManager) {
@@ -124,7 +117,7 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
             activeRebuildWorker.cancel(true);
         }
         DrawingManager.getInstance().removePropertyChangeListener("activeSymbolChanged", this);
-        com.EcoChartPro.core.settings.SettingsManager.getInstance().removePropertyChangeListener("chartTypeChanged", this);
+        // [REMOVED] SettingsManager listener cleanup is no longer needed here.
         if (currentMode == ChartMode.LIVE && liveDataProvider != null && liveDataConsumer != null && currentSource != null && currentDisplayTimeframe != null) {
             logger.info("Cleaning up live data subscription for chart model on cleanup.");
             LiveDataManager.getInstance().unsubscribeFromKLine(currentSource.symbol(), currentDisplayTimeframe.displayName(), liveDataConsumer);
@@ -191,7 +184,7 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
         if (isFetchingLiveHistory || finalizedCandles.isEmpty()) return;
 
         if (interactionManager.getStartIndex() < LIVE_PAN_TRIGGER_THRESHOLD) {
-            if (com.EcoChartPro.core.settings.SettingsManager.getInstance().getCurrentChartType() == ChartType.FOOTPRINT) {
+            if (chartPanel.getChartType() == ChartType.FOOTPRINT) {
                 int maxBars = getMaxHistoricalBars();
                 if (finalizedCandles.size() >= maxBars) return;
             }
@@ -254,7 +247,7 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
                               (currentStartIndex + currentBarsPerScreen > currentWindowEnd - DATA_WINDOW_TRIGGER_BUFFER && currentWindowEnd < totalCandleCount);
         
         if (needsReload) {
-            if (com.EcoChartPro.core.settings.SettingsManager.getInstance().getCurrentChartType() == ChartType.FOOTPRINT) {
+            if (chartPanel.getChartType() == ChartType.FOOTPRINT) {
                 boolean isPanningLeft = currentStartIndex < dataWindowStartIndex + DATA_WINDOW_TRIGGER_BUFFER && dataWindowStartIndex > 0;
                 if (isPanningLeft) {
                     int maxBars = getMaxHistoricalBars();
@@ -391,10 +384,19 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
         
         if (timeframe == null) return;
         
-        if (com.EcoChartPro.core.settings.SettingsManager.getInstance().getCurrentChartType() == ChartType.FOOTPRINT) {
+        if (chartPanel.getChartType() == ChartType.FOOTPRINT) {
             loadFootprintData(source, timeframe);
         } else {
             setDisplayTimeframe(timeframe, true);
+        }
+    }
+
+    // [NEW] Handles chart type changes, particularly for footprint which requires a data reload.
+    public void onChartTypeChanged(ChartType oldType, ChartType newType) {
+        if ((newType == ChartType.FOOTPRINT && oldType != ChartType.FOOTPRINT) ||
+            (newType != ChartType.FOOTPRINT && oldType == ChartType.FOOTPRINT)) {
+            logger.info("Chart type for panel changed to/from Footprint. Triggering data reload.");
+            loadDataset(currentSource, currentDisplayTimeframe, true);
         }
     }
 
@@ -636,7 +638,7 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
         new SwingWorker<List<KLine>, Void>() {
             @Override
             protected List<KLine> doInBackground() {
-                int limit = (com.EcoChartPro.core.settings.SettingsManager.getInstance().getCurrentChartType() == ChartType.FOOTPRINT)
+                int limit = (chartPanel.getChartType() == ChartType.FOOTPRINT)
                             ? getMaxHistoricalBars()
                             : 1000;
                 return fetchDirectTfData(currentDisplayTimeframe, limit);

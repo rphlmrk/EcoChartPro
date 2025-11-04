@@ -26,7 +26,7 @@ import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 import java.util.List;
 
-public class ChartToolbarPanel extends JPanel implements PropertyChangeListener {
+public class ChartToolbarPanel extends JPanel {
 
     private final JButton symbolSelectorButton;
     private ChartDataSource selectedDataSource;
@@ -174,15 +174,12 @@ public class ChartToolbarPanel extends JPanel implements PropertyChangeListener 
         setupHoverPopup(timeframeButton, timeframePopup);
         setupHoverPopup(chartTypeButton, chartTypePopup);
         setupHoverPopup(layoutButton, layoutPopup);
-        
-        SettingsManager.getInstance().addPropertyChangeListener("chartTypeChanged", this);
     }
 
-    @Override
-    public void propertyChange(PropertyChangeEvent evt) {
-        if ("chartTypeChanged".equals(evt.getPropertyName()) && evt.getNewValue() instanceof ChartType) {
-            updateChartTypeButton((ChartType) evt.getNewValue());
-        }
+    // [NEW] Public method to allow MainWindow to update the displayed chart type.
+    public void updateChartTypeDisplay(ChartType type) {
+        if (type == null) return;
+        updateChartTypeButton(type);
     }
 
     private void updateChartTypeButton(ChartType type) {
