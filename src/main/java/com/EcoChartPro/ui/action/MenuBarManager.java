@@ -90,6 +90,14 @@ public class MenuBarManager {
             JMenuItem saveSessionItem = new JMenuItem("Save Replay Session...");
             saveSessionItem.addActionListener(e -> owner.getSessionController().saveSessionWithUI(owner, isReplayMode));
             fileMenu.add(saveSessionItem);
+        } else { // Add save option for live mode
+            JMenuItem saveSessionItem = new JMenuItem("Save Live Session...");
+            saveSessionItem.addActionListener(e -> owner.getSessionController().saveSessionWithUI(owner, isReplayMode));
+            fileMenu.add(saveSessionItem);
+
+            JMenuItem loadSessionItem = new JMenuItem("Load Live Session...");
+            loadSessionItem.addActionListener(e -> owner.getSessionController().loadLiveSessionFromFile(owner));
+            fileMenu.add(loadSessionItem);
         }
         fileMenu.addSeparator();
 

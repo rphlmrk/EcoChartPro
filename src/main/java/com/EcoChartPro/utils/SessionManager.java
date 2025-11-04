@@ -2,6 +2,7 @@ package com.EcoChartPro.utils;
 
 import com.EcoChartPro.core.state.ReplaySessionState;
 import com.EcoChartPro.core.state.SymbolSessionState;
+import com.EcoChartPro.core.trading.SessionType;
 import com.EcoChartPro.model.Timeframe;
 import com.EcoChartPro.model.Trade;
 import com.EcoChartPro.model.drawing.DrawingObject;
@@ -10,10 +11,12 @@ import com.EcoChartPro.model.trading.Position;
 import com.EcoChartPro.ui.toolbar.components.SymbolProgressCache;
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.StreamReadConstraints;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.*;
 import com.fasterxml.jackson.databind.deser.std.StdKeyDeserializer;
+import com.fasterxml.jackson.databind.exc.MismatchedInputException;
 import com.fasterxml.jackson.databind.module.SimpleModule;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.slf4j.Logger;
@@ -53,6 +56,22 @@ public final class SessionManager {
     private static final String LAST_SESSION_PATH_KEY = "lastSessionPath";
     private static final String LAST_REVIEWED_MONTH_KEY = "lastReviewedMonth";
     private static final String LIVE_AUTO_SAVE_FILE_NAME = "live_autosave.json";
+
+    /**
+     * [NEW] A wrapper class to embed session type information into saved JSON files,
+     * specifically for differentiating Live sessions from Replay sessions.
+     */
+    public static class SessionWrapper {
+        public SessionType sessionType;
+        public ReplaySessionState state;
+
+        public SessionWrapper() {} // For Jackson deserialization
+
+        public SessionWrapper(SessionType sessionType, ReplaySessionState state) {
+            this.sessionType = sessionType;
+            this.state = state;
+        }
+    }
 
 
     private SessionManager() {
@@ -122,11 +141,19 @@ public final class SessionManager {
         return Optional.ofNullable(latestState);
     }
     
-    public void saveSession(ReplaySessionState state, File file) throws IOException {
+    public void saveSession(ReplaySessionState state, File file, boolean isReplayMode) throws IOException {
         try {
-            objectMapper.writeValue(file, state);
+            Object objectToSave;
+            if (isReplayMode) {
+                objectToSave = state; // Save raw state for replay files for backward compatibility
+            } else {
+                objectToSave = new SessionWrapper(SessionType.LIVE, state); // Wrap for live files
+            }
+            objectMapper.writeValue(file, objectToSave);
+
             if (!file.getName().equals("autosave.json")) {
-                logger.info("Replay session successfully saved to: {}", file.getAbsolutePath());
+                String sessionType = isReplayMode ? "Replay" : "Live";
+                logger.info("{} session successfully saved to: {}", sessionType, file.getAbsolutePath());
             }
             setLastSessionPath(file.toPath());
 
@@ -135,7 +162,8 @@ public final class SessionManager {
             }
 
         } catch (IOException e) {
-            logger.error("Failed to save replay session to file: {}", file.getAbsolutePath(), e);
+            String sessionType = isReplayMode ? "replay" : "live";
+            logger.error("Failed to save {} session to file: {}", sessionType, file.getAbsolutePath(), e);
             throw e; 
         }
     }
@@ -144,19 +172,47 @@ public final class SessionManager {
         try {
             JsonNode rootNode = objectMapper.readTree(file);
 
-            if (rootNode.has("dataSourceSymbol")) {
-                logger.info("Detected old session file format. Converting to new multi-symbol format...");
-                return convertOldStateToNew(rootNode);
-            } else {
-                ReplaySessionState state = objectMapper.treeToValue(rootNode, ReplaySessionState.class);
-                if (!file.getName().equals("autosave.json")) {
-                    logger.info("Replay session successfully loaded from: {}", file.getAbsolutePath());
+            if (rootNode.has("sessionType") && rootNode.has("state")) {
+                String typeStr = rootNode.get("sessionType").asText();
+                if (SessionType.LIVE.name().equals(typeStr)) {
+                    throw new IOException("This is a Live session file. It cannot be loaded as a Replay session.");
                 }
-                return state;
+                // If type is REPLAY, parse the inner state.
+                JsonNode stateNode = rootNode.get("state");
+                return objectMapper.treeToValue(stateNode, ReplaySessionState.class);
+            } else {
+                // This is an unwrapped file, either an old format or a modern replay format.
+                if (rootNode.has("dataSourceSymbol")) {
+                    logger.info("Detected old session file format. Converting to new multi-symbol format...");
+                    return convertOldStateToNew(rootNode);
+                } else {
+                    return objectMapper.treeToValue(rootNode, ReplaySessionState.class);
+                }
             }
-        } catch (IOException e) {
+        } catch (JsonProcessingException e) {
             logger.error("Failed to load or parse replay session from file: {}", file.getAbsolutePath(), e);
-            throw e;
+            throw new IOException("The file format is invalid or corrupted: " + file.getName(), e);
+        }
+    }
+    
+    /**
+     * [NEW] Loads a session state specifically from a file saved in Live mode.
+     * @param file The file to load.
+     * @return The ReplaySessionState contained within the file.
+     * @throws IOException if the file is not a valid Live session file or is corrupted.
+     */
+    public ReplaySessionState loadStateFromLiveFile(File file) throws IOException {
+        try {
+            SessionWrapper wrapper = objectMapper.readValue(file, SessionWrapper.class);
+            if (wrapper.sessionType != SessionType.LIVE) {
+                throw new IOException("This is not a Live session file.");
+            }
+            return wrapper.state;
+        } catch (MismatchedInputException e) {
+            throw new IOException("The selected file is not a valid Live session file. It may be a Replay session file.", e);
+        } catch (JsonProcessingException e) {
+            logger.error("Failed to parse live session wrapper from file: {}", file.getAbsolutePath(), e);
+            throw new IOException("The file format is invalid or corrupted: " + file.getName(), e);
         }
     }
 

@@ -263,7 +263,7 @@ public class ReplaySessionManager {
         ReplaySessionState state = PaperTradingService.getInstance().getCurrentSessionState();
 
         try {
-            SessionManager.getInstance().saveSession(state, autoSaveFile.get());
+            SessionManager.getInstance().saveSession(state, autoSaveFile.get(), true);
             logger.debug("Auto-save completed for multi-symbol session.");
         } catch (Exception e) {
             logger.error("Auto-save failed for multi-symbol session.", e);

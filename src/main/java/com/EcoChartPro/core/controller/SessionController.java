@@ -192,7 +192,7 @@ public class SessionController {
             fileChooser.setCurrentDirectory(new File(System.getProperty("user.home")));
         }
         
-        String dialogTitle = isReplayMode ? "Save Replay Session" : "Save Live Session as Replay";
+        String dialogTitle = isReplayMode ? "Save Replay Session" : "Save Live Session";
         String fileFilterDesc = isReplayMode ? "Replay Session (*.json)" : "Saved Live Session (*.json)";
         fileChooser.setDialogTitle(dialogTitle);
         
@@ -207,7 +207,7 @@ public class SessionController {
                 fileToSave = new File(fileToSave.getParentFile(), fileToSave.getName() + ".json");
             }
             try {
-                SessionManager.getInstance().saveSession(state, fileToSave);
+                SessionManager.getInstance().saveSession(state, fileToSave, isReplayMode);
                 JOptionPane.showMessageDialog(window, "Session saved successfully!", "Success", JOptionPane.INFORMATION_MESSAGE);
                 return true;
             } catch (IOException ex) {
@@ -218,6 +218,31 @@ public class SessionController {
         return false;
     }
     
+    public void loadLiveSessionFromFile(MainWindow currentWindow) {
+        JFileChooser fileChooser = new JFileChooser();
+        try {
+            fileChooser.setCurrentDirectory(SessionManager.getInstance().getSessionsDirectory().toFile());
+        } catch (IOException ex) {
+            fileChooser.setCurrentDirectory(new File(System.getProperty("user.home")));
+        }
+        fileChooser.setDialogTitle("Load Live Session");
+        fileChooser.setFileFilter(new FileNameExtensionFilter("Saved Live Session (*.json)", "json"));
+        
+        if (fileChooser.showOpenDialog(currentWindow) == JFileChooser.APPROVE_OPTION) {
+            File file = fileChooser.getSelectedFile();
+            try {
+                ReplaySessionState state = SessionManager.getInstance().loadStateFromLiveFile(file);
+                // End the current session gracefully before starting the new one
+                endSessionAndShowDashboard(currentWindow, false);
+                // Start the new session from the loaded state
+                startLiveSession(state);
+            } catch (IOException e) {
+                logger.error("Failed to load live session from file: {}", file.getAbsolutePath(), e);
+                JOptionPane.showMessageDialog(currentWindow, "Failed to load session: " + e.getMessage(), "Load Error", JOptionPane.ERROR_MESSAGE);
+            }
+        }
+    }
+
     public boolean exportTradeHistory(MainWindow owner) {
         PaperTradingService tradingService = PaperTradingService.getInstance();
         List<Trade> tradeHistory = tradingService.getTradeHistory();
