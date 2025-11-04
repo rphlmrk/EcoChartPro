@@ -351,16 +351,17 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
             this.isPreFetching = false;
         }
 
-        // Unsubscribe from old live streams if source or timeframe has changed.
-        if (currentMode == ChartMode.LIVE && oldSource != null && oldTimeframe != null && (sourceChanged || timeframeChanged)) {
+        // [MODIFIED] Unsubscribe from old live streams if source, timeframe, or chart type (via forceReload) has changed.
+        // This is now more robust and cleans up anytime a reload is triggered.
+        if (currentMode == ChartMode.LIVE && oldSource != null && oldTimeframe != null) {
             if (liveDataConsumer != null) {
                 LiveDataManager.getInstance().unsubscribeFromKLine(oldSource.symbol(), oldTimeframe.displayName(), liveDataConsumer);
-                logger.info("Unsubscribed from k-line stream for previous symbol: {} ({})", oldSource.symbol(), oldTimeframe.displayName());
+                logger.info("Unsubscribed from k-line stream for previous config: {} ({})", oldSource.symbol(), oldTimeframe.displayName());
                 liveDataConsumer = null;
             }
             if (liveTradeConsumer != null) {
                 LiveDataManager.getInstance().unsubscribeFromTrades(oldSource.symbol(), liveTradeConsumer);
-                logger.info("Unsubscribed from trade stream for previous symbol: {}", oldSource.symbol());
+                logger.info("Unsubscribed from trade stream for previous config: {}", oldSource.symbol());
                 liveTradeConsumer = null;
             }
         }
@@ -983,6 +984,9 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
         isHaCacheDirty = false;
         return heikinAshiCandlesCache;
     }
+
+    // [NEW] Getter to expose the chart panel to its components
+    public ChartPanel getChartPanel() { return chartPanel; }
 
     public ChartMode getCurrentMode() { return currentMode; }
     public IndicatorManager getIndicatorManager() { return indicatorManager; }

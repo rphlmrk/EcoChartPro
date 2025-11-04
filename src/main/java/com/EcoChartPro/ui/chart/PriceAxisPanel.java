@@ -78,7 +78,7 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
         sm.addPropertyChangeListener("chartColorsChanged", this);
         sm.addPropertyChangeListener("livePriceLabelFontSizeChanged", this);
         sm.addPropertyChangeListener("crosshairLabelColorChanged", this);
-        sm.addPropertyChangeListener("chartTypeChanged", this);
+        // [REMOVED] Listening to global chart type change is no longer correct.
         CrosshairManager.getInstance().addPropertyChangeListener("crosshairMoved", this);
         
         startRepaintTimer();
@@ -291,7 +291,12 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
             }
         
             SettingsManager settings = SettingsManager.getInstance();
-            boolean isHeikinAshiMode = settings.getCurrentChartType() == ChartType.HEIKIN_ASHI;
+            // [MODIFIED] Get chart type from the associated ChartPanel, not the global settings.
+            boolean isHeikinAshiMode = false;
+            ChartPanel panel = dataModel.getChartPanel();
+            if (panel != null) {
+                isHeikinAshiMode = panel.getChartType() == ChartType.HEIKIN_ASHI;
+            }
         
             // --- 1. Get Data & Countdown ---
             BigDecimal lastClose = lastKline.close();
