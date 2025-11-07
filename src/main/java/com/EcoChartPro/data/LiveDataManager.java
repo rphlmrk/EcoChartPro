@@ -36,6 +36,13 @@ public class LiveDataManager {
     private static final LiveDataManager INSTANCE = new LiveDataManager();
     private static final long RECONNECT_GAP_THRESHOLD_MS = 120_000; // 2 minutes
 
+    // [NEW] Public enum for overall system state, consumed by the UI
+    public enum LiveDataSystemState {
+        CONNECTED,      // All systems normal
+        INTERRUPTED,    // Connection lost, trying to reconnect
+        SYNCING         // Reconnected, backfilling data gap
+    }
+
     private final Map<String, I_ExchangeWebSocketClient> exchangeClients = new ConcurrentHashMap<>();
     private final Map<String, String> symbolToExchangeMap = new ConcurrentHashMap<>();
     private final Set<String> activeSubscriptions = ConcurrentHashMap.newKeySet();
@@ -43,10 +50,14 @@ public class LiveDataManager {
     private record SubscriptionInfo(String symbol, String timeframe, Consumer<KLine> callback) {}
     private final ConcurrentMap<String, List<SubscriptionInfo>> subscribers = new ConcurrentHashMap<>();
     private final Map<String, Long> lastKLineTimestampPerStream = new ConcurrentHashMap<>();
-    private final PropertyChangeSupport pcs = new PropertyChangeSupport(this); // For latency events
+    private final PropertyChangeSupport pcs = new PropertyChangeSupport(this); // For latency and system state events
 
     private record TradeSubscriptionInfo(String symbol, Consumer<TradeTick> callback) {}
     private final ConcurrentMap<String, List<TradeSubscriptionInfo>> tradeSubscribers = new ConcurrentHashMap<>();
+
+    // [NEW] State tracking members
+    private final Map<String, Object> clientStates = new ConcurrentHashMap<>();
+    private volatile LiveDataSystemState systemState = LiveDataSystemState.CONNECTED;
 
 
     private LiveDataManager() {}
@@ -169,14 +180,57 @@ public class LiveDataManager {
             default:
                 throw new IllegalArgumentException("No WebSocket client implementation for exchange: " + exchange);
         }
+        // [MODIFIED] Add a listener to relay client events up to the UI
         client.addPropertyChangeListener(evt -> {
-            if ("latencyMeasured".equals(evt.getPropertyName())) {
+            if ("connectionStateChanged".equals(evt.getPropertyName())) {
+                clientStates.put(exchange, evt.getNewValue());
+                updateAndFireSystemState();
+            } else if ("latencyMeasured".equals(evt.getPropertyName())) {
                 pcs.firePropertyChange("realLatencyUpdated", null, evt.getNewValue());
             }
         });
         return client;
     }
     
+    /**
+     * [NEW] Calculates the overall system state based on all client states and fires an event if it changes.
+     */
+    private void updateAndFireSystemState() {
+        // If we are actively syncing, that state takes precedence and should not be overridden.
+        if (systemState == LiveDataSystemState.SYNCING) {
+            return;
+        }
+
+        LiveDataSystemState newSystemState = LiveDataSystemState.CONNECTED;
+        // Check if any active client is in an interrupted state.
+        for (String exchange : exchangeClients.keySet()) {
+            if (clientStates.containsKey(exchange)) {
+                String stateName = clientStates.get(exchange).toString();
+                if ("DISCONNECTED".equals(stateName) || "CONNECTING".equals(stateName)) {
+                    newSystemState = LiveDataSystemState.INTERRUPTED;
+                    break; // One interrupted client is enough to mark the whole system as interrupted.
+                }
+            }
+        }
+
+        if (this.systemState != newSystemState) {
+            setSystemState(newSystemState);
+        }
+    }
+    
+    /**
+     * [NEW] Helper method to manually set the system state and fire a property change event.
+     * @param newState The new state to set.
+     */
+    private void setSystemState(LiveDataSystemState newState) {
+        if (this.systemState != newState) {
+            LiveDataSystemState oldState = this.systemState;
+            this.systemState = newState;
+            logger.info("Live Data System state changed from {} to {}", oldState, newState);
+            pcs.firePropertyChange("liveDataSystemStateChanged", oldState, newState);
+        }
+    }
+
     private void handleStreamMessage(String message, String exchange) {
         try {
             switch (exchange) {
@@ -310,6 +364,9 @@ public class LiveDataManager {
             List<SubscriptionInfo> subs = subscribers.get(streamName);
 
             if (lastTimestamp != null && subs != null && !subs.isEmpty() && (Instant.now().toEpochMilli() - lastTimestamp > RECONNECT_GAP_THRESHOLD_MS)) {
+                // [MODIFIED] Manually set the system state to SYNCING
+                setSystemState(LiveDataSystemState.SYNCING);
+                
                 SubscriptionInfo subInfo = subs.get(0);
                 String symbol = subInfo.symbol();
                 String timeframe = subInfo.timeframe();
@@ -343,6 +400,9 @@ public class LiveDataManager {
                         }
                     } catch (Exception e) {
                         logger.error("Error during backfill for stream {}", streamName, e);
+                    } finally {
+                        // [MODIFIED] Reset the system state to connected after the backfill attempt
+                        setSystemState(LiveDataSystemState.CONNECTED);
                     }
                 }, "Backfill-" + streamName).start();
             }

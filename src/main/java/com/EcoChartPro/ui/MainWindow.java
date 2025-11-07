@@ -169,14 +169,27 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
     }
 
     private void repositionOverlayWidgets() {
-        Dimension fireSize = onFireWidget.getPreferredSize();
-        onFireWidget.setBounds((rootPanel.getWidth() - fireSize.width) / 2, 20, fireSize.width, fireSize.height);
+        // Center-top for streak/nudge widgets
+        if (onFireWidget.isVisible()) {
+            Dimension fireSize = onFireWidget.getPreferredSize();
+            onFireWidget.setBounds((rootPanel.getWidth() - fireSize.width) / 2, 20, fireSize.width, fireSize.height);
+        }
+        if (stopTradingNudgeWidget.isVisible()) {
+            Dimension nudgeSize = stopTradingNudgeWidget.getPreferredSize();
+            stopTradingNudgeWidget.setBounds((rootPanel.getWidth() - nudgeSize.width) / 2, 20, nudgeSize.width, nudgeSize.height);
+        }
 
-        Dimension nudgeSize = stopTradingNudgeWidget.getPreferredSize();
-        stopTradingNudgeWidget.setBounds((rootPanel.getWidth() - nudgeSize.width) / 2, 20, nudgeSize.width, nudgeSize.height);
-
-        Dimension connSize = connectionStatusWidget.getPreferredSize();
-        connectionStatusWidget.setBounds(rootPanel.getWidth() - connSize.width - 20, 20, connSize.width, connSize.height);
+        // Top-right for connection status widget
+        if (connectionStatusWidget.isVisible()) {
+            ChartPanel activeChart = getActiveChartPanel();
+            if (activeChart != null) {
+                Point chartPos = SwingUtilities.convertPoint(activeChart, 0, 0, rootPanel);
+                Dimension widgetSize = connectionStatusWidget.getPreferredSize();
+                int x = chartPos.x + activeChart.getWidth() - widgetSize.width - 20;
+                int y = chartPos.y + 20;
+                connectionStatusWidget.setBounds(x, y, widgetSize.width, widgetSize.height);
+            }
+        }
     }
     
     private void updateComponentLayouts() {
@@ -225,6 +238,8 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
         PaperTradingService.getInstance().addPropertyChangeListener(this);
         InternetConnectivityService.getInstance().addPropertyChangeListener(this);
         LiveDataManager.getInstance().addPropertyChangeListener("realLatencyUpdated", this);
+        // [MODIFIED] Listen for the aggregated system state from LiveDataManager
+        LiveDataManager.getInstance().addPropertyChangeListener("liveDataSystemStateChanged", this);
     }
 
     private void cleanupResources() {
@@ -243,6 +258,7 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
         PaperTradingService.getInstance().removePropertyChangeListener(this);
         InternetConnectivityService.getInstance().removePropertyChangeListener(this);
         LiveDataManager.getInstance().removePropertyChangeListener("realLatencyUpdated", this);
+        LiveDataManager.getInstance().removePropertyChangeListener("liveDataSystemStateChanged", this); // Cleanup new listener
 
         uiManager.disposeDialogs();
         titleBarManager.dispose();
@@ -306,7 +322,16 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
                     break;
                 case "connectivityChanged":
                     updateMenuBarConnectivityStatus((boolean) evt.getNewValue());
-                    updateInSessionConnectivityWidget((boolean) evt.getNewValue());
+                    // [MODIFIED] In replay mode, general connectivity is still relevant for the widget
+                    if (isReplayMode) {
+                        updateForGeneralConnectivity((boolean) evt.getNewValue());
+                    }
+                    break;
+                case "liveDataSystemStateChanged":
+                    // [MODIFIED] Handle the aggregated state event
+                    if (evt.getNewValue() instanceof LiveDataManager.LiveDataSystemState state) {
+                        updateConnectionWidget(state);
+                    }
                     break;
                 case "realLatencyUpdated":
                     if (evt.getNewValue() instanceof Long newLatency) {
@@ -335,28 +360,55 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
         }
     }
 
-    private void updateInSessionConnectivityWidget(boolean isConnected) {
-        if (!this.isVisible()) return; // Don't show if window isn't active
+    /**
+     * [MODIFIED] Central method to update the on-chart connection widget based on the live data system's state.
+     * @param state The overall state of the live data system from LiveDataManager.
+     */
+    private void updateConnectionWidget(LiveDataManager.LiveDataSystemState state) {
+        if (isReplayMode) {
+            // This method is primarily for live mode state changes. Replay mode is handled by updateForGeneralConnectivity.
+            return;
+        }
 
+        // In live mode, the live data system state is what matters.
+        switch (state) {
+            case INTERRUPTED:
+                connectionStatusWidget.showStatus(
+                    "Connection Lost... Reconnecting",
+                    UITheme.Icons.WIFI_OFF,
+                    javax.swing.UIManager.getColor("app.color.negative")
+                );
+                break;
+            case SYNCING:
+                connectionStatusWidget.showStatus(
+                    "Connection Restored. Syncing Data...",
+                    UITheme.Icons.REFRESH,
+                    javax.swing.UIManager.getColor("Component.focusedBorderColor")
+                );
+                break;
+            case CONNECTED:
+                connectionStatusWidget.hideStatus();
+                break;
+        }
+        repositionOverlayWidgets(); // Reposition after visibility or size changes.
+    }
+
+    /**
+     * [MODIFIED] Helper for replay mode or when general connectivity is the only concern.
+     */
+    private void updateForGeneralConnectivity(boolean isConnected) {
         if (isConnected) {
             connectionStatusWidget.hideStatus();
         } else {
-            if (isReplayMode) {
-                connectionStatusWidget.showStatus(
-                    "Internet connection lost",
-                    UITheme.Icons.WIFI_OFF,
-                    javax.swing.UIManager.getColor("app.trading.pending") // Amber/yellow for warning
-                );
-            } else { // Live mode
-                connectionStatusWidget.showStatus(
-                    "Connection Lost: Live data is paused",
-                    UITheme.Icons.WIFI_OFF,
-                    javax.swing.UIManager.getColor("app.color.negative") // Red for critical
-                );
-            }
-            repositionOverlayWidgets(); // Update position after text change
+            connectionStatusWidget.showStatus(
+                "Internet Connection Lost",
+                UITheme.Icons.WIFI_OFF,
+                javax.swing.UIManager.getColor("app.trading.pending") // Amber/yellow warning
+            );
         }
+        repositionOverlayWidgets();
     }
+
 
     private void launchJournalDialogForTrade(Trade trade) {
         JournalEntryDialog dialog = new JournalEntryDialog(this, trade);

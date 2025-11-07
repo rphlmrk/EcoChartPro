@@ -65,8 +65,10 @@ public class BinanceWebSocketClient implements I_ExchangeWebSocketClient {
         
         if (webSocketClient != null && webSocketClient.isOpen()) {
             // Signal that this close requires a reconnect for the update
-            needsReconnectAfterUpdate = true; 
+            needsReconnectAfterUpdate = true;
+            ConnectionState oldState = state;
             state = ConnectionState.CLOSING; // Signal intent to close for subscription update
+            pcs.firePropertyChange("connectionStateChanged", oldState, state);
             webSocketClient.close();
         } else {
             // No active connection, so just schedule a new one
@@ -77,7 +79,9 @@ public class BinanceWebSocketClient implements I_ExchangeWebSocketClient {
     @Override
     public synchronized void disconnect() {
         if (webSocketClient != null) {
+            ConnectionState oldState = state;
             state = ConnectionState.CLOSING;
+            pcs.firePropertyChange("connectionStateChanged", oldState, state);
             webSocketClient.close();
         }
         stopPingTimer();
@@ -91,11 +95,15 @@ public class BinanceWebSocketClient implements I_ExchangeWebSocketClient {
         if (state == ConnectionState.CONNECTED || state == ConnectionState.CONNECTING) return;
         if (activeSubscriptions.isEmpty()) {
             logger.info("No active Binance subscriptions. WebSocket connection not required.");
+            ConnectionState oldState = state;
             state = ConnectionState.DISCONNECTED;
+            pcs.firePropertyChange("connectionStateChanged", oldState, state);
             return;
         }
 
+        ConnectionState oldState = state;
         state = ConnectionState.CONNECTING;
+        pcs.firePropertyChange("connectionStateChanged", oldState, state);
         try {
             String combinedStreams = String.join("/", activeSubscriptions);
             URI serverUri = new URI(WEBSOCKET_BASE_URL + "stream?streams=" + combinedStreams);
@@ -105,7 +113,9 @@ public class BinanceWebSocketClient implements I_ExchangeWebSocketClient {
                 @Override
                 public void onOpen(ServerHandshake h) {
                     logger.info("Binance WebSocket connection established.");
+                    ConnectionState oldState = state;
                     state = ConnectionState.CONNECTED;
+                    pcs.firePropertyChange("connectionStateChanged", oldState, state);
                     reconnectDelayMs.set(INITIAL_RECONNECT_DELAY_MS);
                     startPingTimer();
                     if (wasUnintentionalDisconnect && reconnectHandler != null) {
@@ -126,11 +136,12 @@ public class BinanceWebSocketClient implements I_ExchangeWebSocketClient {
                 public void onClose(int code, String reason, boolean remote) {
                     logger.warn("Binance WebSocket closed. Code: {}, Reason: {}, Remote: {}", code, reason, remote);
                     
-                    // Updated reconnect logic using the dedicated flag
                     boolean isUpdateClose = needsReconnectAfterUpdate;
                     boolean isPermanentClose = (state == ConnectionState.CLOSING && !isUpdateClose);
                     
+                    ConnectionState oldState = state;
                     state = ConnectionState.DISCONNECTED;
+                    pcs.firePropertyChange("connectionStateChanged", oldState, state);
                     stopPingTimer();
 
                     if (isUpdateClose) {
@@ -166,6 +177,7 @@ public class BinanceWebSocketClient implements I_ExchangeWebSocketClient {
         } catch (Exception e) {
             logger.error("Invalid Binance WebSocket URI or connection failed.", e);
             state = ConnectionState.DISCONNECTED;
+            pcs.firePropertyChange("connectionStateChanged", oldState, state);
         }
     }
 

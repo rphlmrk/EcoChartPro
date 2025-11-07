@@ -70,7 +70,9 @@ public class OkxWebSocketClient implements I_ExchangeWebSocketClient {
         if (webSocketClient != null && webSocketClient.isOpen()) {
             // Signal that this close requires a reconnect for the update
             needsReconnectAfterUpdate = true; 
+            ConnectionState oldState = state;
             state = ConnectionState.CLOSING; // Signal intent to close for subscription update
+            pcs.firePropertyChange("connectionStateChanged", oldState, state);
             webSocketClient.close();
         } else {
             // No active connection, so just schedule a new one
@@ -81,7 +83,9 @@ public class OkxWebSocketClient implements I_ExchangeWebSocketClient {
     @Override
     public synchronized void disconnect() {
         if (webSocketClient != null) {
+            ConnectionState oldState = state;
             state = ConnectionState.CLOSING;
+            pcs.firePropertyChange("connectionStateChanged", oldState, state);
             webSocketClient.close();
         }
         // Shutdown schedulers to prevent any further reconnect attempts
@@ -92,7 +96,10 @@ public class OkxWebSocketClient implements I_ExchangeWebSocketClient {
 
     private synchronized void connect() {
         if (state == ConnectionState.CONNECTED || state == ConnectionState.CONNECTING) return;
+        
+        ConnectionState oldState = state;
         state = ConnectionState.CONNECTING;
+        pcs.firePropertyChange("connectionStateChanged", oldState, state);
 
         try {
             URI serverUri = new URI(WEBSOCKET_URL);
@@ -102,7 +109,9 @@ public class OkxWebSocketClient implements I_ExchangeWebSocketClient {
                 @Override
                 public void onOpen(ServerHandshake h) {
                     logger.info("OKX WebSocket connection established.");
+                    ConnectionState oldState = state;
                     state = ConnectionState.CONNECTED;
+                    pcs.firePropertyChange("connectionStateChanged", oldState, state);
                     reconnectDelayMs.set(INITIAL_RECONNECT_DELAY_MS);
                     if (wasUnintentionalDisconnect && reconnectHandler != null) {
                         logger.info("Detected reconnect after unintentional disconnect. Triggering handler.");
@@ -133,11 +142,12 @@ public class OkxWebSocketClient implements I_ExchangeWebSocketClient {
                 public void onClose(int code, String reason, boolean remote) {
                     logger.warn("OKX WebSocket closed. Code: {}, Reason: {}, Remote: {}", code, reason, remote);
                     
-                    // Updated reconnect logic using the dedicated flag
                     boolean isUpdateClose = needsReconnectAfterUpdate;
                     boolean isPermanentClose = (state == ConnectionState.CLOSING && !isUpdateClose);
                     
+                    ConnectionState oldState = state;
                     state = ConnectionState.DISCONNECTED;
+                    pcs.firePropertyChange("connectionStateChanged", oldState, state);
                     stopPingTimer();
                     
                     if (isUpdateClose) {
@@ -163,6 +173,7 @@ public class OkxWebSocketClient implements I_ExchangeWebSocketClient {
         } catch (Exception e) {
             logger.error("Invalid OKX WebSocket URI or connection failed.", e);
             state = ConnectionState.DISCONNECTED;
+            pcs.firePropertyChange("connectionStateChanged", oldState, state);
         }
     }
 
