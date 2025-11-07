@@ -1,8 +1,10 @@
 package com.EcoChartPro.ui.dashboard;
 
 import com.EcoChartPro.core.controller.SessionController;
+import com.EcoChartPro.core.service.InternetConnectivityService;
 import com.EcoChartPro.core.state.ReplaySessionState;
 import com.EcoChartPro.ui.dashboard.components.FloatingToolbarPanel;
+import com.EcoChartPro.ui.dialogs.NoInternetDialog;
 import com.EcoChartPro.ui.dialogs.SessionDialog;
 import com.EcoChartPro.utils.SessionManager;
 
@@ -12,10 +14,12 @@ import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.beans.PropertyChangeEvent;
+import java.beans.PropertyChangeListener;
 import java.io.File;
 import java.io.IOException;
 
-public class LiveViewPanel extends JPanel {
+public class LiveViewPanel extends JPanel implements PropertyChangeListener {
 
     private final ComprehensiveReportPanel reportPanel;
     private JButton resumeLiveButton;
@@ -46,6 +50,16 @@ public class LiveViewPanel extends JPanel {
                 updateButtonStates();
             }
         });
+
+        // Listen for global connectivity changes
+        InternetConnectivityService.getInstance().addPropertyChangeListener(this);
+    }
+
+    @Override
+    public void propertyChange(PropertyChangeEvent evt) {
+        if ("connectivityChanged".equals(evt.getPropertyName())) {
+            SwingUtilities.invokeLater(this::updateButtonStates);
+        }
     }
 
     public ComprehensiveReportPanel getReportPanel() {
@@ -53,9 +67,22 @@ public class LiveViewPanel extends JPanel {
     }
 
     private void updateButtonStates() {
+        boolean isConnected = InternetConnectivityService.getInstance().isConnected();
         boolean liveSessionExists = SessionManager.getInstance().getLiveAutoSaveFilePath().map(File::exists).orElse(false);
-        resumeLiveButton.setEnabled(liveSessionExists);
-        resumeLiveButton.setToolTipText(liveSessionExists ? "Resume your last live paper trading session" : "No live session found to resume");
+
+        // New Live button depends only on connection
+        newLiveButton.setEnabled(isConnected);
+        newLiveButton.setToolTipText(isConnected ? "Start a fresh live paper trading session and clear any previous one" : "Internet connection required to start a new live session");
+
+        // Resume button depends on both connection and file existence
+        resumeLiveButton.setEnabled(liveSessionExists && isConnected);
+        if (!isConnected) {
+            resumeLiveButton.setToolTipText("Internet connection required to resume live session");
+        } else if (!liveSessionExists) {
+            resumeLiveButton.setToolTipText("No live session found to resume");
+        } else {
+            resumeLiveButton.setToolTipText("Resume your last live paper trading session");
+        }
     }
 
     private JPanel createHeaderPanel() {
@@ -101,6 +128,18 @@ public class LiveViewPanel extends JPanel {
     }
 
     private void handleResumeLive() {
+        Frame parentFrame = (Frame) SwingUtilities.getWindowAncestor(this);
+
+        // Loop until connected or the user cancels
+        while (!InternetConnectivityService.getInstance().isConnected()) {
+            NoInternetDialog dialog = new NoInternetDialog(parentFrame);
+            NoInternetDialog.Result result = dialog.showDialog();
+            if (result == NoInternetDialog.Result.CANCEL) {
+                return; // User cancelled, so exit the action.
+            }
+            // If RETRY, the loop will check the connection again.
+        }
+
         try {
             ReplaySessionState state = SessionManager.getInstance().loadLiveSession();
             SessionController.getInstance().startLiveSession(state);
@@ -111,6 +150,18 @@ public class LiveViewPanel extends JPanel {
 
     private void handleNewLive() {
         Frame parentFrame = (Frame) SwingUtilities.getWindowAncestor(this);
+
+        // Loop until connected or the user cancels
+        while (!InternetConnectivityService.getInstance().isConnected()) {
+            NoInternetDialog dialog = new NoInternetDialog(parentFrame);
+            NoInternetDialog.Result result = dialog.showDialog();
+            if (result == NoInternetDialog.Result.CANCEL) {
+                return; // User cancelled, so exit the action.
+            }
+            // If RETRY, the loop will check the connection again.
+        }
+
+        // If we exit the loop, we are connected. Proceed.
         SessionDialog dialog = new SessionDialog(parentFrame, SessionDialog.SessionMode.LIVE_PAPER_TRADING);
         dialog.setVisible(true);
 

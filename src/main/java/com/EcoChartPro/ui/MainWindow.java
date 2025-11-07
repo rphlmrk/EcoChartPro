@@ -28,6 +28,7 @@ import com.EcoChartPro.ui.action.TitleBarManager;
 import com.EcoChartPro.ui.chart.ChartPanel;
 import com.EcoChartPro.ui.components.CustomColorChooserPanel;
 import com.EcoChartPro.ui.components.OnFireStreakWidget;
+import com.EcoChartPro.ui.components.ConnectionStatusWidget;
 import com.EcoChartPro.ui.components.StopTradingNudgeWidget;
 import com.EcoChartPro.ui.dashboard.theme.UITheme;
 import com.EcoChartPro.ui.sidebar.TradingSidebarPanel;
@@ -62,6 +63,7 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
     private TradingSidebarPanel tradingSidebar;
     private final OnFireStreakWidget onFireWidget;
     private final StopTradingNudgeWidget stopTradingNudgeWidget;
+    private final ConnectionStatusWidget connectionStatusWidget;
 
     // --- Controllers & Managers ---
     private ReplayController replayController;
@@ -99,6 +101,7 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
         this.propertiesToolbar = new FloatingPropertiesToolbar(this);
         this.onFireWidget = new OnFireStreakWidget();
         this.stopTradingNudgeWidget = new StopTradingNudgeWidget();
+        this.connectionStatusWidget = new ConnectionStatusWidget();
 
         MenuBarManager menuBarManager = new MenuBarManager(this, isReplayMode);
         MenuBarManager.MenuBarResult menuResult = menuBarManager.createMenuBar();
@@ -149,6 +152,7 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
         rootPanel.add(mainContainerPanel, JLayeredPane.DEFAULT_LAYER);
         rootPanel.add(onFireWidget, JLayeredPane.PALETTE_LAYER);
         rootPanel.add(stopTradingNudgeWidget, JLayeredPane.PALETTE_LAYER);
+        rootPanel.add(connectionStatusWidget, JLayeredPane.PALETTE_LAYER);
         setContentPane(rootPanel);
         
         addWindowListeners(isReplayMode);
@@ -156,7 +160,7 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
         
         setupPropertiesToolbarActions();
         updateUndoRedoState();
-        updateConnectivityStatus(InternetConnectivityService.getInstance().isConnected());
+        updateMenuBarConnectivityStatus(InternetConnectivityService.getInstance().isConnected());
         
         this.keyboardShortcutManager = new KeyboardShortcutManager(rootPanel, this);
         this.keyboardShortcutManager.setup();
@@ -170,6 +174,9 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
 
         Dimension nudgeSize = stopTradingNudgeWidget.getPreferredSize();
         stopTradingNudgeWidget.setBounds((rootPanel.getWidth() - nudgeSize.width) / 2, 20, nudgeSize.width, nudgeSize.height);
+
+        Dimension connSize = connectionStatusWidget.getPreferredSize();
+        connectionStatusWidget.setBounds(rootPanel.getWidth() - connSize.width - 20, 20, connSize.width, connSize.height);
     }
     
     private void updateComponentLayouts() {
@@ -298,7 +305,8 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
                     }
                     break;
                 case "connectivityChanged":
-                    updateConnectivityStatus((boolean) evt.getNewValue());
+                    updateMenuBarConnectivityStatus((boolean) evt.getNewValue());
+                    updateInSessionConnectivityWidget((boolean) evt.getNewValue());
                     break;
                 case "realLatencyUpdated":
                     if (evt.getNewValue() instanceof Long newLatency) {
@@ -316,7 +324,7 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
         });
     }
 
-    private void updateConnectivityStatus(boolean isConnected) {
+    private void updateMenuBarConnectivityStatus(boolean isConnected) {
         if (isConnected) {
             connectivityStatusLabel.setIcon(UITheme.getIcon(UITheme.Icons.WIFI_ON, 16, 16, javax.swing.UIManager.getColor("app.color.positive")));
         } else {
@@ -324,6 +332,29 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
             // Reset latency display on disconnect
             latencyLabel.setText("-- ms");
             latencyLabel.setForeground(javax.swing.UIManager.getColor("Label.foreground"));
+        }
+    }
+
+    private void updateInSessionConnectivityWidget(boolean isConnected) {
+        if (!this.isVisible()) return; // Don't show if window isn't active
+
+        if (isConnected) {
+            connectionStatusWidget.hideStatus();
+        } else {
+            if (isReplayMode) {
+                connectionStatusWidget.showStatus(
+                    "Internet connection lost",
+                    UITheme.Icons.WIFI_OFF,
+                    javax.swing.UIManager.getColor("app.trading.pending") // Amber/yellow for warning
+                );
+            } else { // Live mode
+                connectionStatusWidget.showStatus(
+                    "Connection Lost: Live data is paused",
+                    UITheme.Icons.WIFI_OFF,
+                    javax.swing.UIManager.getColor("app.color.negative") // Red for critical
+                );
+            }
+            repositionOverlayWidgets(); // Update position after text change
         }
     }
 
