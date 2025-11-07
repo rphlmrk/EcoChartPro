@@ -24,6 +24,10 @@ public class MainContentPanel extends JPanel {
     private final ReplayViewPanel replayViewPanel;
     private final LiveViewPanel liveViewPanel;
 
+    // [MODIFIED] Define the preferred size as a field.
+    // This is the SINGLE place to control the dashboard's default launch size.
+    private final Dimension defaultDashboardSize = new Dimension(740, 680);
+
     public MainContentPanel(DashboardViewPanel dashboardViewPanel) {
         setOpaque(false);
         setLayout(cardLayout);
@@ -36,6 +40,14 @@ public class MainContentPanel extends JPanel {
         add(dashboardViewPanel, "DASHBOARD");
         add(this.replayViewPanel, "REPLAY");
         add(this.liveViewPanel, "LIVE");
+    }
+
+    // [MODIFIED] Override getPreferredSize to enforce our desired default dimensions.
+    // This is more robust than setPreferredSize() as it cannot be overridden
+    // by the panel's internal layout manager.
+    @Override
+    public Dimension getPreferredSize() {
+        return defaultDashboardSize;
     }
     
     public ReplayViewPanel getReplayViewPanel() {
