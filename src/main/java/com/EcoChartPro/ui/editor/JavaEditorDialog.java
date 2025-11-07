@@ -171,7 +171,6 @@ public class JavaEditorDialog extends JDialog {
         // --- Basic Stateless Examples ---
         DefaultMutableTreeNode basic = new DefaultMutableTreeNode("Basic (Stateless)");
         basic.add(new DefaultMutableTreeNode("Moving Average"));
-        basic.add(new DefaultMutableTreeNode("ICT Custom Opens"));
         root.add(basic);
 
         // --- Advanced Stateful Examples ---
@@ -183,7 +182,8 @@ public class JavaEditorDialog extends JDialog {
         // --- Visual & Stateful Examples ---
         DefaultMutableTreeNode visual = new DefaultMutableTreeNode("Visual & Stateful");
         visual.add(new DefaultMutableTreeNode("Volume Bubbles"));
-        visual.add(new DefaultMutableTreeNode("HTF Overlay")); // [NEW] Add the HTF Overlay example
+        visual.add(new DefaultMutableTreeNode("HTF Overlay"));
+        visual.add(new DefaultMutableTreeNode("HTF Candle Projections")); // [MODIFIED] Added new example
         root.add(visual);
 
         JTree exampleTree = new JTree(root);
@@ -440,8 +440,9 @@ public class JavaEditorDialog extends JDialog {
         }
 
         String fileName;
-        if ("ICT Custom Opens".equals(exampleName)) {
-            fileName = "ICTCustomOpens.java.txt";
+        // [MODIFIED] Added special case for the new example file name
+        if ("HTF Candle Projections".equals(exampleName)) {
+            fileName = "HTFCandleProjections.java.txt";
         } else {
             fileName = exampleName.replace(" ", "") + "Indicator.java.txt";
         }

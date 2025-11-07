@@ -1,0 +1,366 @@
+package com.EcoChartPro.plugins.inapp;
+
+import com.EcoChartPro.api.indicator.*;
+import com.EcoChartPro.api.indicator.drawing.*;
+import com.EcoChartPro.core.indicator.IndicatorContext;
+import com.EcoChartPro.model.Timeframe;
+
+import java.awt.Color;
+import java.awt.Font;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+
+/**
+ * A Java conversion of the "HTF Candle Projections" Pine Script indicator.
+ * This indicator displays candles from a higher timeframe (HTF) projected
+ * to the right of the current price action. It supports both regular
+ * and Heikin Ashi candles, along with optional projection lines and OHLC labels.
+ */
+public class HTFCandleProjectionsIndicator implements CustomIndicator {
+
+    // A state-holding inner class to represent a single HTF candle being built or displayed.
+    private static class StatefulCandle {
+        Instant timestamp;
+        BigDecimal open;
+        BigDecimal high;
+        BigDecimal low;
+        BigDecimal close;
+        boolean isHeikinAshi = false; // Flag to know which values to use
+
+        // Store original values for projection lines
+        BigDecimal originalOpen;
+        BigDecimal originalHigh;
+        BigDecimal originalLow;
+
+        // Store HA values
+        BigDecimal haOpen;
+        BigDecimal haHigh;
+        BigDecimal haLow;
+        BigDecimal haClose;
+
+        StatefulCandle(Instant timestamp, BigDecimal open, BigDecimal high, BigDecimal low, BigDecimal close) {
+            this.timestamp = timestamp;
+            this.open = open;
+            this.high = high;
+            this.low = low;
+            this.close = close;
+            this.originalOpen = open;
+            this.originalHigh = high;
+            this.originalLow = low;
+        }
+
+        // Getters that return the correct value based on the type
+        BigDecimal getDisplayOpen() { return isHeikinAshi ? haOpen : open; }
+        BigDecimal getDisplayHigh() { return isHeikinAshi ? haHigh : high; }
+        BigDecimal getDisplayLow() { return isHeikinAshi ? haLow : low; }
+        BigDecimal getDisplayClose() { return isHeikinAshi ? haClose : close; }
+    }
+
+
+    @Override
+    public String getName() {
+        return "HTF Candle Projections";
+    }
+
+    @Override
+    public IndicatorType getType() {
+        return IndicatorType.OVERLAY;
+    }
+
+    @Override
+    public List<Parameter> getParameters() {
+        return List.of(
+            new Parameter("Higher Timeframe", ParameterType.CHOICE, "Auto", "Auto", "1", "3", "5", "15", "30", "60", "120", "240", "D", "W", "M"),
+            new Parameter("Two Levels", ParameterType.BOOLEAN, true),
+            new Parameter("Type", ParameterType.CHOICE, "Candles", "Candles", "Heikin Ashi"),
+            new Parameter("Number of HTF Candles", ParameterType.INTEGER, 5),
+            new Parameter("Offset", ParameterType.INTEGER, 10),
+            new Parameter("Size", ParameterType.CHOICE, "Medium", "Small", "Medium", "Large"),
+            new Parameter("Margin", ParameterType.INTEGER, 1),
+            new Parameter("Use HTF data", ParameterType.CHOICE, "Always", "Weekly", "Always", "Never"),
+
+            new Parameter("Up Body", ParameterType.COLOR, new Color(107, 165, 131, 255)),
+            new Parameter("Up Wick", ParameterType.COLOR, Color.BLACK),
+            new Parameter("Down Body", ParameterType.COLOR, new Color(215, 84, 66, 255)),
+            new Parameter("Down Wick", ParameterType.COLOR, Color.BLACK),
+
+            new Parameter("Proj Open Enabled", ParameterType.BOOLEAN, true),
+            new Parameter("Proj Open Color", ParameterType.COLOR, new Color(0, 0, 0, 232)),
+            new Parameter("Proj Open Width", ParameterType.INTEGER, 1),
+            new Parameter("Proj H/L Enabled", ParameterType.BOOLEAN, true),
+            new Parameter("Proj H/L Color", ParameterType.COLOR, new Color(0, 0, 0, 232)),
+            new Parameter("Proj H/L Width", ParameterType.INTEGER, 1),
+
+            new Parameter("OHLC Prices Enabled", ParameterType.BOOLEAN, true),
+            new Parameter("OHLC Prices Color", ParameterType.COLOR, new Color(0, 0, 0, 232)),
+            new Parameter("OHLC Prices Size", ParameterType.CHOICE, "Auto", "Auto", "Tiny", "Small", "Normal", "Large", "Huge")
+        );
+    }
+
+    @Override
+    public List<DrawableObject> calculate(IndicatorContext context) {
+        // --- 1. Get Settings & Data ---
+        List<ApiKLine> data = context.klineData();
+        if (data.size() < 2) return Collections.emptyList();
+        Map<String, Object> settings = context.settings();
+        
+        // --- 2. Retrieve or Initialize State ---
+        @SuppressWarnings("unchecked")
+        LinkedList<StatefulCandle> htfCandles = (LinkedList<StatefulCandle>) context.state()
+            .computeIfAbsent("htfCandles", k -> new LinkedList<StatefulCandle>());
+        
+        if (context.isReset()) {
+            htfCandles.clear();
+            context.state().remove("prevHaOpen");
+            context.state().remove("prevHaClose");
+        }
+
+        // --- 3. Determine Timeframes ---
+        Duration currentTfDuration = Duration.between(data.get(data.size() - 2).timestamp(), data.get(data.size() - 1).timestamp());
+        String htfString = getHtfString(settings, currentTfDuration);
+        Timeframe htf = Timeframe.fromString(htfString);
+        if (htf == null) return Collections.emptyList();
+        long htfMillis = htf.duration().toMillis();
+        if (htfMillis == 0) return Collections.emptyList();
+
+        // --- 4. Build/Update HTF Candles from Main Chart Data ---
+        Map<Instant, ApiKLine> realHtfDataMap = getRealHtfDataMap(context, settings, htf);
+        
+        for (ApiKLine kline : data) {
+            Instant htfBarStart = Instant.ofEpochMilli((kline.timestamp().toEpochMilli() / htfMillis) * htfMillis);
+            StatefulCandle lastCandle = htfCandles.peekLast();
+
+            if (lastCandle == null || !lastCandle.timestamp.equals(htfBarStart)) {
+                StatefulCandle newHtfCandle = new StatefulCandle(htfBarStart, kline.open(), kline.high(), kline.low(), kline.close());
+                htfCandles.addLast(newHtfCandle);
+            } else {
+                lastCandle.high = lastCandle.high.max(kline.high());
+                lastCandle.low = lastCandle.low.min(kline.low());
+                lastCandle.close = kline.close();
+            }
+            
+            ApiKLine realHtfBar = realHtfDataMap.get(htfBarStart);
+            if(realHtfBar != null) {
+                lastCandle = htfCandles.peekLast();
+                lastCandle.open = realHtfBar.open();
+                lastCandle.high = realHtfBar.high();
+                lastCandle.low = realHtfBar.low();
+                lastCandle.close = realHtfBar.close();
+                lastCandle.originalOpen = realHtfBar.open();
+                lastCandle.originalHigh = realHtfBar.high();
+                lastCandle.originalLow = realHtfBar.low();
+            }
+        }
+        
+        // --- 5. Trim Candle History ---
+        int numCandles = (int) settings.get("Number of HTF Candles");
+        while (htfCandles.size() > numCandles) {
+            htfCandles.removeFirst();
+        }
+
+        // --- 6. Calculate Heikin Ashi if needed ---
+        if ("Heikin Ashi".equals(settings.get("Type"))) {
+            calculateHeikinAshi(htfCandles, context.state());
+        }
+
+        // --- 7. Prepare for Drawing ---
+        List<DrawableObject> drawables = new ArrayList<>();
+        int offset = (int) settings.get("Offset");
+        int margin = (int) settings.get("Margin");
+        int sizeMultiplier = getSizeMultiplier((String) settings.get("Size"));
+
+        Instant lastBarTime = data.get(data.size() - 1).timestamp();
+        long currentTfSeconds = currentTfDuration.toSeconds();
+        if (currentTfSeconds <= 0) return Collections.emptyList();
+
+        // --- 8. Generate Drawable Objects ---
+        for (int i = 0; i < htfCandles.size(); i++) {
+            StatefulCandle candle = htfCandles.get(i);
+            
+            int candleSpacingBars = margin + 2 * sizeMultiplier;
+            int candleWidthBars = 2 * sizeMultiplier;
+            
+            long totalOffsetInBars = offset + (long) i * candleSpacingBars;
+            Instant projectedCenterTime = lastBarTime.plusSeconds((totalOffsetInBars + (long) candleWidthBars / 2) * currentTfSeconds);
+            Instant projectedRightTime = lastBarTime.plusSeconds((totalOffsetInBars + candleWidthBars) * currentTfSeconds);
+
+            // Always create the projected candle body
+            drawables.add(createDrawableCandle(candle, projectedCenterTime, settings));
+            
+            boolean isCurrentCandle = (i == htfCandles.size() - 1);
+            if (isCurrentCandle) {
+                // Create projection lines
+                if ((boolean) settings.get("Proj Open Enabled") || (boolean) settings.get("Proj H/L Enabled")) {
+                    drawables.addAll(createProjectionLines(candle, projectedCenterTime, settings));
+                }
+                
+                // Create OHLC labels
+                if ((boolean) settings.get("OHLC Prices Enabled")) {
+                    drawables.addAll(createOhlcLabels(candle, projectedRightTime, currentTfSeconds, settings));
+                }
+            }
+        }
+
+        return drawables;
+    }
+    
+    // --- Helper Methods ---
+
+    private String getHtfString(Map<String, Object> settings, Duration currentTf) {
+        String htfChoice = (String) settings.get("Higher Timeframe");
+        if (!"Auto".equals(htfChoice)) {
+            if ("D".equals(htfChoice)) return "1D";
+            if ("W".equals(htfChoice)) return "1W";
+            if ("M".equals(htfChoice)) return "1M";
+            return htfChoice + "m";
+        }
+
+        boolean twoLevels = (boolean) settings.get("Two Levels");
+        long minutes = currentTf.toMinutes();
+        
+        if (currentTf.toSeconds() < 60) return twoLevels ? "5m" : "1m";
+        if (minutes < 5) return twoLevels ? "15m" : "5m";
+        if (minutes < 15) return twoLevels ? "60m" : "15m";
+        if (minutes < 60) return twoLevels ? "240m" : "60m";
+        if (minutes < 240) return twoLevels ? "1D" : "240m";
+        if (minutes < 1440) return "1W";
+        if (minutes < 10080) return "1M";
+        if (minutes < 43200) return "3M";
+        return "12M";
+    }
+    
+    private Map<Instant, ApiKLine> getRealHtfDataMap(IndicatorContext context, Map<String, Object> settings, Timeframe htf) {
+        String useHtfDataSetting = (String) settings.get("Use HTF data");
+        boolean isWeekly = htf.duration().toDays() >= 7;
+
+        boolean shouldFetch = "Always".equals(useHtfDataSetting) || ("Weekly".equals(useHtfDataSetting) && isWeekly);
+        
+        if (shouldFetch) {
+            List<ApiKLine> htfData = context.resampledKlineData(htf.displayName());
+            return htfData.stream().collect(Collectors.toMap(ApiKLine::timestamp, Function.identity()));
+        }
+        return Collections.emptyMap();
+    }
+    
+    private void calculateHeikinAshi(LinkedList<StatefulCandle> candles, Map<String, Object> state) {
+        BigDecimal prevHaOpen = (BigDecimal) state.get("prevHaOpen");
+        BigDecimal prevHaClose = (BigDecimal) state.get("prevHaClose");
+
+        for (StatefulCandle candle : candles) {
+            candle.isHeikinAshi = true;
+            candle.haClose = candle.open.add(candle.high).add(candle.low).add(candle.close).divide(BigDecimal.valueOf(4), 8, RoundingMode.HALF_UP);
+            
+            if (prevHaOpen == null || prevHaClose == null) {
+                candle.haOpen = candle.open.add(candle.close).divide(BigDecimal.valueOf(2), 8, RoundingMode.HALF_UP);
+            } else {
+                candle.haOpen = prevHaOpen.add(prevHaClose).divide(BigDecimal.valueOf(2), 8, RoundingMode.HALF_UP);
+            }
+
+            candle.haHigh = candle.high.max(candle.haOpen).max(candle.haClose);
+            candle.haLow = candle.low.min(candle.haOpen).min(candle.haClose);
+
+            prevHaOpen = candle.haOpen;
+            prevHaClose = candle.haClose;
+        }
+
+        state.put("prevHaOpen", prevHaOpen);
+        state.put("prevHaClose", prevHaClose);
+    }
+
+    private int getSizeMultiplier(String size) {
+        return switch (size) {
+            case "Small" -> 1;
+            case "Medium" -> 2;
+            case "Large" -> 3;
+            default -> 2;
+        };
+    }
+
+    private DrawableCandle createDrawableCandle(StatefulCandle candle, Instant projectedTime, Map<String, Object> s) {
+        BigDecimal open = candle.getDisplayOpen();
+        BigDecimal close = candle.getDisplayClose();
+        boolean isBullish = close.compareTo(open) >= 0;
+
+        Color bodyColor = isBullish ? (Color) s.get("Up Body") : (Color) s.get("Down Body");
+        Color wickColor = isBullish ? (Color) s.get("Up Wick") : (Color) s.get("Down Wick");
+
+        return new DrawableCandle(
+            projectedTime,
+            open,
+            candle.getDisplayHigh(),
+            candle.getDisplayLow(),
+            close,
+            bodyColor,
+            wickColor
+        );
+    }
+    
+    private List<DrawableLine> createProjectionLines(StatefulCandle candle, Instant projectedCenterTime, Map<String, Object> s) {
+        List<DrawableLine> lines = new ArrayList<>();
+        
+        if ((boolean) s.get("Proj Open Enabled")) {
+            Color color = (Color) s.get("Proj Open Color");
+            float width = ((Integer) s.get("Proj Open Width")).floatValue();
+            DataPoint start = new DataPoint(candle.timestamp, candle.originalOpen);
+            DataPoint end = new DataPoint(projectedCenterTime, candle.originalOpen);
+            lines.add(new DrawableLine(start, end, color, width));
+        }
+
+        if ((boolean) s.get("Proj H/L Enabled")) {
+            Color color = (Color) s.get("Proj H/L Color");
+            float width = ((Integer) s.get("Proj H/L Width")).floatValue();
+            
+            DataPoint startH = new DataPoint(candle.timestamp, candle.originalHigh);
+            DataPoint endH = new DataPoint(projectedCenterTime, candle.originalHigh);
+            lines.add(new DrawableLine(startH, endH, color, width));
+            
+            DataPoint startL = new DataPoint(candle.timestamp, candle.originalLow);
+            DataPoint endL = new DataPoint(projectedCenterTime, candle.originalLow);
+            lines.add(new DrawableLine(startL, endL, color, width));
+        }
+        return lines;
+    }
+    
+    private List<DrawableText> createOhlcLabels(StatefulCandle candle, Instant projectedRightTime, long tfSeconds, Map<String, Object> s) {
+        List<DrawableText> labels = new ArrayList<>();
+        Color color = (Color) s.get("OHLC Prices Color");
+        Font font = getLabelFont((String) s.get("OHLC Prices Size"));
+        
+        Instant labelTime = projectedRightTime.plusSeconds(tfSeconds);
+
+        labels.add(new DrawableText(new DataPoint(labelTime, candle.open), formatPrice(candle.open), font, color, TextAnchor.CENTER_LEFT));
+        labels.add(new DrawableText(new DataPoint(labelTime, candle.high), formatPrice(candle.high), font, color, TextAnchor.CENTER_LEFT));
+        labels.add(new DrawableText(new DataPoint(labelTime, candle.low), formatPrice(candle.low), font, color, TextAnchor.CENTER_LEFT));
+        labels.add(new DrawableText(new DataPoint(labelTime, candle.close), formatPrice(candle.close), font, color, TextAnchor.CENTER_LEFT));
+        
+        return labels;
+    }
+    
+    private Font getLabelFont(String size) {
+        int fontSize = switch (size) {
+            case "Tiny" -> 8;
+            case "Small" -> 10;
+            case "Normal" -> 12;
+            case "Large" -> 14;
+            case "Huge" -> 16;
+            default -> 12; // Auto
+        };
+        return new Font("SansSerif", Font.PLAIN, fontSize);
+    }
+    
+    private String formatPrice(BigDecimal price) {
+        if (price == null) return "";
+        int scale = price.abs().compareTo(BigDecimal.ONE) < 0 ? 8 : 4;
+        return price.setScale(scale, RoundingMode.HALF_UP).toPlainString();
+    }
+}

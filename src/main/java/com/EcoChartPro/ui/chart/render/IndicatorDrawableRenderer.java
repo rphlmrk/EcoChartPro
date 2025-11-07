@@ -44,6 +44,8 @@ public class IndicatorDrawableRenderer {
                 drawText(g, text, axis, visibleKLines, timeframe);
             } else if (obj instanceof DrawablePolygon polygon) {
                 drawPolygon(g, polygon, axis, visibleKLines, timeframe);
+            } else if (obj instanceof DrawableCandle candle) { // [NEW] Handle DrawableCandle
+                drawCandle(g, candle, axis, visibleKLines, timeframe);
             }
         }
     }
@@ -196,6 +198,38 @@ public class IndicatorDrawableRenderer {
                 case BOTTOM_RIGHT:  drawX = anchorX - textWidth;     drawY = anchorY;                 break;
             }
             g.drawString(text.text(), drawX, drawY);
+        }
+    }
+
+    /**
+     * [NEW] Renders a single DrawableCandle object returned by an indicator.
+     */
+    private void drawCandle(Graphics2D g, DrawableCandle candle, ChartAxis axis, List<KLine> visibleKLines, Timeframe timeframe) {
+        // Use resolveX to get the screen coordinate for the candle's timestamp.
+        int xCenter = resolveX(g, new DataPoint(candle.timestamp(), null), axis, visibleKLines, timeframe);
+        if (xCenter == -1) return; // Don't draw if time is off-screen
+
+        double barWidth = axis.getBarWidth();
+        int candleBodyWidth = Math.max(1, (int) (barWidth * 0.8));
+
+        int yOpen = axis.priceToY(candle.open());
+        int yClose = axis.priceToY(candle.close());
+        int yHigh = axis.priceToY(candle.high());
+        int yLow = axis.priceToY(candle.low());
+
+        // Draw Wick
+        if (candle.wickColor() != null) {
+            g.setColor(candle.wickColor());
+            g.drawLine(xCenter, yHigh, xCenter, yLow);
+        }
+
+        // Draw Body
+        if (candle.bodyColor() != null) {
+            g.setColor(candle.bodyColor());
+            int bodyX = xCenter - candleBodyWidth / 2;
+            int bodyY = Math.min(yOpen, yClose);
+            int bodyHeight = Math.abs(yOpen - yClose);
+            g.fillRect(bodyX, bodyY, candleBodyWidth, Math.max(1, bodyHeight));
         }
     }
 }
