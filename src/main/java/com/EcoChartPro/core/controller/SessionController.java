@@ -102,9 +102,10 @@ public class SessionController {
                 LiveWindowManager.getInstance().startSession(sourceOpt.get());
             } else {
                 // [FIX] More robust error handling
-                String symbol = state.lastActiveSymbol();
-                String message = "Could not resume live session.\nData source for symbol '" + (symbol == null ? "null" : symbol) + "' not found.";
-                logger.error("Could not start LiveWindowManager session: data source for {} not found.", symbol);
+                String message = "Could not resume live session: the saved session file is missing a valid symbol.\n" +
+                                 "This can happen if a session was closed before a chart was loaded.\n\n" +
+                                 "Please start a new live session instead.";
+                logger.error("Could not start LiveWindowManager session: data source for null symbol found in saved state.");
                 JOptionPane.showMessageDialog(null, message, "Load Error", JOptionPane.ERROR_MESSAGE);
                 findAndSetDashboardVisible(true); // Go back to dashboard
                 return; // Abort the launch
@@ -218,6 +219,7 @@ public class SessionController {
         return false;
     }
     
+    // [MODIFIED] Implementation of the "Load Live Session" feature
     public void loadLiveSessionFromFile(MainWindow currentWindow) {
         JFileChooser fileChooser = new JFileChooser();
         try {
@@ -228,17 +230,22 @@ public class SessionController {
         fileChooser.setDialogTitle("Load Live Session");
         fileChooser.setFileFilter(new FileNameExtensionFilter("Saved Live Session (*.json)", "json"));
         
-        if (fileChooser.showOpenDialog(currentWindow) == JFileChooser.APPROVE_OPTION) {
+        // Use dashboard frame if currentWindow is null (when called from dashboard)
+        Frame parent = (currentWindow != null) ? currentWindow : getDashboardFrame();
+
+        if (fileChooser.showOpenDialog(parent) == JFileChooser.APPROVE_OPTION) {
             File file = fileChooser.getSelectedFile();
             try {
                 ReplaySessionState state = SessionManager.getInstance().loadStateFromLiveFile(file);
-                // End the current session gracefully before starting the new one
-                endSessionAndShowDashboard(currentWindow, false);
+                // If a live window is already open, close it first. This is a safe no-op if currentWindow is null.
+                if (currentWindow != null) {
+                    endSessionAndShowDashboard(currentWindow, false);
+                }
                 // Start the new session from the loaded state
                 startLiveSession(state);
             } catch (IOException e) {
                 logger.error("Failed to load live session from file: {}", file.getAbsolutePath(), e);
-                JOptionPane.showMessageDialog(currentWindow, "Failed to load session: " + e.getMessage(), "Load Error", JOptionPane.ERROR_MESSAGE);
+                JOptionPane.showMessageDialog(parent, "Failed to load session: " + e.getMessage(), "Load Error", JOptionPane.ERROR_MESSAGE);
             }
         }
     }
@@ -381,5 +388,15 @@ public class SessionController {
                 break; 
             }
         }
+    }
+
+    // [NEW] Helper to get the dashboard frame for parenting dialogs
+    private Frame getDashboardFrame() {
+        for (Frame frame : Frame.getFrames()) {
+            if (frame instanceof DashboardFrame) {
+                return frame;
+            }
+        }
+        return null;
     }
 }

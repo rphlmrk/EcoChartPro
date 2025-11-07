@@ -15,6 +15,7 @@ import com.EcoChartPro.core.gamification.GamificationService;
 import com.EcoChartPro.core.journal.JournalAnalysisService;
 import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.Trade;
+import com.EcoChartPro.utils.DataSourceManager.ChartDataSource;
 
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
@@ -138,6 +139,27 @@ public final class LiveSessionTrackerService implements ReplayStateListener, Pro
         // [MODIFIED] Always save the live session state, even if no trades have been made.
         // This preserves the user's setup (symbol, balance, etc.) for a better resume experience.
         ReplaySessionState liveState = tradingService.getCurrentSessionState();
+
+        // Defensive check: If the state somehow has a null symbol, try to correct it
+        // using the LiveWindowManager, which is the source of truth for the active session.
+        if (liveState != null && liveState.lastActiveSymbol() == null) {
+            ChartDataSource source = LiveWindowManager.getInstance().getActiveDataSource();
+            if (source != null) {
+                // Re-create the state object with the correct symbol before saving.
+                liveState = new ReplaySessionState(
+                    liveState.accountBalance(),
+                    source.symbol(),
+                    liveState.symbolStates()
+                );
+                logger.warn("Corrected a null lastActiveSymbol in the live session state before saving. The new symbol is '{}'.", source.symbol());
+            }
+        }
+
+        if (liveState == null) {
+            logger.error("Failed to get current session state from PaperTradingService. Live session auto-save skipped.");
+            return;
+        }
+
         try {
             SessionManager.getInstance().saveLiveSession(liveState);
             logger.debug("Live session state auto-saved.");

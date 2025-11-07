@@ -114,11 +114,13 @@ public final class SessionManager {
         return instance;
     }
     
-    public Optional<ReplaySessionState> getLatestSessionState() {
+    // [MODIFIED] Renamed and updated logic to be specific to REPLAY mode.
+    public Optional<ReplaySessionState> getLatestReplaySessionState() {
         ReplaySessionState latestState = null;
         File latestFile = null;
 
         Optional<File> lastManualFileOpt = getLastSessionPath().map(Path::toFile);
+        // This now correctly points to "replay_autosave.json"
         Optional<File> autoSaveFileOpt = AppDataManager.getAutoSaveFilePath().filter(Files::exists).map(Path::toFile);
         
         if (lastManualFileOpt.isPresent() && autoSaveFileOpt.isPresent()) {
@@ -132,9 +134,10 @@ public final class SessionManager {
 
         if (latestFile != null) {
             try {
+                // The loadSession method is already safe and will reject live files.
                 latestState = loadSession(latestFile);
             } catch (IOException e) {
-                logger.error("Failed to load latest session file: {}", latestFile.getAbsolutePath(), e);
+                logger.error("Failed to load latest replay session file: {}", latestFile.getAbsolutePath(), e);
             }
         }
         
@@ -150,12 +153,13 @@ public final class SessionManager {
                 objectToSave = new SessionWrapper(SessionType.LIVE, state); // Wrap for live files
             }
             objectMapper.writeValue(file, objectToSave);
-
-            if (!file.getName().equals("autosave.json")) {
+            
+            // [MODIFIED] Do not update the "last manual session" for auto-saves
+            if (!file.getName().endsWith("_autosave.json") && !file.getName().equals("replay_autosave.json")) {
                 String sessionType = isReplayMode ? "Replay" : "Live";
                 logger.info("{} session successfully saved to: {}", sessionType, file.getAbsolutePath());
+                setLastSessionPath(file.toPath());
             }
-            setLastSessionPath(file.toPath());
 
             if (state.symbolStates() != null) {
                 state.symbolStates().forEach(SymbolProgressCache.getInstance()::updateProgressForSymbol);
@@ -350,7 +354,8 @@ public final class SessionManager {
     public void saveLiveSession(ReplaySessionState state) throws IOException {
         Optional<File> liveSaveFile = getLiveAutoSaveFilePath();
         if (liveSaveFile.isPresent()) {
-            objectMapper.writeValue(liveSaveFile.get(), state);
+            // [FIX] Use the main saveSession method, passing 'false' for isReplayMode to ensure it gets wrapped.
+            saveSession(state, liveSaveFile.get(), false);
         } else {
             throw new IOException("Could not determine path for live session auto-save.");
         }
@@ -359,7 +364,8 @@ public final class SessionManager {
     public ReplaySessionState loadLiveSession() throws IOException {
         Optional<File> liveSaveFile = getLiveAutoSaveFilePath();
         if (liveSaveFile.isPresent() && liveSaveFile.get().exists()) {
-            return objectMapper.readValue(liveSaveFile.get(), ReplaySessionState.class);
+            // [FIX] Use the dedicated live file loader that understands the wrapper.
+            return loadStateFromLiveFile(liveSaveFile.get());
         } else {
             throw new IOException("No live session file found to load.");
         }

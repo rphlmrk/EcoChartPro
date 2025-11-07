@@ -63,8 +63,8 @@ public class MainContentPanel extends JPanel {
     }
 
     public void refreshWithLastSession() {
-        // Load REPLAY session data
-        Optional<ReplaySessionState> lastReplayStateOpt = SessionManager.getInstance().getLatestSessionState();
+        // [MODIFIED] Load REPLAY session data using the replay-specific method
+        Optional<ReplaySessionState> lastReplayStateOpt = SessionManager.getInstance().getLatestReplaySessionState();
         if (lastReplayStateOpt.isPresent()) {
             ReplaySessionState lastLoadedState = lastReplayStateOpt.get();
             if (lastLoadedState != null && lastLoadedState.symbolStates() != null && !lastLoadedState.symbolStates().isEmpty()) {

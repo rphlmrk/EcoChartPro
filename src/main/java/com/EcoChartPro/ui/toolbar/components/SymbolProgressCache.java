@@ -61,8 +61,8 @@ public final class SymbolProgressCache {
         progressCache.clear();
         List<ChartDataSource> allSources = DataSourceManager.getInstance().getAvailableSources();
 
-        // Logic to handle new multi-symbol session state
-        Optional<ReplaySessionState> latestSessionOpt = SessionManager.getInstance().getLatestSessionState();
+        // [FIX] Use the replay-specific method to avoid loading live session files.
+        Optional<ReplaySessionState> latestSessionOpt = SessionManager.getInstance().getLatestReplaySessionState();
 
         for (ChartDataSource source : allSources) {
             int progress = 0;

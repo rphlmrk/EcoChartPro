@@ -24,6 +24,7 @@ public class LiveViewPanel extends JPanel implements PropertyChangeListener {
     private final ComprehensiveReportPanel reportPanel;
     private JButton resumeLiveButton;
     private JButton newLiveButton;
+    private JButton loadLiveButton; // [NEW] Button reference
 
     public LiveViewPanel() {
         setOpaque(false);
@@ -73,6 +74,10 @@ public class LiveViewPanel extends JPanel implements PropertyChangeListener {
         // New Live button depends only on connection
         newLiveButton.setEnabled(isConnected);
         newLiveButton.setToolTipText(isConnected ? "Start a fresh live paper trading session and clear any previous one" : "Internet connection required to start a new live session");
+        
+        // [MODIFIED] Load button also depends only on connection
+        loadLiveButton.setEnabled(isConnected);
+        loadLiveButton.setToolTipText(isConnected ? "Load a manually saved live session from a file" : "Internet connection required to load a live session");
 
         // Resume button depends on both connection and file existence
         resumeLiveButton.setEnabled(liveSessionExists && isConnected);
@@ -105,6 +110,12 @@ public class LiveViewPanel extends JPanel implements PropertyChangeListener {
         styleToolbarButton(resumeLiveButton);
         resumeLiveButton.addActionListener(e -> handleResumeLive());
         buttonPanel.add(resumeLiveButton);
+
+        // [NEW] Add the "Load" button to the layout
+        loadLiveButton = new JButton("Load Saved Session...");
+        styleToolbarButton(loadLiveButton);
+        loadLiveButton.addActionListener(e -> handleLoadLive());
+        buttonPanel.add(loadLiveButton);
 
         buttonPanel.add(createToolbarSeparator());
 
@@ -146,6 +157,24 @@ public class LiveViewPanel extends JPanel implements PropertyChangeListener {
         } catch (IOException e) {
             JOptionPane.showMessageDialog(this, "Failed to load live session: " + e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
         }
+    }
+
+    // [NEW] Action handler for the new button
+    private void handleLoadLive() {
+        Frame parentFrame = (Frame) SwingUtilities.getWindowAncestor(this);
+
+        // Loop until connected or the user cancels
+        while (!InternetConnectivityService.getInstance().isConnected()) {
+            NoInternetDialog dialog = new NoInternetDialog(parentFrame);
+            NoInternetDialog.Result result = dialog.showDialog();
+            if (result == NoInternetDialog.Result.CANCEL) {
+                return; // User cancelled, so exit the action.
+            }
+        }
+
+        // Delegate to the controller to handle file choosing and loading.
+        // We pass 'null' because there's no MainWindow instance when on the dashboard.
+        SessionController.getInstance().loadLiveSessionFromFile(null);
     }
 
     private void handleNewLive() {

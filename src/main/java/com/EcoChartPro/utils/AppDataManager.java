@@ -18,8 +18,9 @@ public final class AppDataManager {
     private static final String INDICATORS_DIR_NAME = "indicators";
     private static final String SCRIPTS_DIR_NAME = "scripts";
     private static final String CLASSES_DIR_NAME = "classes";
-    private static final String AUTO_SAVE_FILE_NAME = "autosave.json";
-    private static final String LOGS_DIR_NAME = "logs"; // [NEW] Log directory name
+    // [MODIFIED] Renamed constant and file to be specific to Replay mode.
+    private static final String REPLAY_AUTO_SAVE_FILE_NAME = "replay_autosave.json";
+    private static final String LOGS_DIR_NAME = "logs"; 
 
 
     private AppDataManager() {}
@@ -114,10 +115,11 @@ public final class AppDataManager {
         }
     }
 
+    // [MODIFIED] This method now specifically returns the path for the REPLAY auto-save file.
     public static Optional<Path> getAutoSaveFilePath() {
         try {
             Path sessionsDir = SessionManager.getInstance().getSessionsDirectory();
-            return Optional.of(sessionsDir.resolve(AUTO_SAVE_FILE_NAME));
+            return Optional.of(sessionsDir.resolve(REPLAY_AUTO_SAVE_FILE_NAME));
         } catch (IOException e) {
             logger.error("Could not create or access sessions directory to get auto-save path", e);
             return Optional.empty();
