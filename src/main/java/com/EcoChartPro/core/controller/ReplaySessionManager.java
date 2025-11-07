@@ -91,9 +91,17 @@ public class ReplaySessionManager {
                 DataSourceManager.getInstance().getAvailableSources().stream()
                     .filter(s -> s.symbol().equalsIgnoreCase(symbol)).findFirst()
                     .ifPresent(source -> {
-                        SymbolReplayContext newContext = createInitialContext(source, symbolState.replayHeadIndex());
-                        contextsBySymbol.put(symbol, newContext);
-                        logger.info("Restored context for symbol: {}. Resuming at index {}.", symbol, symbolState.replayHeadIndex());
+                        // [MODIFIED] Check if the source is replayable (has a local DB path) before creating a context.
+                        if (source.dbPath() != null) {
+                            SymbolReplayContext newContext = createInitialContext(source, symbolState.replayHeadIndex());
+                            // Also check if context creation was successful
+                            if (newContext != null) {
+                                contextsBySymbol.put(symbol, newContext);
+                                logger.info("Restored context for symbol: {}. Resuming at index {}.", symbol, symbolState.replayHeadIndex());
+                            }
+                        } else {
+                            logger.warn("Skipping restoration of symbol '{}' from session state because it has no local data file for replay.", symbol);
+                        }
                     });
             }
         }
@@ -131,11 +139,32 @@ public class ReplaySessionManager {
             Optional<ChartDataSource> sourceOpt = DataSourceManager.getInstance().getAvailableSources().stream()
                 .filter(s -> s.symbol().equalsIgnoreCase(k)).findFirst();
             if (sourceOpt.isPresent()) {
-                return createInitialContext(sourceOpt.get(), 0);
+                // [MODIFIED] Check for replayability here too when switching to a new symbol for the first time
+                ChartDataSource source = sourceOpt.get();
+                if (source.dbPath() != null) {
+                    return createInitialContext(source, 0);
+                } else {
+                    logger.error("Cannot switch to symbol '{}' in replay mode as it has no local data file.", k);
+                    return null;
+                }
             }
             logger.error("Could not find data source for symbol {} during switch.", k);
             return null;
         });
+        
+        // [MODIFIED] If the context is null (because it was not replayable), don't proceed.
+        if (contextsBySymbol.get(newSymbol) == null) {
+            // Attempt to fall back to a valid symbol if possible
+            Optional<String> fallbackSymbol = contextsBySymbol.keySet().stream().findFirst();
+            if (fallbackSymbol.isPresent()) {
+                logger.warn("Falling back to symbol '{}' as the requested symbol was not valid for replay.", fallbackSymbol.get());
+                switchActiveSymbol(fallbackSymbol.get());
+            } else {
+                logger.error("No valid replayable symbols available in the current session.");
+                this.activeSymbol = null; // Invalidate the active symbol
+            }
+            return;
+        }
 
         // Load data for the newly active symbol
         loadDataWindowForSymbol(newSymbol);
@@ -149,6 +178,11 @@ public class ReplaySessionManager {
     }
     
     private SymbolReplayContext createInitialContext(ChartDataSource source, int startIndex) {
+        // [MODIFIED] Defensive check in case this is called directly
+        if (source.dbPath() == null) {
+            logger.error("Attempted to create replay context for source '{}' which has no dbPath.", source.symbol());
+            return null;
+        }
         try {
             String jdbcUrl = "jdbc:sqlite:" + source.dbPath().toAbsolutePath();
             DatabaseManager dbManager = new DatabaseManager(jdbcUrl);
@@ -167,7 +201,7 @@ public class ReplaySessionManager {
 
     private void cleanupPreviousSession() {
         for (SymbolReplayContext context : contextsBySymbol.values()) {
-            if (context.dbManager() != null) {
+            if (context != null && context.dbManager() != null) {
                 context.dbManager().close();
             }
         }
@@ -312,7 +346,11 @@ public class ReplaySessionManager {
     }
     
     public String getActiveSymbol() { return activeSymbol; }
-    public ChartDataSource getCurrentSource() { return activeSymbol != null ? contextsBySymbol.get(activeSymbol).source() : null; }
+    public ChartDataSource getCurrentSource() { 
+        if (activeSymbol == null) return null;
+        SymbolReplayContext context = contextsBySymbol.get(activeSymbol);
+        return context != null ? context.source() : null; 
+    }
     public boolean isPlaying() { return isPlaying; }
     public boolean isReplayFinished() {
         if (activeSymbol == null) return true;
