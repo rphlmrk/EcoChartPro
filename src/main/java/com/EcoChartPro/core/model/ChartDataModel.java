@@ -75,8 +75,6 @@ public class ChartDataModel implements PropertyChangeListener {
             fireDataUpdated();
         } else if ("viewStateChanged".equals(evt.getPropertyName())) {
             updateView();
-        } else if ("historyRebuilt".equals(evt.getPropertyName())) {
-            updateView();
         }
     }
 
@@ -88,9 +86,6 @@ public class ChartDataModel implements PropertyChangeListener {
     public void cleanup() {
         DrawingManager.getInstance().removePropertyChangeListener("activeSymbolChanged", this);
         if (this.interactionManager != null) this.interactionManager.removePropertyChangeListener(this);
-        if (this.historyProvider != null) {
-            this.historyProvider.removePropertyChangeListener(this);
-        }
         if (this.historyProvider != null) {
             this.historyProvider.cleanup();
             historyProvider = null;
@@ -145,9 +140,7 @@ public class ChartDataModel implements PropertyChangeListener {
         clearData();
         this.currentDisplayTimeframe = initialDisplayTimeframe;
         this.currentSource = source;
-        ReplayHistoryProvider provider = new ReplayHistoryProvider(interactionManager, chartPanel, initialDisplayTimeframe);
-        provider.addPropertyChangeListener(this);
-        this.historyProvider = provider;
+        this.historyProvider = new ReplayHistoryProvider(interactionManager, chartPanel, initialDisplayTimeframe);
     }
 
     // --- Other Public Methods ---
@@ -156,6 +149,7 @@ public class ChartDataModel implements PropertyChangeListener {
         if (newTimeframe == null) return;
         if (!forceReload && this.currentDisplayTimeframe != null && this.currentDisplayTimeframe.equals(newTimeframe)) return;
         
+        Timeframe oldTimeframe = this.currentDisplayTimeframe;
         this.currentDisplayTimeframe = newTimeframe;
         htfCache.clear();
         isHaCacheDirty = true;
@@ -163,6 +157,7 @@ public class ChartDataModel implements PropertyChangeListener {
         if (historyProvider != null) {
             historyProvider.setTimeframe(newTimeframe, forceReload);
         }
+        pcs.firePropertyChange("displayTimeframeChanged", oldTimeframe, newTimeframe);
     }
     
     public void clearData() {
@@ -304,6 +299,7 @@ public class ChartDataModel implements PropertyChangeListener {
     public void addPropertyChangeListener(PropertyChangeListener listener) { pcs.addPropertyChangeListener(listener); }
     public void addPropertyChangeListener(String propertyName, PropertyChangeListener listener) { pcs.addPropertyChangeListener(propertyName, listener); }
     public void removePropertyChangeListener(PropertyChangeListener listener) { pcs.removePropertyChangeListener(listener); }
+    public void removePropertyChangeListener(String propertyName, PropertyChangeListener listener) { pcs.removePropertyChangeListener(propertyName, listener); }
     
     public void fireDataUpdated() { pcs.firePropertyChange("dataUpdated", null, null); }
     public void fireLiveCandleAdded(KLine finalizedCandle) { pcs.firePropertyChange("liveCandleAdded", null, finalizedCandle); }

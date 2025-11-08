@@ -1,16 +1,27 @@
 package com.EcoChartPro.ui.toolbar;
 
+import com.EcoChartPro.core.manager.DrawingManager;
+import com.EcoChartPro.model.drawing.DrawingObject;
+import com.EcoChartPro.model.drawing.TextObject;
+import com.EcoChartPro.ui.MainWindow;
+import com.EcoChartPro.ui.chart.ChartPanel;
+import com.EcoChartPro.ui.components.CustomColorChooserPanel;
 import com.EcoChartPro.ui.dashboard.theme.UITheme;
 
 import javax.swing.*;
 import javax.swing.border.Border;
 import java.awt.*;
+import java.beans.PropertyChangeEvent;
+import java.beans.PropertyChangeListener;
+import java.util.UUID;
+import java.util.function.Consumer;
 
 /**
  * A floating JDialog that serves as a contextual properties panel for selected drawings.
  */
-public class FloatingPropertiesToolbar extends JDialog {
+public class FloatingPropertiesToolbar extends JDialog implements PropertyChangeListener {
 
+    private final MainWindow mainWindow;
     private final JButton colorButton;
     private final JSpinner thicknessSpinner;
     private final JToggleButton lockButton;
@@ -21,8 +32,9 @@ public class FloatingPropertiesToolbar extends JDialog {
     private final Icon lockOnIcon = UITheme.getIcon("/icons/lock_on.svg", 18, 18);
     private final Icon lockOffIcon = UITheme.getIcon("/icons/lock_off.svg", 18, 18);
 
-    public FloatingPropertiesToolbar(Frame owner) {
+    public FloatingPropertiesToolbar(MainWindow owner) {
         super(owner, false); // false = non-modal
+        this.mainWindow = owner;
 
         setUndecorated(true);
         setBackground(new Color(0, 0, 0, 0)); // Transparent background
@@ -88,7 +100,121 @@ public class FloatingPropertiesToolbar extends JDialog {
         contentPanel.add(templateButton);
         contentPanel.add(deleteButton);
 
+        setupActions();
+        DrawingManager.getInstance().addPropertyChangeListener("selectedDrawingChanged", this);
+
         pack();
+    }
+
+    @Override
+    public void dispose() {
+        DrawingManager.getInstance().removePropertyChangeListener("selectedDrawingChanged", this);
+        super.dispose();
+    }
+
+    private void setupActions() {
+        DrawingManager drawingManager = DrawingManager.getInstance();
+
+        deleteButton.addActionListener(e -> {
+            UUID selectedId = drawingManager.getSelectedDrawingId();
+            if (selectedId != null) {
+                drawingManager.removeDrawing(selectedId);
+                drawingManager.setSelectedDrawingId(null);
+            }
+        });
+
+        thicknessSpinner.addChangeListener(e -> {
+            UUID selectedId = drawingManager.getSelectedDrawingId();
+            if (selectedId == null) return;
+            DrawingObject drawing = drawingManager.getDrawingById(selectedId);
+            if (drawing == null || drawing instanceof TextObject || drawing.isLocked()) return;
+
+            int newThickness = (int) thicknessSpinner.getValue();
+            if ((int) drawing.stroke().getLineWidth() == newThickness) return;
+
+            BasicStroke oldStroke = drawing.stroke();
+            BasicStroke newStroke = new BasicStroke(newThickness, oldStroke.getEndCap(), oldStroke.getLineJoin(), oldStroke.getMiterLimit(), oldStroke.getDashArray(), oldStroke.getDashPhase());
+            drawingManager.updateDrawing(drawing.withStroke(newStroke));
+        });
+
+        colorButton.addActionListener(e -> {
+            UUID selectedId = drawingManager.getSelectedDrawingId();
+            if (selectedId == null) return;
+            DrawingObject drawing = drawingManager.getDrawingById(selectedId);
+            if (drawing == null || drawing.isLocked()) return;
+
+            Consumer<Color> onColorUpdate = newColor -> {
+                setCurrentColor(newColor);
+                drawingManager.updateDrawing(drawing.withColor(newColor));
+            };
+
+            CustomColorChooserPanel colorPanel = new CustomColorChooserPanel(drawing.color(), onColorUpdate);
+            JPopupMenu popupMenu = new JPopupMenu();
+            popupMenu.setBorder(BorderFactory.createLineBorder(Color.GRAY));
+            popupMenu.add(colorPanel);
+            popupMenu.show(colorButton, 0, colorButton.getHeight());
+        });
+
+        lockButton.addActionListener(e -> {
+            UUID selectedId = drawingManager.getSelectedDrawingId();
+            if (selectedId == null) return;
+            DrawingObject drawing = drawingManager.getDrawingById(selectedId);
+            if (drawing == null) return;
+
+            boolean newLockedState = lockButton.isSelected();
+            drawingManager.updateDrawing(drawing.withLocked(newLockedState));
+        });
+
+        moreOptionsButton.addActionListener(e -> {
+            UUID selectedId = drawingManager.getSelectedDrawingId();
+            if (selectedId == null) return;
+            DrawingObject drawing = drawingManager.getDrawingById(selectedId);
+            if (drawing == null || drawing.isLocked()) return;
+
+            drawing.showSettingsDialog(this.mainWindow, drawingManager);
+        });
+    }
+
+    @Override
+    public void propertyChange(PropertyChangeEvent evt) {
+        if ("selectedDrawingChanged".equals(evt.getPropertyName())) {
+            UUID selectedId = (UUID) evt.getNewValue();
+
+            if (selectedId == null) {
+                this.setVisible(false);
+                ChartPanel activePanel = mainWindow.getWorkspaceManager().getActiveChartPanel();
+                if (activePanel == null || activePanel.getDrawingController().getActiveTool() == null) {
+                    mainWindow.getTitleBarManager().restoreIdleTitle();
+                }
+                return;
+            }
+
+            DrawingObject drawing = DrawingManager.getInstance().getDrawingById(selectedId);
+            if (drawing == null) {
+                this.setVisible(false);
+                mainWindow.getTitleBarManager().restoreIdleTitle();
+                return;
+            }
+
+            String lockedStatus = drawing.isLocked() ? " (Locked)" : "";
+            mainWindow.getTitleBarManager().setStaticTitle("Object Selected" + lockedStatus + " | Press Delete to remove");
+
+            setLockedState(drawing.isLocked());
+            getThicknessSpinner().setEnabled(!drawing.isLocked() && !(drawing instanceof TextObject));
+            setCurrentColor(drawing.color());
+            if (!(drawing instanceof TextObject)) {
+                getThicknessSpinner().setValue((int) drawing.stroke().getLineWidth());
+            }
+
+            ChartPanel activeChartPanel = mainWindow.getWorkspaceManager().getActiveChartPanel();
+            if (activeChartPanel != null && activeChartPanel.isShowing()) {
+                Point chartLocation = activeChartPanel.getLocationOnScreen();
+                int x = chartLocation.x + (activeChartPanel.getWidth() / 2) - (getWidth() / 2);
+                int y = chartLocation.y + 20;
+                setLocation(x, y);
+                setVisible(true);
+            }
+        }
     }
 
     private void configureToolbarButton(AbstractButton button) {

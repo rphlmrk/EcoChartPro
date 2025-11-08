@@ -73,11 +73,10 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
     private final SessionController sessionController;
     private final TitleBarManager titleBarManager;
     private final KeyboardShortcutManager keyboardShortcutManager;
+    private final MenuBarManager menuBarManager;
     private DatabaseManager activeDbManager;
 
     // --- State Holders ---
-    private JMenuItem undoMenuItem;
-    private JMenuItem redoMenuItem;
     private final boolean isReplayMode;
     // Menu bar status labels
     private final JLabel connectivityStatusLabel;
@@ -97,18 +96,16 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
 
         rootPanel = new JLayeredPane();
         mainContainerPanel = new JPanel(new BorderLayout());
-        this.topToolbarPanel = new ChartToolbarPanel(isReplayMode);
+        this.topToolbarPanel = new ChartToolbarPanel(isReplayMode, this.workspaceManager);
         this.drawingToolbar = new FloatingDrawingToolbar(this);
         this.propertiesToolbar = new FloatingPropertiesToolbar(this);
         this.onFireWidget = new OnFireStreakWidget();
         this.stopTradingNudgeWidget = new StopTradingNudgeWidget();
         this.connectionStatusWidget = new ConnectionStatusWidget();
 
-        MenuBarManager menuBarManager = new MenuBarManager(this, isReplayMode);
-        MenuBarManager.MenuBarResult menuResult = menuBarManager.createMenuBar();
+        this.menuBarManager = new MenuBarManager(this, isReplayMode);
+        MenuBarManager.MenuBarResult menuResult = this.menuBarManager.createMenuBar();
         setJMenuBar((JMenuBar) menuResult.menu());
-        this.undoMenuItem = menuResult.undoMenuItem();
-        this.redoMenuItem = menuResult.redoMenuItem();
         this.connectivityStatusLabel = menuResult.connectivityStatusLabel();
         this.latencyLabel = menuResult.latencyLabel();
 
@@ -159,8 +156,6 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
         addWindowListeners(isReplayMode);
         addPropertyChangeListeners();
         
-        setupPropertiesToolbarActions();
-        updateUndoRedoState();
         updateMenuBarConnectivityStatus(InternetConnectivityService.getInstance().isConnected());
         
         this.keyboardShortcutManager = new KeyboardShortcutManager(rootPanel, this);
@@ -231,9 +226,7 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
 
     private void addPropertyChangeListeners() {
         SettingsService.getInstance().addPropertyChangeListener(this);
-        DrawingManager.getInstance().addPropertyChangeListener("selectedDrawingChanged", this);
         DrawingManager.getInstance().addPropertyChangeListener("activeSymbolChanged", this);
-        UndoManager.getInstance().addPropertyChangeListener(this);
         
         LiveSessionTrackerService.getInstance().addPropertyChangeListener(this);
         PaperTradingService.getInstance().addPropertyChangeListener(this);
@@ -253,7 +246,7 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
         }
         SettingsService.getInstance().removePropertyChangeListener(this);
         DrawingManager.getInstance().removePropertyChangeListener(this);
-        UndoManager.getInstance().removePropertyChangeListener(this);
+        
         LiveSessionTrackerService.getInstance().removePropertyChangeListener(this);
         PaperTradingService.getInstance().removePropertyChangeListener(this);
         InternetConnectivityService.getInstance().removePropertyChangeListener(this);
@@ -263,6 +256,10 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
         uiManager.disposeDialogs();
         titleBarManager.dispose();
         keyboardShortcutManager.dispose();
+        drawingToolbar.dispose();
+        propertiesToolbar.dispose();
+        topToolbarPanel.dispose();
+        menuBarManager.dispose();
     }
 
     @Override
@@ -285,16 +282,8 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
                             : FloatingDrawingToolbar.DockSide.RIGHT;
                     drawingToolbar.forceUpdatePosition(newSide);
                     break;
-                case "selectedDrawingChanged":
-                    handleDrawingSelectionChange((UUID) evt.getNewValue());
-                    break;
                 case "activeSymbolChanged":
                     workspaceManager.getChartPanels().forEach(ChartPanel::repaint);
-                    break;
-                case "stateChanged":
-                    if (evt.getSource() == UndoManager.getInstance()) {
-                        updateUndoRedoState();
-                    }
                     break;
                 case "sessionStreakUpdated":
                     if (SettingsService.getInstance().isWinStreakNudgeEnabled() && evt.getNewValue() instanceof Integer count) {
@@ -402,123 +391,7 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
         JournalEntryDialog dialog = new JournalEntryDialog(this, trade);
         dialog.setVisible(true);
     }
-
-    private void updateUndoRedoState() {
-        boolean canUndo = UndoManager.getInstance().canUndo();
-        boolean canRedo = UndoManager.getInstance().canRedo();
-
-        if (undoMenuItem != null && redoMenuItem != null) {
-            undoMenuItem.setEnabled(canUndo);
-            redoMenuItem.setEnabled(canRedo);
-        }
-        if (topToolbarPanel != null) {
-            topToolbarPanel.setUndoEnabled(canUndo);
-            topToolbarPanel.setRedoEnabled(canRedo);
-        }
-    }
     
-    private void setupPropertiesToolbarActions() {
-        DrawingManager drawingManager = DrawingManager.getInstance();
-
-        propertiesToolbar.getDeleteButton().addActionListener(e -> {
-            UUID selectedId = drawingManager.getSelectedDrawingId();
-            if (selectedId != null) {
-                drawingManager.removeDrawing(selectedId);
-                drawingManager.setSelectedDrawingId(null);
-            }
-        });
-
-        propertiesToolbar.getThicknessSpinner().addChangeListener(e -> {
-            UUID selectedId = drawingManager.getSelectedDrawingId();
-            if (selectedId == null) return;
-            DrawingObject drawing = drawingManager.getDrawingById(selectedId);
-            if (drawing == null || drawing instanceof TextObject || drawing.isLocked()) return;
-
-            int newThickness = (int) propertiesToolbar.getThicknessSpinner().getValue();
-            if ((int) drawing.stroke().getLineWidth() == newThickness) return;
-
-            BasicStroke oldStroke = drawing.stroke();
-            BasicStroke newStroke = new BasicStroke(newThickness, oldStroke.getEndCap(), oldStroke.getLineJoin(), oldStroke.getMiterLimit(), oldStroke.getDashArray(), oldStroke.getDashPhase());
-            drawingManager.updateDrawing(drawing.withStroke(newStroke));
-        });
-
-        propertiesToolbar.getColorButton().addActionListener(e -> {
-            UUID selectedId = drawingManager.getSelectedDrawingId();
-            if (selectedId == null) return;
-            DrawingObject drawing = drawingManager.getDrawingById(selectedId);
-            if (drawing == null || drawing.isLocked()) return;
-
-            Consumer<Color> onColorUpdate = newColor -> {
-                propertiesToolbar.setCurrentColor(newColor);
-                drawingManager.updateDrawing(drawing.withColor(newColor));
-            };
-
-            CustomColorChooserPanel colorPanel = new CustomColorChooserPanel(drawing.color(), onColorUpdate);
-            JPopupMenu popupMenu = new JPopupMenu();
-            popupMenu.setBorder(BorderFactory.createLineBorder(Color.GRAY));
-            popupMenu.add(colorPanel);
-            popupMenu.show(propertiesToolbar.getColorButton(), 0, propertiesToolbar.getColorButton().getHeight());
-        });
-        
-        propertiesToolbar.getLockButton().addActionListener(e -> {
-            UUID selectedId = drawingManager.getSelectedDrawingId();
-            if (selectedId == null) return;
-            DrawingObject drawing = drawingManager.getDrawingById(selectedId);
-            if (drawing == null) return;
-
-            boolean newLockedState = propertiesToolbar.getLockButton().isSelected();
-            drawingManager.updateDrawing(drawing.withLocked(newLockedState));
-        });
-
-        propertiesToolbar.getMoreOptionsButton().addActionListener(e -> {
-            UUID selectedId = drawingManager.getSelectedDrawingId();
-            if (selectedId == null) return;
-            DrawingObject drawing = drawingManager.getDrawingById(selectedId);
-            if (drawing == null || drawing.isLocked()) return;
-
-            drawing.showSettingsDialog(this, drawingManager);
-        });
-    }
-
-    private void handleDrawingSelectionChange(UUID selectedId) {
-        if (selectedId == null) {
-            propertiesToolbar.setVisible(false);
-            
-            ChartPanel activePanel = workspaceManager.getActiveChartPanel();
-            if (activePanel == null || activePanel.getDrawingController().getActiveTool() == null) {
-                titleBarManager.restoreIdleTitle();
-            }
-            return;
-        }
-
-        DrawingObject drawing = DrawingManager.getInstance().getDrawingById(selectedId);
-        if (drawing == null) {
-            propertiesToolbar.setVisible(false);
-            titleBarManager.restoreIdleTitle();
-            return;
-        }
-        
-        String lockedStatus = drawing.isLocked() ? " (Locked)" : "";
-        titleBarManager.setStaticTitle("Object Selected" + lockedStatus + " | Press Delete to remove");
-        
-        propertiesToolbar.setLockedState(drawing.isLocked());
-        propertiesToolbar.getThicknessSpinner().setEnabled(!drawing.isLocked() && !(drawing instanceof TextObject));
-
-        propertiesToolbar.setCurrentColor(drawing.color());
-        if (!(drawing instanceof TextObject)) {
-            propertiesToolbar.getThicknessSpinner().setValue((int) drawing.stroke().getLineWidth());
-        }
-
-        ChartPanel activeChartPanel = workspaceManager.getActiveChartPanel();
-        if (activeChartPanel != null && activeChartPanel.isShowing()) {
-            Point chartLocation = activeChartPanel.getLocationOnScreen();
-            int x = chartLocation.x + (activeChartPanel.getWidth() / 2) - (propertiesToolbar.getWidth() / 2);
-            int y = chartLocation.y + 20;
-            propertiesToolbar.setLocation(x, y);
-            propertiesToolbar.setVisible(true);
-        }
-    }
-
     public void applyLiveIndicator(CustomIndicator plugin) {
         if (workspaceManager.getActiveChartPanel() != null) {
             ChartDataModel model = workspaceManager.getActiveChartPanel().getDataModel();
@@ -741,7 +614,8 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
                 }
 
                 if (newTimeframe != null) {
-                    topToolbarPanel.selectTimeframe(newTimeframe.displayName());
+                    // This is now handled by the toolbar's internal listener
+                    // topToolbarPanel.selectTimeframe(newTimeframe.displayName());
                     
                     if (activePanel != null) {
                         activePanel.getDataModel().setDisplayTimeframe(newTimeframe);
@@ -774,15 +648,6 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
                 handleTradeAction(command);
             }
         });
-    }
-
-    public void onActivePanelChanged(ChartPanel oldPanel, ChartPanel newPanel) {
-        if (newPanel != null) {
-            topToolbarPanel.updateChartTypeDisplay(newPanel.getChartType());
-            if (newPanel.getDataModel().getCurrentDisplayTimeframe() != null) {
-                topToolbarPanel.selectTimeframe(newPanel.getDataModel().getCurrentDisplayTimeframe().displayName());
-            }
-        }
     }
 
     private void handleReplaySymbolChange() {

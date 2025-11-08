@@ -178,6 +178,7 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
         if (this.chartType != newChartType) {
             ChartType oldChartType = this.chartType;
             this.chartType = newChartType;
+            firePropertyChange("chartTypeChanged", oldChartType, newChartType);
             if (dataModel != null) {
                 dataModel.onChartTypeChanged(oldChartType, newChartType);
             }

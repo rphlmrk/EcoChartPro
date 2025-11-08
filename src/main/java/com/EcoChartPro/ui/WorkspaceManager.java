@@ -25,6 +25,8 @@ import java.awt.event.ComponentEvent;
 import java.awt.event.ComponentListener;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.beans.PropertyChangeListener;
+import java.beans.PropertyChangeSupport;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -43,6 +45,7 @@ public class WorkspaceManager {
     private final java.util.List<ChartPanel> chartPanels = new ArrayList<>();
     private ChartPanel activeChartPanel;
     private final Map<UUID, Component> indicatorPaneMap = new HashMap<>();
+    private final PropertyChangeSupport pcs = new PropertyChangeSupport(this);
 
     private final ComponentListener activeChartListener = new ComponentAdapter() {
         private void updateToolbarPosition() {
@@ -137,7 +140,7 @@ public class WorkspaceManager {
         
         for (ChartPanel p : chartPanels) p.setActive(p == activeChartPanel);
 
-        owner.onActivePanelChanged(oldPanel, activeChartPanel);
+        pcs.firePropertyChange("activePanelChanged", oldPanel, activeChartPanel);
     }
 
     public Component createNewChartView(Timeframe tf, boolean activateOnClick) {
@@ -347,5 +350,21 @@ public class WorkspaceManager {
                 parent.repaint();
             }
         }
+    }
+
+    public void addPropertyChangeListener(PropertyChangeListener listener) {
+        pcs.addPropertyChangeListener(listener);
+    }
+
+    public void addPropertyChangeListener(String propertyName, PropertyChangeListener listener) {
+        pcs.addPropertyChangeListener(propertyName, listener);
+    }
+
+    public void removePropertyChangeListener(PropertyChangeListener listener) {
+        pcs.removePropertyChangeListener(listener);
+    }
+
+    public void removePropertyChangeListener(String propertyName, PropertyChangeListener listener) {
+        pcs.removePropertyChangeListener(propertyName, listener);
     }
 }

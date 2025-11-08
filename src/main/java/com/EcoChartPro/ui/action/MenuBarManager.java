@@ -8,23 +8,48 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
+import java.beans.PropertyChangeEvent;
+import java.beans.PropertyChangeListener;
 import java.net.URI;
 import java.util.List;
 
 /**
  * Manages the creation and assembly of the main application menu bar.
  */
-public class MenuBarManager {
+public class MenuBarManager implements PropertyChangeListener {
 
     private final MainWindow owner;
     private final boolean isReplayMode;
     private int currentShortcutIndex = 0;
+    private JMenuItem undoMenuItem;
+    private JMenuItem redoMenuItem;
 
-    public record MenuBarResult(JComponent menu, JMenuItem undoMenuItem, JMenuItem redoMenuItem, JLabel connectivityStatusLabel, JLabel latencyLabel) {}
+    public record MenuBarResult(JComponent menu, JLabel connectivityStatusLabel, JLabel latencyLabel) {}
 
     public MenuBarManager(MainWindow owner, boolean isReplayMode) {
         this.owner = owner;
         this.isReplayMode = isReplayMode;
+        UndoManager.getInstance().addPropertyChangeListener(this);
+    }
+
+    public void dispose() {
+        UndoManager.getInstance().removePropertyChangeListener(this);
+    }
+
+    @Override
+    public void propertyChange(PropertyChangeEvent evt) {
+        if ("stateChanged".equals(evt.getPropertyName())) {
+            updateUndoRedoState();
+        }
+    }
+
+    private void updateUndoRedoState() {
+        if (undoMenuItem != null) {
+            undoMenuItem.setEnabled(UndoManager.getInstance().canUndo());
+        }
+        if (redoMenuItem != null) {
+            redoMenuItem.setEnabled(UndoManager.getInstance().canRedo());
+        }
     }
 
     public MenuBarResult createMenuBar() {
@@ -32,8 +57,7 @@ public class MenuBarManager {
 
         // --- 1. LEFT GROUP: Menus ---
         menuBar.add(createFileMenu());
-        MenuBarResult editMenuResult = createEditMenu();
-        menuBar.add(editMenuResult.menu());
+        menuBar.add(createEditMenu());
         menuBar.add(createToolsMenu());
         menuBar.add(createInsightsMenu());
         menuBar.add(createHelpMenu());
@@ -76,7 +100,8 @@ public class MenuBarManager {
         latencyLabel.setBorder(BorderFactory.createEmptyBorder(0, 5, 0, 10));
         menuBar.add(latencyLabel);
 
-        return new MenuBarResult(menuBar, editMenuResult.undoMenuItem(), editMenuResult.redoMenuItem(), connectivityStatusLabel, latencyLabel);
+        updateUndoRedoState(); // Set initial state
+        return new MenuBarResult(menuBar, connectivityStatusLabel, latencyLabel);
     }
 
     private JMenu createFileMenu() {
@@ -116,24 +141,24 @@ public class MenuBarManager {
         return fileMenu;
     }
 
-    private MenuBarResult createEditMenu() {
+    private JMenu createEditMenu() {
         JMenu editMenu = new JMenu("Edit");
-        JMenuItem undoMenuItem = new JMenuItem("Undo");
-        undoMenuItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_Z, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
-        undoMenuItem.addActionListener(e -> UndoManager.getInstance().undo());
-        editMenu.add(undoMenuItem);
+        this.undoMenuItem = new JMenuItem("Undo");
+        this.undoMenuItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_Z, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+        this.undoMenuItem.addActionListener(e -> UndoManager.getInstance().undo());
+        editMenu.add(this.undoMenuItem);
 
-        JMenuItem redoMenuItem = new JMenuItem("Redo");
+        this.redoMenuItem = new JMenuItem("Redo");
         boolean isMac = System.getProperty("os.name").toLowerCase().contains("mac");
         if (isMac) {
-            redoMenuItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_Z, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK));
+            this.redoMenuItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_Z, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK));
         } else {
-            redoMenuItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_Y, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+            this.redoMenuItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_Y, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
         }
-        redoMenuItem.addActionListener(e -> UndoManager.getInstance().redo());
-        editMenu.add(redoMenuItem);
+        this.redoMenuItem.addActionListener(e -> UndoManager.getInstance().redo());
+        editMenu.add(this.redoMenuItem);
 
-        return new MenuBarResult(editMenu, undoMenuItem, redoMenuItem, null, null);
+        return editMenu;
     }
 
     private JMenu createToolsMenu() {

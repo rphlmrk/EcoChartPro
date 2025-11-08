@@ -2,10 +2,12 @@ package com.EcoChartPro.ui.toolbar;
 
 import com.EcoChartPro.core.manager.CrosshairManager;
 import com.EcoChartPro.core.manager.UndoManager;
+import com.EcoChartPro.core.model.ChartDataModel;
 import com.EcoChartPro.core.settings.SettingsService;
 import com.EcoChartPro.model.Timeframe;
 import com.EcoChartPro.model.chart.ChartType;
 import com.EcoChartPro.ui.MainWindow;
+import com.EcoChartPro.ui.WorkspaceManager;
 import com.EcoChartPro.ui.chart.ChartPanel;
 import com.EcoChartPro.ui.dashboard.theme.UITheme;
 import com.EcoChartPro.ui.dialogs.IndicatorDialog;
@@ -26,7 +28,7 @@ import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 import java.util.List;
 
-public class ChartToolbarPanel extends JPanel {
+public class ChartToolbarPanel extends JPanel implements PropertyChangeListener {
 
     private final JButton symbolSelectorButton;
     private ChartDataSource selectedDataSource;
@@ -50,8 +52,13 @@ public class ChartToolbarPanel extends JPanel {
     private final Icon redoEnabledIcon;
     private final Icon redoDisabledIcon;
 
-    public ChartToolbarPanel(boolean isReplayMode) {
+    private final WorkspaceManager workspaceManager;
+    private ChartPanel activePanel;
+    private ChartDataModel activeModel;
+
+    public ChartToolbarPanel(boolean isReplayMode, WorkspaceManager workspaceManager) {
         this.isReplayMode = isReplayMode;
+        this.workspaceManager = workspaceManager;
         setLayout(new BorderLayout());
         setBackground(UIManager.getColor("ToolBar.background"));
         setPreferredSize(new Dimension(0, 45));
@@ -174,6 +181,66 @@ public class ChartToolbarPanel extends JPanel {
         setupHoverPopup(timeframeButton, timeframePopup);
         setupHoverPopup(chartTypeButton, chartTypePopup);
         setupHoverPopup(layoutButton, layoutPopup);
+
+        UndoManager.getInstance().addPropertyChangeListener(this);
+        this.workspaceManager.addPropertyChangeListener("activePanelChanged", this);
+    }
+
+    public void dispose() {
+        UndoManager.getInstance().removePropertyChangeListener(this);
+        this.workspaceManager.removePropertyChangeListener("activePanelChanged", this);
+        if (activePanel != null) {
+            activePanel.removePropertyChangeListener("chartTypeChanged", this);
+        }
+        if (activeModel != null) {
+            activeModel.removePropertyChangeListener("displayTimeframeChanged", this);
+        }
+    }
+
+    @Override
+    public void propertyChange(PropertyChangeEvent evt) {
+        String propertyName = evt.getPropertyName();
+
+        if ("stateChanged".equals(propertyName) && evt.getSource() instanceof UndoManager) {
+            updateUndoRedoState();
+        } else if ("activePanelChanged".equals(propertyName)) {
+            // Unregister from old
+            if (activePanel != null) {
+                activePanel.removePropertyChangeListener("chartTypeChanged", this);
+            }
+            if (activeModel != null) {
+                activeModel.removePropertyChangeListener("displayTimeframeChanged", this);
+            }
+
+            // Get new panel and model
+            activePanel = (ChartPanel) evt.getNewValue();
+            if (activePanel != null) {
+                activeModel = activePanel.getDataModel();
+
+                // Register to new
+                activePanel.addPropertyChangeListener("chartTypeChanged", this);
+                activeModel.addPropertyChangeListener("displayTimeframeChanged", this);
+
+                // Update UI immediately
+                updateChartTypeDisplay(activePanel.getChartType());
+                if (activeModel.getCurrentDisplayTimeframe() != null) {
+                    selectTimeframe(activeModel.getCurrentDisplayTimeframe().displayName());
+                }
+            } else {
+                activeModel = null;
+            }
+        } else if ("chartTypeChanged".equals(propertyName) && evt.getSource() == activePanel) {
+            updateChartTypeDisplay((ChartType) evt.getNewValue());
+        } else if ("displayTimeframeChanged".equals(propertyName) && evt.getSource() == activeModel) {
+            if (evt.getNewValue() instanceof Timeframe newTf) {
+                selectTimeframe(newTf.displayName());
+            }
+        }
+    }
+
+    private void updateUndoRedoState() {
+        setUndoEnabled(UndoManager.getInstance().canUndo());
+        setRedoEnabled(UndoManager.getInstance().canRedo());
     }
 
     // [NEW] Public method to allow MainWindow to update the displayed chart type.
