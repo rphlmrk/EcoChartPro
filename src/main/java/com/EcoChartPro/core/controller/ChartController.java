@@ -3,7 +3,6 @@ package com.EcoChartPro.core.controller;
 import com.EcoChartPro.core.manager.CrosshairManager;
 import com.EcoChartPro.core.manager.DrawingManager;
 import com.EcoChartPro.core.model.ChartDataModel;
-import com.EcoChartPro.core.model.ChartDataModel.ChartMode;
 import com.EcoChartPro.core.tool.InfoTool;
 import com.EcoChartPro.core.trading.PaperTradingService;
 import com.EcoChartPro.model.drawing.DrawingObject;
@@ -61,7 +60,8 @@ public class ChartController {
      * This prevents duplicate processing if multiple charts of the same symbol are open.
      */
     private void handleLiveCandleUpdate(PropertyChangeEvent evt) {
-        if (model.getCurrentMode() == ChartMode.LIVE && view == mainWindow.getActiveChartPanel()) {
+        // [FIX] Replaced model.getCurrentMode() == ChartMode.LIVE with !model.isInReplayMode()
+        if (!model.isInReplayMode() && view == mainWindow.getActiveChartPanel()) {
             if (evt.getNewValue() instanceof com.EcoChartPro.model.KLine) {
                 PaperTradingService.getInstance().onBarUpdate((com.EcoChartPro.model.KLine) evt.getNewValue());
             }
@@ -74,7 +74,8 @@ public class ChartController {
      * It only acts if it's controlling the currently active chart panel.
      */
     private void handleLiveTickUpdate(PropertyChangeEvent evt) {
-        if (model.getCurrentMode() == ChartMode.LIVE && view == mainWindow.getActiveChartPanel()) {
+        // [FIX] Replaced model.getCurrentMode() == ChartMode.LIVE with !model.isInReplayMode()
+        if (!model.isInReplayMode() && view == mainWindow.getActiveChartPanel()) {
             if (evt.getNewValue() instanceof com.EcoChartPro.model.KLine) {
                 PaperTradingService.getInstance().updateLivePnl((com.EcoChartPro.model.KLine) evt.getNewValue());
             }
@@ -161,7 +162,8 @@ public class ChartController {
                 }
 
                 // Only pause if we are actually in a replay session that can be paused.
-                if (model.getCurrentMode() == ChartMode.REPLAY) ReplaySessionManager.getInstance().pause();
+                // [FIX] Replaced model.getCurrentMode() == ChartMode.REPLAY with model.isInReplayMode()
+                if (model.isInReplayMode()) ReplaySessionManager.getInstance().pause();
             }
 
             @Override

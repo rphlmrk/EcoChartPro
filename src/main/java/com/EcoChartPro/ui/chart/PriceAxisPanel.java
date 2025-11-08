@@ -72,8 +72,10 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
         PriceScaleDrawer drawer = new PriceScaleDrawer();
         add(drawer, BorderLayout.CENTER);
 
-        // [FIX] Replaced multiple invalid calls with a single valid listener registration.
-        // The propertyChange method already calls repaint() for all events.
+        // [FIX] Add dataModel as a listener for robustness.
+        if (this.dataModel != null) {
+            this.dataModel.addPropertyChangeListener(this);
+        }
         SettingsService.getInstance().addPropertyChangeListener(this);
         CrosshairManager.getInstance().addPropertyChangeListener("crosshairMoved", this);
         
@@ -105,6 +107,9 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
     }
 
     public void cleanup() {
+        if (this.dataModel != null) {
+            this.dataModel.removePropertyChangeListener(this);
+        }
         SettingsService.getInstance().removePropertyChangeListener(this);
         CrosshairManager.getInstance().removePropertyChangeListener("crosshairMoved", this);
         if (repaintTimer != null) {
@@ -122,7 +127,7 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
                 this.crosshairPoint = null;
             }
         }
-        // Repaint for any received event (from SettingsService or CrosshairManager)
+        // Repaint for any received event
         repaint();
     }
     
@@ -381,7 +386,8 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
             }
         
             String countdownText = null;
-            if (dataModel.getCurrentMode() == ChartDataModel.ChartMode.LIVE) {
+            // [FIX] Replaced obsolete `getCurrentMode()` with `isInReplayMode()`.
+            if (!dataModel.isInReplayMode()) {
                  long durationMillis = timeframe.duration().toMillis();
                  if (durationMillis <= 0) return null;
  

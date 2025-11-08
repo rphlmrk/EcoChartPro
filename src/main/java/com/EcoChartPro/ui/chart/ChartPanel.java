@@ -553,9 +553,9 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
 
         drawInfoPanel(g2d, rawVisibleKLines); // Info panel should always show raw data
 
-        // [MODIFIED] Draw the line in LIVE mode OR in REPLAY mode if viewing the live edge.
-        if (dataModel.getCurrentMode() == ChartDataModel.ChartMode.LIVE ||
-            (dataModel.isInReplayMode() && interactionManager.isViewingLiveEdge())) {
+        // [FIX] Draw the line in LIVE mode OR in REPLAY mode if viewing the live edge.
+        // This logic is restored from the old, working ChartPanel.
+        if (!dataModel.isInReplayMode() || (dataModel.isInReplayMode() && interactionManager.isViewingLiveEdge())) {
             
             KLine lastKline = dataModel.getCurrentReplayKLine();
             if (lastKline != null) {
@@ -566,7 +566,7 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
                 Color priceLineColor = isBullish ? settings.getBullColor() : settings.getBearColor();
 
                 int lastGlobalIndex;
-                if (dataModel.getCurrentMode() == ChartDataModel.ChartMode.LIVE) {
+                if (!dataModel.isInReplayMode()) {
                     lastGlobalIndex = dataModel.getTotalCandleCount();
                 } else { // REPLAY mode
                     lastGlobalIndex = dataModel.getTotalCandleCount() - 1;
@@ -580,7 +580,6 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
                 g2d.drawLine(startX, y, getWidth(), y);
 
                 // Heikin Ashi price line
-                // [MODIFIED] Use the panel's local chartType field
                 if (this.chartType == ChartType.HEIKIN_ASHI) {
                     List<KLine> haCandles = dataModel.getHeikinAshiCandles();
                     if (haCandles != null && !haCandles.isEmpty()) {

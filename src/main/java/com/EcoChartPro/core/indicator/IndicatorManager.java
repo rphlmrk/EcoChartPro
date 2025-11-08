@@ -134,7 +134,8 @@ public final class IndicatorManager {
         }
 
         dataModel.triggerIndicatorRecalculation();
-        dataModel.fireDataUpdated();
+        // [FIX] Removed redundant call. The caller (e.g., JavaEditorDialog) is responsible for this.
+        // dataModel.fireDataUpdated(); 
     }
 
     public List<Indicator> getIndicators() {

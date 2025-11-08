@@ -137,7 +137,6 @@ public class WorkspaceManager {
         
         for (ChartPanel p : chartPanels) p.setActive(p == activeChartPanel);
 
-        // [NEW] Notify the main window of the change so it can update shared UI like the toolbar.
         owner.onActivePanelChanged(oldPanel, activeChartPanel);
     }
 
@@ -145,28 +144,8 @@ public class WorkspaceManager {
         ChartDataModel model = new ChartDataModel();
         ChartInteractionManager interactionManager = new ChartInteractionManager(model);
         model.setInteractionManager(interactionManager);
-        
-        // --- Ensure new panels get the correct context ---
-        DataSourceManager.ChartDataSource sourceToLoad = owner.getCurrentSource();
-        // Fallback if the main source isn't set yet (e.g., during initial window creation)
-        if (sourceToLoad == null && !chartPanels.isEmpty() && chartPanels.get(0).getDataModel().getCurrentSymbol() != null) {
-            sourceToLoad = chartPanels.get(0).getDataModel().getCurrentSymbol();
-        }
 
-        // Determine if we are in replay or live mode
-        boolean isReplay = ReplaySessionManager.getInstance().getCurrentSource() != null;
-
-        if (isReplay) {
-            DataSourceManager.ChartDataSource replaySource = ReplaySessionManager.getInstance().getCurrentSource();
-            model.configureForReplay(tf, replaySource);
-            model.setDatabaseManager(owner.getActiveDbManager(), replaySource);
-            ReplaySessionManager.getInstance().addListener(model);
-            ReplaySessionManager.getInstance().addListener(interactionManager);
-        } else {
-            // Live mode: ensure DB manager is set, even if source is from API
-            model.setDatabaseManager(owner.getActiveDbManager(), sourceToLoad);
-        }
-
+        // --- Create UI components first ---
         ChartAxis chartAxis = new ChartAxis();
         PriceAxisPanel priceAxisPanel = new PriceAxisPanel(model, chartAxis, interactionManager);
         TimeAxisPanel timeAxisPanel = new TimeAxisPanel(model, chartAxis, interactionManager);
@@ -181,14 +160,33 @@ public class WorkspaceManager {
         };
 
         ChartPanel chartPanel = new ChartPanel(model, interactionManager, chartAxis, priceAxisPanel, timeAxisPanel, onToolStateChange, owner.getPropertiesToolbar());
+        
+        // --- Set the view on the model *before* configuring it ---
         model.setView(chartPanel);
+        
+        // --- Now configure the model, which creates the data provider ---
+        DataSourceManager.ChartDataSource sourceToLoad = owner.getCurrentSource();
+        if (sourceToLoad == null && !chartPanels.isEmpty() && chartPanels.get(0).getDataModel().getCurrentSymbol() != null) {
+            sourceToLoad = chartPanels.get(0).getDataModel().getCurrentSymbol();
+        }
+
+        boolean isReplay = ReplaySessionManager.getInstance().getCurrentSource() != null;
+
+        if (isReplay) {
+            DataSourceManager.ChartDataSource replaySource = ReplaySessionManager.getInstance().getCurrentSource();
+            model.configureForReplay(tf, replaySource);
+            model.setDatabaseManager(owner.getActiveDbManager(), replaySource);
+            ReplaySessionManager.getInstance().addListener(interactionManager);
+        } else {
+            model.setDatabaseManager(owner.getActiveDbManager(), sourceToLoad);
+        }
+
         new ChartController(model, interactionManager, chartPanel, owner);
         
         String selectedTfString = owner.getTopToolbarPanel().getTimeframeButton().getText();
         Timeframe targetTimeframe = (tf != null) ? tf : Timeframe.fromString(selectedTfString);
         if (targetTimeframe == null) targetTimeframe = Timeframe.H1;
 
-        // --- Load data immediately for the new panel ---
         if (isReplay) {
             model.setDisplayTimeframe(targetTimeframe, true);
         } else if (sourceToLoad != null) {

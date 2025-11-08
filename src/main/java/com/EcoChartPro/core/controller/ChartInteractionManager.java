@@ -1,7 +1,6 @@
 package com.EcoChartPro.core.controller;
 
 import com.EcoChartPro.core.model.ChartDataModel;
-import com.EcoChartPro.core.model.ChartDataModel.ChartMode;
 import com.EcoChartPro.model.KLine;
 
 import java.beans.PropertyChangeListener;
@@ -34,7 +33,8 @@ public class ChartInteractionManager implements ReplayStateListener {
         if (model == null) return;
 
         // In live mode, prevent panning into the future
-        if (model.getCurrentMode() == ChartMode.LIVE && barDelta < 0) {
+        // [FIX] Replaced model.getCurrentMode() == ChartMode.LIVE with !model.isInReplayMode()
+        if (!model.isInReplayMode() && barDelta < 0) {
             if (startIndex + barDelta + barsPerScreen > model.getTotalCandleCount() + (int)(barsPerScreen * rightMarginRatio)) {
                 return;
             }
@@ -227,8 +227,9 @@ public class ChartInteractionManager implements ReplayStateListener {
     public void onReplayTick(KLine newBar) {
         // This is now called for both Replay and Live ticks.
         // In Live mode, if we are viewing the latest candles, we want to auto-scroll.
-        boolean shouldJump = (model.getCurrentMode() == ChartMode.REPLAY && viewingLiveEdge) ||
-                             (model.getCurrentMode() == ChartMode.LIVE && viewingLiveEdge);
+        // [FIX] Replaced logic with new method calls
+        boolean shouldJump = (model.isInReplayMode() && viewingLiveEdge) ||
+                             (!model.isInReplayMode() && viewingLiveEdge);
         if (shouldJump) {
             jumpToLiveEdge();
         }
