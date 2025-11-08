@@ -1,6 +1,7 @@
 package com.EcoChartPro.ui.dialogs;
 
-import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.core.settings.SettingsService;
+import com.EcoChartPro.core.settings.config.DrawingConfig.DrawingToolTemplate;
 import com.EcoChartPro.model.Timeframe;
 import com.EcoChartPro.model.drawing.FibonacciRetracementObject.FibLevelProperties;
 import com.EcoChartPro.ui.components.CustomColorChooserPanel;
@@ -8,6 +9,7 @@ import com.EcoChartPro.ui.components.VisibilityPanel;
 
 import javax.swing.*;
 import java.awt.*;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.TreeMap;
@@ -137,15 +139,28 @@ public class FibonacciSettingsDialog extends JDialog {
     }
     
     private void onSaveAsDefault() {
-        Map<Double, FibLevelProperties> newLevels = gatherLevelsFromDialog();
-        if ("FibonacciRetracementObject".equals(toolClassName)) {
-            SettingsManager.getInstance().setFibRetracementDefaultLevels(newLevels);
-        } else if ("FibonacciExtensionObject".equals(toolClassName)) {
-            SettingsManager.getInstance().setFibExtensionDefaultLevels(newLevels);
-        }
-        SettingsManager.getInstance().setToolDefaultShowPriceLabel(toolClassName, showLabelCheckBox.isSelected());
+        SettingsService sm = SettingsService.getInstance();
+        DrawingToolTemplate activeTemplate = sm.getActiveTemplateForTool(toolClassName);
+        if (activeTemplate == null) return;
 
-        JOptionPane.showMessageDialog(this, "Default settings for " + getTitle() + " saved.", "Defaults Saved", JOptionPane.INFORMATION_MESSAGE);
+        Map<Double, FibLevelProperties> newLevels = gatherLevelsFromDialog();
+        boolean showLabel = showLabelCheckBox.isSelected();
+
+        Map<String, Object> newSpecificProps = new HashMap<>(activeTemplate.specificProps());
+        newSpecificProps.put("levels", newLevels);
+
+        DrawingToolTemplate updatedTemplate = new DrawingToolTemplate(
+            activeTemplate.id(),
+            activeTemplate.name(),
+            activeTemplate.color(), // color is not edited here
+            activeTemplate.stroke(), // stroke is not edited here
+            showLabel, // update this property
+            newSpecificProps // update the specific props
+        );
+
+        sm.updateTemplate(toolClassName, updatedTemplate);
+
+        JOptionPane.showMessageDialog(this, "Active template '" + activeTemplate.name() + "' updated for " + getTitle().replace(" Settings", "") + ".", "Defaults Saved", JOptionPane.INFORMATION_MESSAGE);
     }
     
     private Map<Double, FibLevelProperties> gatherLevelsFromDialog() {

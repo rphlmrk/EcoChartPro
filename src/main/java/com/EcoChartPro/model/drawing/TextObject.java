@@ -3,7 +3,7 @@ package com.EcoChartPro.model.drawing;
 import com.EcoChartPro.core.manager.DrawingManager;
 import com.EcoChartPro.core.manager.PriceRange;
 import com.EcoChartPro.core.manager.TimeRange;
-import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.core.settings.SettingsService;
 import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.Timeframe;
 import com.EcoChartPro.ui.chart.axis.ChartAxis;
@@ -140,7 +140,7 @@ public record TextObject(
         Graphics2D g2d = (Graphics2D) new java.awt.image.BufferedImage(1, 1, java.awt.image.BufferedImage.TYPE_INT_ARGB).getGraphics();
         Rectangle bounds = getScreenBounds(g2d, axis, klines, tf);
         g2d.dispose();
-        bounds.grow(SettingsManager.getInstance().getDrawingHitThreshold(), SettingsManager.getInstance().getDrawingHitThreshold());
+        bounds.grow(SettingsService.getInstance().getDrawingHitThreshold(), SettingsService.getInstance().getDrawingHitThreshold());
         return bounds.contains(screenPoint);
     }
     
@@ -213,7 +213,7 @@ public record TextObject(
     }
 
     private void drawHandle(Graphics2D g, Point position) {
-        int handleSize = SettingsManager.getInstance().getDrawingHandleSize();
+        int handleSize = SettingsService.getInstance().getDrawingHandleSize();
         int x = position.x - handleSize / 2;
         int y = position.y - handleSize / 2;
         g.setStroke(new BasicStroke(1.0f));

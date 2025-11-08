@@ -2,7 +2,7 @@ package com.EcoChartPro.ui.dialogs;
 
 import com.EcoChartPro.core.settings.ChecklistManager;
 import com.EcoChartPro.core.settings.MistakeManager;
-import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.core.settings.SettingsService;
 import com.EcoChartPro.ui.dialogs.settings.*;
 
 import javax.swing.*;
@@ -21,19 +21,19 @@ public class SettingsDialog extends JDialog {
     public SettingsDialog(Frame owner) {
         super(owner, "Settings", true);
         
-        SettingsManager settingsManager = SettingsManager.getInstance();
+        SettingsService settingsService = SettingsService.getInstance();
         MistakeManager mistakeManager = MistakeManager.getInstance();
         
         tabbedPane = new JTabbedPane();
 
         // Create and add each settings panel
-        addPanel("General", new GeneralSettingsPanel(settingsManager));
-        addPanel("Chart", new ChartSettingsPanel(settingsManager));
-        addPanel("Drawing", new DrawingSettingsPanel(settingsManager));
-        addPanel("Trading & Sessions", new TradingSettingsPanel(settingsManager));
-        addPanel("Discipline Coach", new DisciplineSettingsPanel(settingsManager));
-        addPanel("Volume Profile", new VolumeProfileSettingsPanel(settingsManager));
-        addPanel("Drawing Templates", new TemplatesSettingsPanel(settingsManager));
+        addPanel("General", new GeneralSettingsPanel(settingsService));
+        addPanel("Chart", new ChartSettingsPanel(settingsService));
+        addPanel("Drawing", new DrawingSettingsPanel(settingsService));
+        addPanel("Trading & Sessions", new TradingSettingsPanel(settingsService));
+        addPanel("Discipline Coach", new DisciplineSettingsPanel(settingsService));
+        addPanel("Volume Profile", new VolumeProfileSettingsPanel(settingsService));
+        addPanel("Drawing Templates", new TemplatesSettingsPanel(settingsService));
         addPanel("Mistake Library", new MistakesSettingsPanel(mistakeManager));
         // Removed Checklist Panel as it's managed in the sidebar
 

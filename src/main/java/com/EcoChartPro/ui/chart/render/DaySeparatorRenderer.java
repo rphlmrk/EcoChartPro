@@ -1,6 +1,6 @@
 package com.EcoChartPro.ui.chart.render;
 
-import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.core.settings.SettingsService;
 import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.Timeframe;
 import com.EcoChartPro.ui.chart.axis.ChartAxis;
@@ -47,7 +47,7 @@ public class DaySeparatorRenderer {
                 int x = axis.timeToX(firstCandle.timestamp(), visibleKLines, chartTimeframe);
                 if (x != -1) {
                     // [MODIFIED] Use the specific day separator color from settings
-                    g.setColor(SettingsManager.getInstance().getDaySeparatorColor());
+                    g.setColor(SettingsService.getInstance().getDaySeparatorColor());
                     g.setStroke(new java.awt.BasicStroke(1.0f));
                     g.drawLine(x, 0, x, g.getClipBounds().height);
                 }
@@ -107,8 +107,8 @@ public class DaySeparatorRenderer {
     }
 
     private int getPeriodId(Instant timestamp, Granularity granularity, Timeframe timeframe) {
-        ZoneId displayZone = SettingsManager.getInstance().getDisplayZoneId();
-        LocalTime dayStartTime = SettingsManager.getInstance().getDaySeparatorStartTime();
+        ZoneId displayZone = SettingsService.getInstance().getDisplayZoneId();
+        LocalTime dayStartTime = SettingsService.getInstance().getDaySeparatorStartTime();
 
         ZonedDateTime zdt = timestamp.atZone(displayZone);
         if (zdt.toLocalTime().isBefore(dayStartTime)) {
@@ -126,7 +126,7 @@ public class DaySeparatorRenderer {
     }
 
     private String getPeriodLabel(Instant timestamp, Granularity granularity, Timeframe timeframe) {
-        ZoneId displayZone = SettingsManager.getInstance().getDisplayZoneId();
+        ZoneId displayZone = SettingsService.getInstance().getDisplayZoneId();
         ZonedDateTime zdt = timestamp.atZone(displayZone);
         Granularity resolvedGranularity = resolveGranularity(granularity, timeframe);
 

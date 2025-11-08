@@ -1,7 +1,7 @@
 package com.EcoChartPro.ui.dialogs.settings;
 
-import com.EcoChartPro.core.settings.SettingsManager;
-import com.EcoChartPro.core.settings.SettingsManager.DrawingToolTemplate;
+import com.EcoChartPro.core.settings.SettingsService;
+import com.EcoChartPro.core.settings.config.DrawingConfig.DrawingToolTemplate;
 import com.EcoChartPro.ui.components.CustomColorChooserPanel;
 
 import javax.swing.*;
@@ -13,7 +13,7 @@ import java.util.function.Consumer;
 
 public class TemplatesSettingsPanel extends JPanel {
 
-    private final SettingsManager sm;
+    private final SettingsService sm;
     private final JTabbedPane toolTabs;
 
     private static final String[] TEMPLATE_TOOLS = {
@@ -22,8 +22,8 @@ public class TemplatesSettingsPanel extends JPanel {
         "FibonacciExtensionObject", "MeasureToolObject", "ProtectedLevelPatternObject", "TextObject"
     };
 
-    public TemplatesSettingsPanel(SettingsManager settingsManager) {
-        this.sm = settingsManager;
+    public TemplatesSettingsPanel(SettingsService settingsService) {
+        this.sm = settingsService;
         this.toolTabs = new JTabbedPane();
         setLayout(new BorderLayout());
         

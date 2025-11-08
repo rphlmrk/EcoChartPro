@@ -1,6 +1,6 @@
 package com.EcoChartPro.ui.toolbar.components;
 
-import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.core.settings.SettingsService;
 import com.EcoChartPro.model.chart.ChartType;
 
 import javax.swing.*;
@@ -55,7 +55,7 @@ public class ChartTypeSelectionPanel extends JPanel implements PropertyChangeLis
         gbc.gridwidth = 2;
         gbc.insets = new Insets(2, 5, 2, 5); // Add some horizontal padding for checkboxes
 
-        SettingsManager sm = SettingsManager.getInstance();
+        SettingsService sm = SettingsService.getInstance();
 
         // Add VRVP Checkbox
         gbc.gridy++;
@@ -82,7 +82,7 @@ public class ChartTypeSelectionPanel extends JPanel implements PropertyChangeLis
         // This ensures the checkboxes update if the setting is changed elsewhere
         if ("volumeProfileVisibilityChanged".equals(evt.getPropertyName())) {
             SwingUtilities.invokeLater(() -> {
-                SettingsManager sm = SettingsManager.getInstance();
+                SettingsService sm = SettingsService.getInstance();
                 vrvpCheckBox.setSelected(sm.isVrvpVisible());
                 svpCheckBox.setSelected(sm.isSvpVisible());
             });

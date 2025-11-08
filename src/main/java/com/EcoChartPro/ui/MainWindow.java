@@ -12,7 +12,8 @@ import com.EcoChartPro.core.manager.DrawingManager;
 import com.EcoChartPro.core.manager.UndoManager;
 import com.EcoChartPro.core.model.ChartDataModel;
 import com.EcoChartPro.core.service.InternetConnectivityService;
-import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.core.settings.SettingsService;
+import com.EcoChartPro.core.settings.config.DrawingConfig;
 import com.EcoChartPro.core.state.ReplaySessionState;
 import com.EcoChartPro.core.trading.PaperTradingService;
 import com.EcoChartPro.data.LiveDataManager;
@@ -196,7 +197,7 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
         mainContainerPanel.setBounds(0, 0, rootPanel.getWidth(), rootPanel.getHeight());
 
         if (drawingToolbar.isVisible()) {
-            drawingToolbar.updatePosition(SettingsManager.getInstance().getDrawingToolbarPosition() == SettingsManager.ToolbarPosition.LEFT
+            drawingToolbar.updatePosition(SettingsService.getInstance().getDrawingToolbarPosition() == DrawingConfig.ToolbarPosition.LEFT
                     ? FloatingDrawingToolbar.DockSide.LEFT
                     : FloatingDrawingToolbar.DockSide.RIGHT);
         }
@@ -229,7 +230,7 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
     }
 
     private void addPropertyChangeListeners() {
-        SettingsManager.getInstance().addPropertyChangeListener(this);
+        SettingsService.getInstance().addPropertyChangeListener(this);
         DrawingManager.getInstance().addPropertyChangeListener("selectedDrawingChanged", this);
         DrawingManager.getInstance().addPropertyChangeListener("activeSymbolChanged", this);
         UndoManager.getInstance().addPropertyChangeListener(this);
@@ -251,7 +252,7 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
         if (replayController != null) {
             ReplaySessionManager.getInstance().removeListener(replayController);
         }
-        SettingsManager.getInstance().removePropertyChangeListener(this);
+        SettingsService.getInstance().removePropertyChangeListener(this);
         DrawingManager.getInstance().removePropertyChangeListener(this);
         UndoManager.getInstance().removePropertyChangeListener(this);
         LiveSessionTrackerService.getInstance().removePropertyChangeListener(this);
@@ -280,7 +281,7 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
                     break;
                 case "drawingToolbarPositionChanged":
                     FloatingDrawingToolbar.DockSide newSide = 
-                        (SettingsManager.ToolbarPosition) evt.getNewValue() == SettingsManager.ToolbarPosition.LEFT
+                        (DrawingConfig.ToolbarPosition) evt.getNewValue() == DrawingConfig.ToolbarPosition.LEFT
                             ? FloatingDrawingToolbar.DockSide.LEFT
                             : FloatingDrawingToolbar.DockSide.RIGHT;
                     drawingToolbar.forceUpdatePosition(newSide);
@@ -297,7 +298,7 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
                     }
                     break;
                 case "sessionStreakUpdated":
-                    if (SettingsManager.getInstance().isWinStreakNudgeEnabled() && evt.getNewValue() instanceof Integer count) {
+                    if (SettingsService.getInstance().isWinStreakNudgeEnabled() && evt.getNewValue() instanceof Integer count) {
                         if (count >= 3) {
                             onFireWidget.showStreak(count);
                             repositionOverlayWidgets();
@@ -307,7 +308,7 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
                     }
                     break;
                 case "sessionLossStreakUpdated":
-                     if (SettingsManager.getInstance().isLossStreakNudgeEnabled() && evt.getNewValue() instanceof Integer count) {
+                     if (SettingsService.getInstance().isLossStreakNudgeEnabled() && evt.getNewValue() instanceof Integer count) {
                         if (count >= 3) {
                             stopTradingNudgeWidget.showNudge(count);
                         } else {
@@ -640,7 +641,7 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
         if ("sidebarToggled".equals(evt.getPropertyName())) {
             SwingUtilities.invokeLater(() -> {
                 if (drawingToolbar.isVisible()) {
-                    drawingToolbar.updatePosition(SettingsManager.getInstance().getDrawingToolbarPosition() == SettingsManager.ToolbarPosition.LEFT
+                    drawingToolbar.updatePosition(SettingsService.getInstance().getDrawingToolbarPosition() == DrawingConfig.ToolbarPosition.LEFT
                             ? FloatingDrawingToolbar.DockSide.LEFT
                             : FloatingDrawingToolbar.DockSide.RIGHT);
                 }

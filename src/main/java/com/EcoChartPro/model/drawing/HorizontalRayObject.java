@@ -3,7 +3,7 @@ package com.EcoChartPro.model.drawing;
 import com.EcoChartPro.core.manager.DrawingManager;
 import com.EcoChartPro.core.manager.PriceRange;
 import com.EcoChartPro.core.manager.TimeRange;
-import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.core.settings.SettingsService;
 import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.Timeframe;
 import com.EcoChartPro.ui.chart.axis.ChartAxis;
@@ -82,7 +82,7 @@ public record HorizontalRayObject(
         if (!axis.isConfigured()) return false;
         Point p1 = new Point(axis.timeToX(anchor.timestamp(), klines, tf), axis.priceToY(anchor.price()));
         // Check if point is on the horizontal line and to the right of the anchor
-        boolean yMatch = Math.abs(screenPoint.y - p1.y) < SettingsManager.getInstance().getDrawingHitThreshold();
+        boolean yMatch = Math.abs(screenPoint.y - p1.y) < SettingsService.getInstance().getDrawingHitThreshold();
         boolean xMatch = screenPoint.x >= p1.x;
         return yMatch && xMatch;
     }
@@ -130,7 +130,7 @@ public record HorizontalRayObject(
     }
 
     private void drawHandle(Graphics2D g, Point position) {
-        int handleSize = SettingsManager.getInstance().getDrawingHandleSize();
+        int handleSize = SettingsService.getInstance().getDrawingHandleSize();
         int x = position.x - handleSize / 2;
         int y = position.y - handleSize / 2;
         g.setStroke(new BasicStroke(1.0f));

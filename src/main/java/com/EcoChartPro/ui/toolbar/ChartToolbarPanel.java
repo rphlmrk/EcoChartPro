@@ -2,7 +2,7 @@ package com.EcoChartPro.ui.toolbar;
 
 import com.EcoChartPro.core.manager.CrosshairManager;
 import com.EcoChartPro.core.manager.UndoManager;
-import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.core.settings.SettingsService;
 import com.EcoChartPro.model.Timeframe;
 import com.EcoChartPro.model.chart.ChartType;
 import com.EcoChartPro.ui.MainWindow;
@@ -84,7 +84,7 @@ public class ChartToolbarPanel extends JPanel {
 
         chartTypeButton = new JButton();
         styleToolbarButton(chartTypeButton);
-        updateChartTypeButton(SettingsManager.getInstance().getCurrentChartType()); // Set initial icon
+        updateChartTypeButton(SettingsService.getInstance().getCurrentChartType()); // Set initial icon
         leftPanel.add(chartTypeButton);
 
         layoutButton = new JButton(UITheme.getIcon(UITheme.Icons.LAYOUT_GRID, 18, 18));

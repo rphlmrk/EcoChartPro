@@ -1,7 +1,7 @@
 package com.EcoChartPro.ui.chart.render;
 
 import com.EcoChartPro.core.model.ChartDataModel;
-import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.core.settings.SettingsService;
 import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.ui.chart.axis.ChartAxis;
 
@@ -13,7 +13,7 @@ public class HollowCandleRenderer implements AbstractChartTypeRenderer {
     public void draw(Graphics2D g2d, ChartAxis axis, List<KLine> klines, int viewStartIndex, ChartDataModel dataModel) {
         if (!axis.isConfigured() || klines == null) return;
 
-        SettingsManager settings = SettingsManager.getInstance();
+        SettingsService settings = SettingsService.getInstance();
         double barWidth = axis.getBarWidth();
         int candleBodyWidth = Math.max(1, (int) (barWidth * 0.8));
 

@@ -1,6 +1,6 @@
 package com.EcoChartPro.ui.chart.render;
 
-import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.core.settings.SettingsService;
 import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.Timeframe;
 import com.EcoChartPro.ui.chart.axis.ChartAxis;
@@ -61,7 +61,7 @@ public class AxisRenderer {
         long firstVisibleEpochSecond = firstVisibleTime.getEpochSecond();
         long startEpochSecond = (long) (Math.ceil((double) firstVisibleEpochSecond / intervalSeconds) * intervalSeconds);
 
-        g2d.setColor(SettingsManager.getInstance().getGridColor());
+        g2d.setColor(SettingsService.getInstance().getGridColor());
         Instant currentLineTime = Instant.ofEpochSecond(startEpochSecond);
 
         // Loop from the first line time until we are past the last visible time
@@ -91,7 +91,7 @@ public class AxisRenderer {
         // Calculate the first grid line value on or above the minimum visible price
         BigDecimal startPrice = minPrice.divide(niceStep, 0, RoundingMode.CEILING).multiply(niceStep);
         
-        g2d.setColor(SettingsManager.getInstance().getGridColor());
+        g2d.setColor(SettingsService.getInstance().getGridColor());
         int endX = g2d.getClipBounds().width;
         BigDecimal currentPrice = startPrice;
 

@@ -3,7 +3,7 @@ package com.EcoChartPro.model.drawing;
 import com.EcoChartPro.core.manager.DrawingManager;
 import com.EcoChartPro.core.manager.PriceRange;
 import com.EcoChartPro.core.manager.TimeRange;
-import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.core.settings.SettingsService;
 import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.Timeframe;
 import com.EcoChartPro.ui.chart.axis.ChartAxis;
@@ -99,7 +99,7 @@ public record Trendline(
     public boolean isHit(Point screenPoint, ChartAxis axis, List<KLine> klines, Timeframe tf) {
         Point p1 = new Point(axis.timeToX(this.start.timestamp(), klines, tf), axis.priceToY(this.start.price()));
         Point p2 = new Point(axis.timeToX(this.end.timestamp(), klines, tf), axis.priceToY(this.end.price()));
-        return distanceToLineSegment(screenPoint.x, screenPoint.y, p1.x, p1.y, p2.x, p2.y) < SettingsManager.getInstance().getDrawingHitThreshold();
+        return distanceToLineSegment(screenPoint.x, screenPoint.y, p1.x, p1.y, p2.x, p2.y) < SettingsService.getInstance().getDrawingHitThreshold();
     }
     
     @Override
@@ -160,7 +160,7 @@ public record Trendline(
     }
 
     private void drawHandle(Graphics2D g, Point position) {
-        int handleSize = SettingsManager.getInstance().getDrawingHandleSize();
+        int handleSize = SettingsService.getInstance().getDrawingHandleSize();
         int x = position.x - handleSize / 2;
         int y = position.y - handleSize / 2;
         g.setStroke(new BasicStroke(1.0f));

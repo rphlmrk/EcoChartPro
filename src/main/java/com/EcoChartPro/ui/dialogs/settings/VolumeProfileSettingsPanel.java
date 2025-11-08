@@ -1,6 +1,6 @@
 package com.EcoChartPro.ui.dialogs.settings;
 
-import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.core.settings.SettingsService;
 import com.EcoChartPro.ui.components.CustomColorChooserPanel;
 
 import javax.swing.*;
@@ -8,7 +8,7 @@ import java.awt.*;
 import java.util.function.Consumer;
 
 public class VolumeProfileSettingsPanel extends JPanel {
-    private final SettingsManager sm;
+    private final SettingsService sm;
 
     private final JCheckBox vrvpVisibleCheckbox;
     private final JCheckBox svpVisibleCheckbox;
@@ -17,8 +17,8 @@ public class VolumeProfileSettingsPanel extends JPanel {
     private final JButton pocColorButton;
     private final JSpinner rowHeightSpinner;
 
-    public VolumeProfileSettingsPanel(SettingsManager settingsManager) {
-        this.sm = settingsManager;
+    public VolumeProfileSettingsPanel(SettingsService settingsService) {
+        this.sm = settingsService;
         setLayout(new GridBagLayout());
         setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 

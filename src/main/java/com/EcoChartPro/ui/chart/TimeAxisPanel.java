@@ -3,7 +3,8 @@ package com.EcoChartPro.ui.chart;
 import com.EcoChartPro.core.controller.ChartInteractionManager;
 import com.EcoChartPro.core.manager.CrosshairManager;
 import com.EcoChartPro.core.model.ChartDataModel;
-import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.core.settings.SettingsService;
+import com.EcoChartPro.core.settings.config.TradingConfig;
 import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.Timeframe;
 import com.EcoChartPro.model.drawing.DrawingObjectPoint;
@@ -61,7 +62,7 @@ public class TimeAxisPanel extends JPanel implements PropertyChangeListener {
         add(drawer, BorderLayout.CENTER);
         setupControls();
 
-        SettingsManager sm = SettingsManager.getInstance();
+        SettingsService sm = SettingsService.getInstance();
         sm.addPropertyChangeListener(this); 
         CrosshairManager.getInstance().addPropertyChangeListener("crosshairMoved", this);
         if (this.interactionManager != null) {
@@ -153,7 +154,7 @@ public class TimeAxisPanel extends JPanel implements PropertyChangeListener {
     }
 
     public void cleanup() {
-        SettingsManager.getInstance().removePropertyChangeListener(this);
+        SettingsService.getInstance().removePropertyChangeListener(this);
         CrosshairManager.getInstance().removePropertyChangeListener("crosshairMoved", this);
         if (interactionManager != null) {
             interactionManager.removePropertyChangeListener("axisConfigChanged", this);
@@ -248,7 +249,7 @@ public class TimeAxisPanel extends JPanel implements PropertyChangeListener {
             List<KLine> klines = dataModel.getVisibleKLines();
             if (klines.isEmpty()) return;
 
-            SettingsManager settings = SettingsManager.getInstance();
+            SettingsService settings = SettingsService.getInstance();
             ZoneId displayZone = settings.getDisplayZoneId();
             Timeframe tf = dataModel.getCurrentDisplayTimeframe();
 
@@ -262,7 +263,7 @@ public class TimeAxisPanel extends JPanel implements PropertyChangeListener {
                     for (int i = 0; i < klines.size(); i++) {
                         KLine kline = klines.get(i);
                         LocalTime barTime = kline.timestamp().atZone(displayZone).toLocalTime();
-                        for (SettingsManager.TradingSession session : SettingsManager.TradingSession.values()) {
+                        for (TradingConfig.TradingSession session : TradingConfig.TradingSession.values()) {
                             if (settings.getSessionEnabled().get(session)) {
                                 LocalTime start = settings.getSessionStartTimes().get(session);
                                 LocalTime end = settings.getSessionEndTimes().get(session);

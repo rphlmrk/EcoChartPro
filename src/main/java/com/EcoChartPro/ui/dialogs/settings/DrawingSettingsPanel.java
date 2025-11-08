@@ -1,20 +1,21 @@
 package com.EcoChartPro.ui.dialogs.settings;
 
-import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.core.settings.SettingsService;
+import com.EcoChartPro.core.settings.config.DrawingConfig;
 
 import javax.swing.*;
 import java.awt.*;
 
 public class DrawingSettingsPanel extends JPanel {
-    private final SettingsManager sm;
+    private final SettingsService sm;
 
     private final JSpinner snapRadiusSpinner;
     private final JSpinner hitThresholdSpinner;
     private final JSpinner handleSizeSpinner;
-    private final JComboBox<SettingsManager.ToolbarPosition> toolbarPositionComboBox;
+    private final JComboBox<DrawingConfig.ToolbarPosition> toolbarPositionComboBox;
 
-    public DrawingSettingsPanel(SettingsManager settingsManager) {
-        this.sm = settingsManager;
+    public DrawingSettingsPanel(SettingsService settingsService) {
+        this.sm = settingsService;
         setLayout(new GridBagLayout());
         setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
@@ -22,7 +23,7 @@ public class DrawingSettingsPanel extends JPanel {
         snapRadiusSpinner = new JSpinner(new SpinnerNumberModel(sm.getSnapRadius(), 0, 50, 1));
         hitThresholdSpinner = new JSpinner(new SpinnerNumberModel(sm.getDrawingHitThreshold(), 1, 30, 1));
         handleSizeSpinner = new JSpinner(new SpinnerNumberModel(sm.getDrawingHandleSize(), 4, 20, 1));
-        toolbarPositionComboBox = new JComboBox<>(SettingsManager.ToolbarPosition.values());
+        toolbarPositionComboBox = new JComboBox<>(DrawingConfig.ToolbarPosition.values());
         toolbarPositionComboBox.setSelectedItem(sm.getDrawingToolbarPosition());
 
         initUI();
@@ -56,7 +57,7 @@ public class DrawingSettingsPanel extends JPanel {
         sm.setSnapRadius((Integer) snapRadiusSpinner.getValue());
         sm.setDrawingHitThreshold((Integer) hitThresholdSpinner.getValue());
         sm.setDrawingHandleSize((Integer) handleSizeSpinner.getValue());
-        sm.setDrawingToolbarPosition((SettingsManager.ToolbarPosition) toolbarPositionComboBox.getSelectedItem());
+        sm.setDrawingToolbarPosition((DrawingConfig.ToolbarPosition) toolbarPositionComboBox.getSelectedItem());
     }
 
     private Component createSeparator(String text) {

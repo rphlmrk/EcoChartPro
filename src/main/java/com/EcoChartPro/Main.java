@@ -4,7 +4,7 @@ import com.EcoChartPro.core.controller.LiveSessionTrackerService;
 import com.EcoChartPro.core.gamification.AchievementService;
 import com.EcoChartPro.core.plugin.PluginManager;
 import com.EcoChartPro.core.service.InternetConnectivityService;
-import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.core.settings.SettingsService;
 import com.EcoChartPro.core.theme.ThemeManager;
 import com.EcoChartPro.data.LiveDataManager;
 import com.EcoChartPro.ui.dashboard.DashboardFrame;
@@ -57,7 +57,7 @@ public class Main {
             @Override
             protected Void doInBackground() throws Exception {
                 logger.info("Performing startup maintenance: Pruning old trade candle data...");
-                int retentionMonths = SettingsManager.getInstance().getTradeCandleRetentionMonths();
+                int retentionMonths = SettingsService.getInstance().getTradeCandleRetentionMonths();
                 if (retentionMonths == -1) {
                     logger.info("Trade candle retention is set to 'Forever'. Skipping pruning.");
                     return null;
@@ -91,7 +91,7 @@ public class Main {
         }));
 
         // Load settings to get the UI scale factor BEFORE initializing any UI.
-        float uiScale = SettingsManager.getInstance().getUiScale();
+        float uiScale = SettingsService.getInstance().getUiScale();
         System.setProperty("flatlaf.uiScale", String.valueOf(uiScale));
         logger.info("UI scaling set to: {}%", (int)(uiScale * 100));
 
@@ -105,7 +105,7 @@ public class Main {
         JFrame.setDefaultLookAndFeelDecorated(true);
         JDialog.setDefaultLookAndFeelDecorated(true);
 
-        ThemeManager.applyTheme(SettingsManager.getInstance().getCurrentTheme());
+        ThemeManager.applyTheme(SettingsService.getInstance().getCurrentTheme());
 
         PluginManager.getInstance();
 

@@ -1,6 +1,7 @@
 package com.EcoChartPro.core.manager;
 
-import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.core.settings.SettingsService;
+import com.EcoChartPro.core.settings.config.ChartConfig;
 import com.EcoChartPro.model.drawing.DrawingObjectPoint;
 
 import java.beans.PropertyChangeEvent;
@@ -30,8 +31,8 @@ public final class CrosshairManager implements PropertyChangeListener {
     private int frameDelayMs;
 
     private CrosshairManager() {
-        this.frameDelayMs = SettingsManager.getInstance().getCrosshairFps().getDelayMs();
-        SettingsManager.getInstance().addPropertyChangeListener("crosshairFpsChanged", this);
+        this.frameDelayMs = SettingsService.getInstance().getCrosshairFps().getDelayMs();
+        SettingsService.getInstance().addPropertyChangeListener("crosshairFpsChanged", this);
     }
 
     public static CrosshairManager getInstance() {
@@ -48,7 +49,7 @@ public final class CrosshairManager implements PropertyChangeListener {
     @Override
     public void propertyChange(PropertyChangeEvent evt) {
         if ("crosshairFpsChanged".equals(evt.getPropertyName())) {
-            SettingsManager.CrosshairFPS newFps = (SettingsManager.CrosshairFPS) evt.getNewValue();
+            ChartConfig.CrosshairFPS newFps = (ChartConfig.CrosshairFPS) evt.getNewValue();
             if (newFps != null) {
                 this.frameDelayMs = newFps.getDelayMs();
             }

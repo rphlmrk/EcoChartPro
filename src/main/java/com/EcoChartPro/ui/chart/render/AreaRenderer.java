@@ -1,7 +1,7 @@
 package com.EcoChartPro.ui.chart.render;
 
 import com.EcoChartPro.core.model.ChartDataModel;
-import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.core.settings.SettingsService;
 import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.ui.chart.axis.ChartAxis;
 
@@ -16,7 +16,7 @@ public class AreaRenderer implements AbstractChartTypeRenderer {
     public void draw(Graphics2D g2d, ChartAxis axis, List<KLine> klines, int viewStartIndex, ChartDataModel dataModel) {
         if (!axis.isConfigured() || klines == null || klines.isEmpty()) return;
 
-        SettingsManager settings = SettingsManager.getInstance();
+        SettingsService settings = SettingsService.getInstance();
         Color lineColor = settings.getBullColor();
         Color areaColor = new Color(lineColor.getRed(), lineColor.getGreen(), lineColor.getBlue(), 50); // 20% opacity
 

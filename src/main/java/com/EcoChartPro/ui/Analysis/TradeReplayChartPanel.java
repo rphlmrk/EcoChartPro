@@ -1,6 +1,6 @@
 package com.EcoChartPro.ui.Analysis;
 
-import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.core.settings.SettingsService;
 import com.EcoChartPro.data.DataResampler; 
 import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.Timeframe;
@@ -84,7 +84,7 @@ public class TradeReplayChartPanel extends JPanel {
             updatePlayButtonIcon();
         });
 
-        SettingsManager.getInstance().addPropertyChangeListener("tradeReplayTimeframesChanged", evt -> rebuildTimeframeButtons());
+        SettingsService.getInstance().addPropertyChangeListener("tradeReplayTimeframesChanged", evt -> rebuildTimeframeButtons());
         rebuildTimeframeButtons();
     }
 
@@ -92,7 +92,7 @@ public class TradeReplayChartPanel extends JPanel {
         timeframePanel.removeAll();
         timeframeGroup = new ButtonGroup();
 
-        List<String> availableTfs = SettingsManager.getInstance().getTradeReplayAvailableTimeframes();
+        List<String> availableTfs = SettingsService.getInstance().getTradeReplayAvailableTimeframes();
         if (availableTfs.isEmpty()) availableTfs.add("1m");
 
         for (String tfString : availableTfs) {

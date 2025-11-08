@@ -1,7 +1,7 @@
 package com.EcoChartPro.ui.chart.render;
 
 import com.EcoChartPro.core.model.ChartDataModel;
-import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.core.settings.SettingsService;
 import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.chart.FootprintBar;
 import com.EcoChartPro.ui.chart.axis.ChartAxis;
@@ -34,7 +34,7 @@ public class FootprintRenderer implements AbstractChartTypeRenderer {
     public void draw(Graphics2D g2d, ChartAxis axis, List<KLine> visibleKlines, int viewStartIndex, ChartDataModel dataModel) {
         if (!axis.isConfigured() || visibleKlines.isEmpty()) return;
 
-        SettingsManager settings = SettingsManager.getInstance();
+        SettingsService settings = SettingsService.getInstance();
         g2d.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
 
         Map<java.time.Instant, FootprintBar> footprintData = dataModel.getFootprintData();
@@ -175,7 +175,7 @@ public class FootprintRenderer implements AbstractChartTypeRenderer {
     }
 
     private void drawFallbackCandle(Graphics2D g2d, ChartAxis axis, KLine kline, int slotIndex) {
-        SettingsManager settings = SettingsManager.getInstance();
+        SettingsService settings = SettingsService.getInstance();
         int candleBodyWidth = Math.max(1, (int) (axis.getBarWidth() * 0.8));
         int xCenter = axis.slotToX(slotIndex);
 

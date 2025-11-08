@@ -3,7 +3,7 @@ package com.EcoChartPro.core.controller;
 import com.EcoChartPro.core.manager.DrawingManager;
 import com.EcoChartPro.core.state.ReplaySessionState;
 import com.EcoChartPro.core.state.SymbolSessionState;
-import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.core.settings.SettingsService;
 import com.EcoChartPro.core.trading.PaperTradingService;
 import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.Symbol;
@@ -276,7 +276,7 @@ public class ReplaySessionManager {
         notifyTick();
 
         barsSinceLastAutoSave++;
-        if (barsSinceLastAutoSave >= SettingsManager.getInstance().getAutoSaveInterval()) {
+        if (barsSinceLastAutoSave >= SettingsService.getInstance().getAutoSaveInterval()) {
             performAutoSave();
             barsSinceLastAutoSave = 0;
         }
@@ -405,7 +405,7 @@ public class ReplaySessionManager {
         KLine currentBar = getCurrentBar();
         if (currentBar == null || isReplayFinished()) return;
         if (isPlaying) pause();
-        LocalTime fastForwardTime = SettingsManager.getInstance().getFastForwardTime();
+        LocalTime fastForwardTime = SettingsService.getInstance().getFastForwardTime();
         ZonedDateTime nextDayTarget = currentBar.timestamp().atZone(ZoneOffset.UTC).toLocalDate().plusDays(1).atTime(fastForwardTime).atZone(ZoneOffset.UTC);
         int nextDayIndex = findClosestM1IndexForTimestamp(nextDayTarget.toInstant());
 

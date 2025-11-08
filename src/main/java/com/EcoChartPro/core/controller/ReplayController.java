@@ -2,7 +2,8 @@ package com.EcoChartPro.core.controller;
 
 import com.EcoChartPro.core.gamification.GamificationService;
 import com.EcoChartPro.core.service.PnlCalculationService;
-import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.core.settings.SettingsService;
+import com.EcoChartPro.core.settings.config.TradingConfig;
 import com.EcoChartPro.core.trading.PaperTradingService;
 import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.Trade;
@@ -41,12 +42,12 @@ public class ReplayController implements ReplayStateListener, PropertyChangeList
     private int optimalTradeCount;
     private List<Integer> peakPerformanceHours;
     private boolean hasSentOvertrainingNudgeToday = false;
-    private final Set<SettingsManager.TradingSession> activeSessions = new HashSet<>();
+    private final Set<TradingConfig.TradingSession> activeSessions = new HashSet<>();
     private boolean hasSentFatigueNudgeToday = false;
 
     public ReplayController() {
         ReplaySessionManager.getInstance().addListener(this);
-        SettingsManager.getInstance().addPropertyChangeListener(this);
+        SettingsService.getInstance().addPropertyChangeListener(this);
         PaperTradingService.getInstance().addPropertyChangeListener(this);
         
         GamificationService gService = GamificationService.getInstance();
@@ -103,7 +104,7 @@ public class ReplayController implements ReplayStateListener, PropertyChangeList
             .filter(trade -> trade.entryTime().atZone(ZoneId.of("UTC")).toLocalDate().equals(currentDate))
             .collect(Collectors.toList());
 
-        SettingsManager settings = SettingsManager.getInstance();
+        SettingsService settings = SettingsService.getInstance();
         if (settings.isOvertrainingNudgeEnabled() && optimalTradeCount > 0 && sessionTradesToday.size() > optimalTradeCount && !hasSentOvertrainingNudgeToday) {
             NotificationService.getInstance().showDisciplineNudge(
                 "Discipline Hint",
@@ -152,14 +153,14 @@ public class ReplayController implements ReplayStateListener, PropertyChangeList
     }
     
     private void checkSessionTransitions(KLine bar) {
-        SettingsManager settings = SettingsManager.getInstance();
+        SettingsService settings = SettingsService.getInstance();
         if (!settings.isSessionHighlightingEnabled()) {
             return;
         }
 
         LocalTime currentTime = bar.timestamp().atZone(ZoneId.of("UTC")).toLocalTime();
 
-        for (SettingsManager.TradingSession session : SettingsManager.TradingSession.values()) {
+        for (TradingConfig.TradingSession session : TradingConfig.TradingSession.values()) {
             if (!settings.getSessionEnabled().get(session)) {
                 continue;
             }
@@ -200,7 +201,7 @@ public class ReplayController implements ReplayStateListener, PropertyChangeList
 
         String displayString;
         if (currentKLine != null) {
-            ZoneId displayZoneId = SettingsManager.getInstance().getDisplayZoneId();
+            ZoneId displayZoneId = SettingsService.getInstance().getDisplayZoneId();
             String formattedDateTime = currentKLine.timestamp().atZone(displayZoneId).format(DATE_TIME_FORMATTER);
             String zoneIdString = displayZoneId.getId();
             String displayZone = zoneIdString.contains("/") ? zoneIdString.substring(zoneIdString.lastIndexOf('/') + 1).replace('_', ' ') : zoneIdString;

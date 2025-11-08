@@ -1,6 +1,6 @@
 package com.EcoChartPro.data;
 
-import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.core.settings.SettingsService;
 import com.EcoChartPro.data.provider.*;
 import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.TradeTick;

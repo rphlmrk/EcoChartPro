@@ -1,7 +1,7 @@
 package com.EcoChartPro.ui.chart.render;
 
 import com.EcoChartPro.core.model.ChartDataModel;
-import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.core.settings.SettingsService;
 import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.ui.chart.axis.ChartAxis;
 
@@ -33,7 +33,7 @@ public class VolumeCandleRenderer implements AbstractChartTypeRenderer {
             volumeRange = BigDecimal.ONE; // Avoid division by zero
         }
 
-        SettingsManager settings = SettingsManager.getInstance();
+        SettingsService settings = SettingsService.getInstance();
         double barWidth = axis.getBarWidth();
         int minCandleWidth = 2;
         int maxCandleWidth = Math.max(minCandleWidth, (int) (barWidth * 1.5));

@@ -3,7 +3,7 @@ package com.EcoChartPro.model.drawing;
 import com.EcoChartPro.core.manager.DrawingManager;
 import com.EcoChartPro.core.manager.PriceRange;
 import com.EcoChartPro.core.manager.TimeRange;
-import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.core.settings.SettingsService;
 import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.Timeframe;
 import com.EcoChartPro.model.TradeDirection;
@@ -156,8 +156,8 @@ public record ProtectedLevelPatternObject(
         Point s0 = new Point(axis.timeToX(p0.timestamp(), klines, tf), axis.priceToY(p0.price()));
         Point s1 = new Point(axis.timeToX(p1.timestamp(), klines, tf), axis.priceToY(p1.price()));
         Point s2 = new Point(axis.timeToX(p2.timestamp(), klines, tf), axis.priceToY(p2.price()));
-        boolean hit1 = distanceToLineSegment(screenPoint.x, screenPoint.y, s0.x, s0.y, s1.x, s1.y) < SettingsManager.getInstance().getDrawingHitThreshold();
-        boolean hit2 = distanceToLineSegment(screenPoint.x, screenPoint.y, s1.x, s1.y, s2.x, s2.y) < SettingsManager.getInstance().getDrawingHitThreshold();
+        boolean hit1 = distanceToLineSegment(screenPoint.x, screenPoint.y, s0.x, s0.y, s1.x, s1.y) < SettingsService.getInstance().getDrawingHitThreshold();
+        boolean hit2 = distanceToLineSegment(screenPoint.x, screenPoint.y, s1.x, s1.y, s2.x, s2.y) < SettingsService.getInstance().getDrawingHitThreshold();
         return hit1 || hit2;
     }
 
@@ -232,7 +232,7 @@ public record ProtectedLevelPatternObject(
     }
 
     private void drawHandle(Graphics2D g, Point position) {
-        int handleSize = SettingsManager.getInstance().getDrawingHandleSize();
+        int handleSize = SettingsService.getInstance().getDrawingHandleSize();
         int x = position.x - handleSize / 2;
         int y = position.y - handleSize / 2;
         g.setStroke(new BasicStroke(1.0f));

@@ -1,6 +1,6 @@
 package com.EcoChartPro.ui.chart.render;
 
-import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.core.settings.SettingsService;
 import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.ui.chart.axis.ChartAxis;
 
@@ -26,7 +26,7 @@ public class VisibleRangeVolumeProfileRenderer {
             return;
         }
 
-        SettingsManager settings = SettingsManager.getInstance();
+        SettingsService settings = SettingsService.getInstance();
         int rowHeight = settings.getVrvpRowHeight();
 
         // 1. Determine the price bin size based on row height

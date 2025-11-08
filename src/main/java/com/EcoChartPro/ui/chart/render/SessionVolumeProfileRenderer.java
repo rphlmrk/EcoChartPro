@@ -1,7 +1,7 @@
 package com.EcoChartPro.ui.chart.render;
 
 import com.EcoChartPro.core.model.ChartDataModel;
-import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.core.settings.SettingsService;
 import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.Timeframe;
 import com.EcoChartPro.ui.chart.axis.ChartAxis;
@@ -35,7 +35,7 @@ public class SessionVolumeProfileRenderer {
             return;
         }
 
-        ZoneId zoneId = SettingsManager.getInstance().getDisplayZoneId();
+        ZoneId zoneId = SettingsService.getInstance().getDisplayZoneId();
         Timeframe timeframe = dataModel.getCurrentDisplayTimeframe();
 
         // 1. Identify session boundaries within the visible range
@@ -71,7 +71,7 @@ public class SessionVolumeProfileRenderer {
     private void drawProfileForSession(Graphics2D g2d, ChartAxis axis, List<KLine> sessionKlines, Timeframe timeframe, List<KLine> allVisibleKlines) {
         if (sessionKlines.isEmpty()) return;
 
-        SettingsManager settings = SettingsManager.getInstance();
+        SettingsService settings = SettingsService.getInstance();
         int rowHeight = settings.getVrvpRowHeight();
 
         BigDecimal pricePerPixel = axis.getMaxPrice().subtract(axis.getMinPrice()).divide(BigDecimal.valueOf(g2d.getClipBounds().getHeight()), 8, RoundingMode.HALF_UP);

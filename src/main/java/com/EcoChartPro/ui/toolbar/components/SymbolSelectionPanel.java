@@ -1,6 +1,6 @@
 package com.EcoChartPro.ui.toolbar.components;
 
-import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.core.settings.SettingsService;
 import com.EcoChartPro.ui.dashboard.theme.UITheme;
 import com.EcoChartPro.utils.DataSourceManager.ChartDataSource;
 import org.slf4j.Logger;
@@ -74,7 +74,7 @@ public class SymbolSelectionPanel extends JPanel implements PropertyChangeListen
         setPreferredSize(new Dimension(300, 350));
         
         filterList(); // Initial population
-        SettingsManager.getInstance().addPropertyChangeListener("favoritesChanged", this);
+        SettingsService.getInstance().addPropertyChangeListener("favoritesChanged", this);
     }
 
     @Override
@@ -172,7 +172,7 @@ public class SymbolSelectionPanel extends JPanel implements PropertyChangeListen
 
                 // Check if the click was on the star
                 if (starBounds.contains(relativeClick)) {
-                    SettingsManager sm = SettingsManager.getInstance();
+                    SettingsService sm = SettingsService.getInstance();
                     String symbol = info.source().symbol();
                     if (sm.isFavoriteSymbol(symbol)) {
                         sm.removeFavoriteSymbol(symbol);
@@ -240,7 +240,7 @@ public class SymbolSelectionPanel extends JPanel implements PropertyChangeListen
         public Component getListCellRendererComponent(JList<? extends SymbolProgressCache.SymbolProgressInfo> list, SymbolProgressCache.SymbolProgressInfo value, int index, boolean isSelected, boolean cellHasFocus) {
             label.setText(value.source().displayName());
             
-            boolean isFavorite = SettingsManager.getInstance().isFavoriteSymbol(value.source().symbol());
+            boolean isFavorite = SettingsService.getInstance().isFavoriteSymbol(value.source().symbol());
             starLabel.setIcon(isFavorite ? STAR_FILLED : STAR_EMPTY);
             starLabel.setToolTipText(isFavorite ? "Remove from Favorites" : "Add to Favorites");
             

@@ -1,6 +1,7 @@
 package com.EcoChartPro.ui.dialogs.settings;
 
-import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.core.settings.config.ChartConfig;
+import com.EcoChartPro.core.settings.SettingsService;
 import com.EcoChartPro.model.chart.ChartType;
 import com.EcoChartPro.ui.components.CustomColorChooserPanel;
 
@@ -12,7 +13,7 @@ import java.util.Date;
 import java.util.function.Consumer;
 
 public class ChartSettingsPanel extends JPanel {
-    private final SettingsManager sm;
+    private final SettingsService sm;
 
     private final JComboBox<ChartType> chartTypeComboBox;
     private final JButton bullColorButton;
@@ -29,13 +30,13 @@ public class ChartSettingsPanel extends JPanel {
     private final JSpinner livePriceFontSizeSpinner;
     private final JCheckBox daySeparatorsCheckBox;
     private final JSpinner daySeparatorTimeSpinner;
-    private final JComboBox<SettingsManager.CrosshairFPS> crosshairFpsComboBox;
+    private final JComboBox<ChartConfig.CrosshairFPS> crosshairFpsComboBox;
     private final JCheckBox showPriceLabelsCheckbox;
     private final JCheckBox showOrdersOnAxisCheckbox;
     private final JCheckBox showDrawingsOnAxisCheckbox;
 
-    public ChartSettingsPanel(SettingsManager settingsManager) {
-        this.sm = settingsManager;
+    public ChartSettingsPanel(SettingsService settingsService) {
+        this.sm = settingsService;
         setLayout(new GridBagLayout());
         setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
@@ -64,7 +65,7 @@ public class ChartSettingsPanel extends JPanel {
         daySeparatorTimeSpinner = new JSpinner(timeModel);
         daySeparatorTimeSpinner.setEditor(new JSpinner.DateEditor(daySeparatorTimeSpinner, "HH:mm"));
         
-        crosshairFpsComboBox = new JComboBox<>(SettingsManager.CrosshairFPS.values());
+        crosshairFpsComboBox = new JComboBox<>(ChartConfig.CrosshairFPS.values());
         crosshairFpsComboBox.setSelectedItem(sm.getCrosshairFps());
         
         showPriceLabelsCheckbox = new JCheckBox("Enable Price Axis Labels");
@@ -167,7 +168,7 @@ public class ChartSettingsPanel extends JPanel {
         sm.setDaySeparatorsEnabled(daySeparatorsCheckBox.isSelected());
         Date separatorDate = (Date) daySeparatorTimeSpinner.getValue();
         sm.setDaySeparatorStartTime(separatorDate.toInstant().atZone(ZoneOffset.UTC).toLocalTime());
-        sm.setCrosshairFps((SettingsManager.CrosshairFPS) crosshairFpsComboBox.getSelectedItem());
+        sm.setCrosshairFps((ChartConfig.CrosshairFPS) crosshairFpsComboBox.getSelectedItem());
         sm.setPriceAxisLabelsEnabled(showPriceLabelsCheckbox.isSelected());
         sm.setPriceAxisLabelsShowOrders(showOrdersOnAxisCheckbox.isSelected());
         sm.setPriceAxisLabelsShowDrawings(showDrawingsOnAxisCheckbox.isSelected());

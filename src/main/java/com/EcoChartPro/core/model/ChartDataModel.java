@@ -94,7 +94,7 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
         this.indicatorManager = new IndicatorManager();
         this.baseDataWindow = new ArrayList<>();
         DrawingManager.getInstance().addPropertyChangeListener("activeSymbolChanged", this);
-        // [REMOVED] SettingsManager listener for chart type is no longer needed here.
+        // [REMOVED] SettingsService listener for chart type is no longer needed here.
     }
 
     @Override
@@ -117,7 +117,7 @@ public class ChartDataModel implements ReplayStateListener, PropertyChangeListen
             activeRebuildWorker.cancel(true);
         }
         DrawingManager.getInstance().removePropertyChangeListener("activeSymbolChanged", this);
-        // [REMOVED] SettingsManager listener cleanup is no longer needed here.
+        // [REMOVED] SettingsService listener cleanup is no longer needed here.
         if (currentMode == ChartMode.LIVE && liveDataProvider != null && liveDataConsumer != null && currentSource != null && currentDisplayTimeframe != null) {
             logger.info("Cleaning up live data subscription for chart model on cleanup.");
             LiveDataManager.getInstance().unsubscribeFromKLine(currentSource.symbol(), currentDisplayTimeframe.displayName(), liveDataConsumer);

@@ -1,6 +1,7 @@
 package com.EcoChartPro.ui.chart.render;
 
-import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.core.settings.SettingsService;
+import com.EcoChartPro.core.settings.config.DisciplineCoachConfig;
 import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.Timeframe;
 import com.EcoChartPro.ui.chart.axis.ChartAxis;
@@ -41,8 +42,8 @@ public class PeakHoursRenderer {
             return;
         }
 
-        SettingsManager settings = SettingsManager.getInstance();
-        SettingsManager.PeakHoursDisplayStyle style = settings.getPeakHoursDisplayStyle();
+        SettingsService settings = SettingsService.getInstance();
+        DisciplineCoachConfig.PeakHoursDisplayStyle style = settings.getPeakHoursDisplayStyle();
 
         switch (style) {
             case SHADE_AREA:
@@ -59,7 +60,7 @@ public class PeakHoursRenderer {
 
     private void drawShadeArea(Graphics2D g, ChartAxis axis, List<KLine> visibleKLines, List<Integer> peakHours) {
         Set<Integer> peakHoursSet = new HashSet<>(peakHours);
-        g.setColor(SettingsManager.getInstance().getPeakHoursColorShade());
+        g.setColor(SettingsService.getInstance().getPeakHoursColorShade());
         int barWidth = (int) Math.max(1.0, axis.getBarWidth());
 
         for (int i = 0; i < visibleKLines.size(); i++) {
@@ -74,7 +75,7 @@ public class PeakHoursRenderer {
 
     private void drawBottomBar(Graphics2D g, ChartAxis axis, List<KLine> visibleKLines, Timeframe timeframe, List<Integer> peakHours) {
         List<TimeWindow> windows = parseHoursIntoWindows(peakHours);
-        g.setColor(SettingsManager.getInstance().getPeakHoursColorShade());
+        g.setColor(SettingsService.getInstance().getPeakHoursColorShade());
         LocalDate startDate = visibleKLines.get(0).timestamp().atZone(ZoneOffset.UTC).toLocalDate().minusDays(1);
         LocalDate endDate = visibleKLines.get(visibleKLines.size() - 1).timestamp().atZone(ZoneOffset.UTC).toLocalDate().plusDays(1);
 
@@ -93,7 +94,7 @@ public class PeakHoursRenderer {
                 if (xEnd == -1 && xStart < g.getClipBounds().width) xEnd = g.getClipBounds().width;
 
                 if (xStart != -1 && xEnd != -1) {
-                    int barHeight = SettingsManager.getInstance().getPeakHoursBottomBarHeight();
+                    int barHeight = SettingsService.getInstance().getPeakHoursBottomBarHeight();
                     int y = g.getClipBounds().height - barHeight;
                     g.fillRect(xStart, y, xEnd - xStart, barHeight);
                 }
@@ -115,8 +116,8 @@ public class PeakHoursRenderer {
                 int xStart = axis.timeToX(windowStart.toInstant(), visibleKLines, timeframe);
                 int xEnd = axis.timeToX(windowEnd.toInstant(), visibleKLines, timeframe);
 
-                if (xStart != -1) drawIndicator(g, xStart, SettingsManager.getInstance().getPeakHoursColorStart(), true);
-                if (xEnd != -1) drawIndicator(g, xEnd, SettingsManager.getInstance().getPeakHoursColorEnd(), false);
+                if (xStart != -1) drawIndicator(g, xStart, SettingsService.getInstance().getPeakHoursColorStart(), true);
+                if (xEnd != -1) drawIndicator(g, xEnd, SettingsService.getInstance().getPeakHoursColorEnd(), false);
             }
         }
     }

@@ -5,7 +5,7 @@ import com.EcoChartPro.core.controller.ReplaySessionManager;
 import com.EcoChartPro.core.manager.CrosshairManager;
 import com.EcoChartPro.core.manager.DrawingManager;
 import com.EcoChartPro.core.model.ChartDataModel;
-import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.core.settings.SettingsService;
 import com.EcoChartPro.core.trading.PaperTradingService;
 import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.Timeframe;
@@ -72,7 +72,7 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
         PriceScaleDrawer drawer = new PriceScaleDrawer();
         add(drawer, BorderLayout.CENTER);
 
-        SettingsManager sm = SettingsManager.getInstance();
+        SettingsService sm = SettingsService.getInstance();
         sm.addPropertyChangeListener("priceAxisLabelsEnabledChanged", this);
         sm.addPropertyChangeListener("priceAxisLabelsVisibilityChanged", this);
         sm.addPropertyChangeListener("chartColorsChanged", this);
@@ -109,7 +109,7 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
     }
 
     public void cleanup() {
-        SettingsManager.getInstance().removePropertyChangeListener(this);
+        SettingsService.getInstance().removePropertyChangeListener(this);
         CrosshairManager.getInstance().removePropertyChangeListener("crosshairMoved", this);
         if (repaintTimer != null) {
             repaintTimer.stop();
@@ -236,7 +236,7 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
 
             drawPriceScale(g2d);
 
-            if (SettingsManager.getInstance().isPriceAxisLabelsEnabled()) {
+            if (SettingsService.getInstance().isPriceAxisLabelsEnabled()) {
                 drawDynamicPriceLabels(g2d);
             }
 
@@ -273,7 +273,7 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
             int textX = rectX + PADDING_X;
             int yRect = y - labelHeight / 2;
 
-            SettingsManager settings = SettingsManager.getInstance();
+            SettingsService settings = SettingsService.getInstance();
             g2d.setColor(settings.getCrosshairLabelBackgroundColor());
             g2d.fillRect(rectX, yRect, rectWidth, labelHeight);
             g2d.setColor(settings.getCrosshairLabelForegroundColor());
@@ -290,7 +290,7 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
                 return;
             }
         
-            SettingsManager settings = SettingsManager.getInstance();
+            SettingsService settings = SettingsService.getInstance();
             // [MODIFIED] Get chart type from the associated ChartPanel, not the global settings.
             boolean isHeikinAshiMode = false;
             ChartPanel panel = dataModel.getChartPanel();
@@ -443,7 +443,7 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
             if (!yAxis.isConfigured()) return;
 
             g2d.setFont(g2d.getFont().deriveFont(10f));
-            g2d.setColor(SettingsManager.getInstance().getAxisTextColor());
+            g2d.setColor(SettingsService.getInstance().getAxisTextColor());
             FontMetrics fm = g2d.getFontMetrics();
 
             int numTicks = getHeight() / (fm.getHeight() * 3);
@@ -498,7 +498,7 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
         }
 
         private void collectPositionAndOrderLabels(List<PriceLabel> labelsToDraw) {
-            if (dataModel == null || !SettingsManager.getInstance().isPriceAxisLabelsShowOrders()) return;
+            if (dataModel == null || !SettingsService.getInstance().isPriceAxisLabelsShowOrders()) return;
         
             PaperTradingService service = PaperTradingService.getInstance();
             for (Position pos : service.getOpenPositions()) {
@@ -518,8 +518,8 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
             if (dataModel == null) return;
             List<DrawingObject> allDrawings = DrawingManager.getInstance().getAllDrawings();
 
-            boolean showDrawings = SettingsManager.getInstance().isPriceAxisLabelsShowDrawings();
-            boolean showFibonaccis = SettingsManager.getInstance().isPriceAxisLabelsShowFibonaccis();
+            boolean showDrawings = SettingsService.getInstance().isPriceAxisLabelsShowDrawings();
+            boolean showFibonaccis = SettingsService.getInstance().isPriceAxisLabelsShowFibonaccis();
 
             for (DrawingObject drawing : allDrawings) {
                 if (!drawing.showPriceLabel()) {

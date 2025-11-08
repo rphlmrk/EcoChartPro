@@ -3,8 +3,8 @@ package com.EcoChartPro.core.controller;
 import com.EcoChartPro.core.commands.UpdateDrawingCommand;
 import com.EcoChartPro.core.manager.DrawingManager;
 import com.EcoChartPro.core.manager.UndoManager;
-import com.EcoChartPro.core.settings.SettingsManager;
-import com.EcoChartPro.core.settings.SettingsManager.DrawingToolTemplate;
+import com.EcoChartPro.core.settings.SettingsService;
+import com.EcoChartPro.core.settings.config.DrawingConfig.DrawingToolTemplate;
 import com.EcoChartPro.core.tool.DrawingTool;
 import com.EcoChartPro.model.drawing.DrawingHandle;
 import com.EcoChartPro.model.drawing.DrawingObject;
@@ -56,7 +56,7 @@ public class DrawingController extends MouseAdapter {
         if (selectedDrawing == null) return;
 
         String toolClassName = selectedDrawing.getClass().getSimpleName();
-        SettingsManager sm = SettingsManager.getInstance();
+        SettingsService sm = SettingsService.getInstance();
         JPopupMenu menu = new JPopupMenu();
 
         // 1. Save as Template
@@ -292,7 +292,7 @@ public class DrawingController extends MouseAdapter {
 
         java.util.List<DrawingHandle> handles = selectedDrawing.getHandles(chartPanel.getChartAxis(), chartPanel.getDataModel().getVisibleKLines(), chartPanel.getDataModel().getCurrentDisplayTimeframe());
         for (DrawingHandle handle : handles) {
-            if (handle.position().distance(screenPoint) < SettingsManager.getInstance().getDrawingHitThreshold()) {
+            if (handle.position().distance(screenPoint) < SettingsService.getInstance().getDrawingHitThreshold()) {
                 return handle;
             }
         }

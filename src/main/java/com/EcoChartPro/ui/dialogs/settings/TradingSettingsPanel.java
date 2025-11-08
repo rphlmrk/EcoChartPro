@@ -1,6 +1,7 @@
 package com.EcoChartPro.ui.dialogs.settings;
 
-import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.core.settings.SettingsService;
+import com.EcoChartPro.core.settings.config.TradingConfig;
 import com.EcoChartPro.ui.components.CustomColorChooserPanel;
 
 import javax.swing.*;
@@ -18,7 +19,7 @@ import java.util.function.Consumer;
 import com.EcoChartPro.utils.DatabaseManager;
 
 public class TradingSettingsPanel extends JPanel {
-    private final SettingsManager sm;
+    private final SettingsService sm;
 
     private final JFormattedTextField commissionField;
     private final JFormattedTextField spreadField;
@@ -27,14 +28,14 @@ public class TradingSettingsPanel extends JPanel {
     private final JSpinner candleRetentionSpinner; 
 
     // Session components
-    private final Map<SettingsManager.TradingSession, JCheckBox> sessionEnabledCheckboxes = new EnumMap<>(SettingsManager.TradingSession.class);
-    private final Map<SettingsManager.TradingSession, JSpinner> sessionStartSpinners = new EnumMap<>(SettingsManager.TradingSession.class);
-    private final Map<SettingsManager.TradingSession, JSpinner> sessionEndSpinners = new EnumMap<>(SettingsManager.TradingSession.class);
-    private final Map<SettingsManager.TradingSession, JButton> sessionColorButtons = new EnumMap<>(SettingsManager.TradingSession.class);
+    private final Map<TradingConfig.TradingSession, JCheckBox> sessionEnabledCheckboxes = new EnumMap<>(TradingConfig.TradingSession.class);
+    private final Map<TradingConfig.TradingSession, JSpinner> sessionStartSpinners = new EnumMap<>(TradingConfig.TradingSession.class);
+    private final Map<TradingConfig.TradingSession, JSpinner> sessionEndSpinners = new EnumMap<>(TradingConfig.TradingSession.class);
+    private final Map<TradingConfig.TradingSession, JButton> sessionColorButtons = new EnumMap<>(TradingConfig.TradingSession.class);
 
 
-    public TradingSettingsPanel(SettingsManager settingsManager) {
-        this.sm = settingsManager;
+    public TradingSettingsPanel(SettingsService settingsService) {
+        this.sm = settingsService;
         setLayout(new GridBagLayout());
         setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
@@ -191,7 +192,7 @@ public class TradingSettingsPanel extends JPanel {
         gbc.gridx = 4; panel.add(createHeaderLabel("Color", headerFont), gbc);
 
         // Rows
-        for(SettingsManager.TradingSession session : SettingsManager.TradingSession.values()) {
+        for(TradingConfig.TradingSession session : TradingConfig.TradingSession.values()) {
             gbc.gridy++;
 
             // Name
@@ -250,7 +251,7 @@ public class TradingSettingsPanel extends JPanel {
         sm.setSessionHighlightingEnabled(sessionHighlightCheckbox.isSelected());
         sm.setTradeCandleRetentionMonths((Integer) candleRetentionSpinner.getValue());
 
-        for (SettingsManager.TradingSession session : SettingsManager.TradingSession.values()) {
+        for (TradingConfig.TradingSession session : TradingConfig.TradingSession.values()) {
             sm.setSessionEnabled(session, sessionEnabledCheckboxes.get(session).isSelected());
             
             Date startDate = (Date)sessionStartSpinners.get(session).getValue();

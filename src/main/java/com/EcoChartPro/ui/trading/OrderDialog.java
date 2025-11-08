@@ -2,7 +2,7 @@ package com.EcoChartPro.ui.trading;
 
 import com.EcoChartPro.core.controller.ReplaySessionManager;
 import com.EcoChartPro.core.gamification.GamificationService;
-import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.core.settings.SettingsService;
 import com.EcoChartPro.core.trading.PaperTradingService;
 import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.TradeDirection;
@@ -72,12 +72,12 @@ public class OrderDialog extends JDialog implements PropertyChangeListener {
 
         // Add our new, enhanced ActionListener that includes the fatigue check.
         placeOrderButton.addActionListener(e -> {
-            SettingsManager settingsManager = SettingsManager.getInstance();
+            SettingsService settingsService = SettingsService.getInstance();
             // Check only if in replay mode and the nudge setting is enabled.
-            if (chartPanel.getDataModel().isInReplayMode() && settingsManager.isFatigueNudgeEnabled()) {
+            if (chartPanel.getDataModel().isInReplayMode() && settingsService.isFatigueNudgeEnabled()) {
                 KLine currentBar = ReplaySessionManager.getInstance().getCurrentBar();
                 if (currentBar != null) {
-                    List<Integer> peakHours = settingsManager.getPeakPerformanceHoursOverride();
+                    List<Integer> peakHours = settingsService.getPeakPerformanceHoursOverride();
                     if (peakHours.isEmpty()) {
                         peakHours = GamificationService.getInstance().getPeakPerformanceHours();
                     }

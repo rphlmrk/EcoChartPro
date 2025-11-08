@@ -183,9 +183,9 @@ public class ReplayControlPanel extends JPanel implements PropertyChangeListener
             timezonePopup.setBorder(UIManager.getBorder("PopupMenu.border"));
             
             TimezoneListPanel listPanel = new TimezoneListPanel(
-                com.EcoChartPro.core.settings.SettingsManager.getInstance().getDisplayZoneId(),
+                com.EcoChartPro.core.settings.SettingsService.getInstance().getDisplayZoneId(),
                 selectedZoneId -> {
-                    com.EcoChartPro.core.settings.SettingsManager.getInstance().setDisplayZoneId(selectedZoneId);
+                    com.EcoChartPro.core.settings.SettingsService.getInstance().setDisplayZoneId(selectedZoneId);
                     timezonePopup.setVisible(false);
                 }
             );

@@ -3,7 +3,7 @@ package com.EcoChartPro.model.drawing;
 import com.EcoChartPro.core.manager.DrawingManager;
 import com.EcoChartPro.core.manager.PriceRange;
 import com.EcoChartPro.core.manager.TimeRange;
-import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.core.settings.SettingsService;
 import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.Timeframe;
 import com.EcoChartPro.model.drawing.FibonacciRetracementObject.FibLevelProperties;
@@ -37,11 +37,11 @@ public record FibonacciExtensionObject(
     private static final Font LABEL_FONT = new Font("SansSerif", Font.PLAIN, 11);
     
     public FibonacciExtensionObject(UUID id, DrawingObjectPoint p0, DrawingObjectPoint p1, DrawingObjectPoint p2, Color color, BasicStroke stroke, Map<Timeframe, Boolean> visibility) {
-        this(id, p0, p1, p2, color, stroke, visibility, false, SettingsManager.getInstance().getFibExtensionDefaultLevels(), true);
+        this(id, p0, p1, p2, color, stroke, visibility, false, SettingsService.getInstance().getFibExtensionDefaultLevels(), true);
     }
 
     public FibonacciExtensionObject(UUID id, DrawingObjectPoint p0, DrawingObjectPoint p1, DrawingObjectPoint p2, Color color, BasicStroke stroke, Map<Timeframe, Boolean> visibility, boolean isLocked) {
-        this(id, p0, p1, p2, color, stroke, visibility, isLocked, SettingsManager.getInstance().getFibExtensionDefaultLevels(), true);
+        this(id, p0, p1, p2, color, stroke, visibility, isLocked, SettingsService.getInstance().getFibExtensionDefaultLevels(), true);
     }
     
     public FibonacciExtensionObject(UUID id, DrawingObjectPoint p0, DrawingObjectPoint p1, DrawingObjectPoint p2, Color color, BasicStroke stroke, Map<Timeframe, Boolean> visibility, boolean isLocked, Map<Double, FibLevelProperties> fibLevels) {
@@ -114,9 +114,9 @@ public record FibonacciExtensionObject(
         if (!axis.isConfigured()) return false;
         Point s0 = new Point(axis.timeToX(p0.timestamp(), klines, tf), axis.priceToY(p0.price()));
         Point s1 = new Point(axis.timeToX(p1.timestamp(), klines, tf), axis.priceToY(p1.price()));
-        boolean hit1 = distanceToLineSegment(screenPoint.x, screenPoint.y, s0.x, s0.y, s1.x, s1.y) < SettingsManager.getInstance().getDrawingHitThreshold();
+        boolean hit1 = distanceToLineSegment(screenPoint.x, screenPoint.y, s0.x, s0.y, s1.x, s1.y) < SettingsService.getInstance().getDrawingHitThreshold();
         Point s2 = new Point(axis.timeToX(p2.timestamp(), klines, tf), axis.priceToY(p2.price()));
-        boolean hit2 = distanceToLineSegment(screenPoint.x, screenPoint.y, s1.x, s1.y, s2.x, s2.y) < SettingsManager.getInstance().getDrawingHitThreshold();
+        boolean hit2 = distanceToLineSegment(screenPoint.x, screenPoint.y, s1.x, s1.y, s2.x, s2.y) < SettingsService.getInstance().getDrawingHitThreshold();
         return hit1 || hit2;
     }
 
@@ -197,7 +197,7 @@ public record FibonacciExtensionObject(
     }
 
     private void drawHandle(Graphics2D g, Point position) {
-        int handleSize = SettingsManager.getInstance().getDrawingHandleSize();
+        int handleSize = SettingsService.getInstance().getDrawingHandleSize();
         int x = position.x - handleSize / 2;
         int y = position.y - handleSize / 2;
         g.setStroke(new BasicStroke(1.0f));

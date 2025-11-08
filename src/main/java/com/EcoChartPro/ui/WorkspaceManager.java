@@ -5,7 +5,8 @@ import com.EcoChartPro.core.controller.ChartInteractionManager;
 import com.EcoChartPro.core.controller.ReplaySessionManager;
 import com.EcoChartPro.core.indicator.Indicator;
 import com.EcoChartPro.core.model.ChartDataModel;
-import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.core.settings.SettingsService;
+import com.EcoChartPro.core.settings.config.DrawingConfig;
 import com.EcoChartPro.core.tool.DrawingTool;
 import com.EcoChartPro.model.Timeframe;
 import com.EcoChartPro.ui.chart.ChartPanel;
@@ -48,7 +49,7 @@ public class WorkspaceManager {
             SwingUtilities.invokeLater(() -> {
                 if (owner.getDrawingToolbar().isVisible() && activeChartPanel != null && activeChartPanel.isShowing()) {
                     owner.getDrawingToolbar().updatePosition(
-                        SettingsManager.getInstance().getDrawingToolbarPosition() == SettingsManager.ToolbarPosition.LEFT
+                        SettingsService.getInstance().getDrawingToolbarPosition() == DrawingConfig.ToolbarPosition.LEFT
                             ? FloatingDrawingToolbar.DockSide.LEFT
                             : FloatingDrawingToolbar.DockSide.RIGHT
                     );
@@ -123,7 +124,7 @@ public class WorkspaceManager {
                 if (activeChartPanel.getDrawingController().getActiveTool() == null) {
                     owner.getTitleBarManager().restoreIdleTitle();
                 }
-                owner.getDrawingToolbar().updatePosition(SettingsManager.getInstance().getDrawingToolbarPosition() == SettingsManager.ToolbarPosition.LEFT
+                owner.getDrawingToolbar().updatePosition(SettingsService.getInstance().getDrawingToolbarPosition() == DrawingConfig.ToolbarPosition.LEFT
                         ? FloatingDrawingToolbar.DockSide.LEFT
                         : FloatingDrawingToolbar.DockSide.RIGHT);
             });

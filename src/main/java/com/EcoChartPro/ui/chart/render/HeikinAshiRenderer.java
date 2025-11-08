@@ -1,7 +1,7 @@
 package com.EcoChartPro.ui.chart.render;
 
 import com.EcoChartPro.core.model.ChartDataModel;
-import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.core.settings.SettingsService;
 import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.ui.chart.axis.ChartAxis;
 
@@ -15,7 +15,7 @@ public class HeikinAshiRenderer implements AbstractChartTypeRenderer {
             return;
         }
 
-        SettingsManager settings = SettingsManager.getInstance();
+        SettingsService settings = SettingsService.getInstance();
         double barWidth = axis.getBarWidth();
         int candleBodyWidth = Math.max(1, (int) (barWidth * 0.8));
 

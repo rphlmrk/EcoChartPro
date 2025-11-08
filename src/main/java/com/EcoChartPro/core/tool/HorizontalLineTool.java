@@ -1,7 +1,7 @@
 package com.EcoChartPro.core.tool;
 
-import com.EcoChartPro.core.settings.SettingsManager;
-import com.EcoChartPro.core.settings.SettingsManager.DrawingToolTemplate;
+import com.EcoChartPro.core.settings.SettingsService;
+import com.EcoChartPro.core.settings.config.DrawingConfig.DrawingToolTemplate;
 import com.EcoChartPro.model.Timeframe;
 import com.EcoChartPro.model.drawing.DrawingObject;
 import com.EcoChartPro.model.drawing.DrawingObjectPoint;
@@ -21,7 +21,7 @@ public class HorizontalLineTool implements DrawingTool {
     private final boolean defaultShowPriceLabel;
 
     public HorizontalLineTool() {
-        DrawingToolTemplate activeTemplate = SettingsManager.getInstance().getActiveTemplateForTool("HorizontalLineObject");
+        DrawingToolTemplate activeTemplate = SettingsService.getInstance().getActiveTemplateForTool("HorizontalLineObject");
         this.defaultColor = activeTemplate.color();
         this.defaultStroke = activeTemplate.stroke();
         this.defaultShowPriceLabel = activeTemplate.showPriceLabel();

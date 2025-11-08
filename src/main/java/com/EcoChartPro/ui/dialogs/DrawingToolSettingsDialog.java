@@ -1,7 +1,8 @@
 package com.EcoChartPro.ui.dialogs;
 
 import com.EcoChartPro.core.manager.DrawingManager;
-import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.core.settings.SettingsService;
+import com.EcoChartPro.core.settings.config.DrawingConfig.DrawingToolTemplate;
 import com.EcoChartPro.model.Timeframe;
 import com.EcoChartPro.model.drawing.DrawingObject;
 import com.EcoChartPro.ui.components.CustomColorChooserPanel;
@@ -130,13 +131,27 @@ public class DrawingToolSettingsDialog extends JDialog {
     
     private void onSaveAsDefault() {
         String toolName = initialDrawing.getClass().getSimpleName();
-        SettingsManager sm = SettingsManager.getInstance();
-        sm.setToolDefaultColor(toolName, colorButton.getBackground());
-        sm.setToolDefaultStroke(toolName, new BasicStroke((Integer) thicknessSpinner.getValue()));
-        sm.setToolDefaultShowPriceLabel(toolName, showLabelCheckBox.isSelected());
+        SettingsService sm = SettingsService.getInstance();
+        
+        DrawingToolTemplate activeTemplate = sm.getActiveTemplateForTool(toolName);
+        if (activeTemplate == null) {
+            JOptionPane.showMessageDialog(this, "No active template found to update.", "Error", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        DrawingToolTemplate updatedTemplate = new DrawingToolTemplate(
+            activeTemplate.id(),
+            activeTemplate.name(),
+            colorButton.getBackground(),
+            new BasicStroke((Integer) thicknessSpinner.getValue()),
+            showLabelCheckBox.isSelected(),
+            activeTemplate.specificProps() // Preserve specific properties like fib levels
+        );
+
+        sm.updateTemplate(toolName, updatedTemplate);
         
         JOptionPane.showMessageDialog(this,
-            "Current style saved as default for " + toolName.replace("Object", "") + ".",
+            "Active template '" + activeTemplate.name() + "' updated for " + toolName.replace("Object", "") + ".",
             "Default Saved",
             JOptionPane.INFORMATION_MESSAGE
         );

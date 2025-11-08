@@ -1,7 +1,7 @@
 package com.EcoChartPro.core.tool;
 
-import com.EcoChartPro.core.settings.SettingsManager;
-import com.EcoChartPro.core.settings.SettingsManager.DrawingToolTemplate;
+import com.EcoChartPro.core.settings.SettingsService;
+import com.EcoChartPro.core.settings.config.DrawingConfig.DrawingToolTemplate;
 import com.EcoChartPro.model.Timeframe;
 import com.EcoChartPro.model.drawing.DrawingObject;
 import com.EcoChartPro.model.drawing.DrawingObjectPoint;
@@ -24,7 +24,7 @@ public class FibonacciRetracementTool implements DrawingTool {
     private final boolean defaultShowPriceLabel;
 
     public FibonacciRetracementTool() {
-        DrawingToolTemplate activeTemplate = SettingsManager.getInstance().getActiveTemplateForTool("FibonacciRetracementObject");
+        DrawingToolTemplate activeTemplate = SettingsService.getInstance().getActiveTemplateForTool("FibonacciRetracementObject");
         this.defaultColor = activeTemplate.color();
         this.defaultStroke = activeTemplate.stroke();
         this.defaultShowPriceLabel = activeTemplate.showPriceLabel();
@@ -49,13 +49,13 @@ public class FibonacciRetracementTool implements DrawingTool {
     @Override
     public DrawingObject getDrawingObject() {
         if (!isFinished()) return null;
-        return new FibonacciRetracementObject(UUID.randomUUID(), startPoint, endPoint, defaultColor, defaultStroke, createDefaultVisibility(), false, SettingsManager.getInstance().getFibRetracementDefaultLevels(), defaultShowPriceLabel);
+        return new FibonacciRetracementObject(UUID.randomUUID(), startPoint, endPoint, defaultColor, defaultStroke, createDefaultVisibility(), false, SettingsService.getInstance().getFibRetracementDefaultLevels(), defaultShowPriceLabel);
     }
 
     @Override
     public DrawingObject getPreviewObject() {
         if (startPoint != null && previewEndPoint != null) {
-            return new FibonacciRetracementObject(UUID.randomUUID(), startPoint, previewEndPoint, defaultColor, defaultStroke, createDefaultVisibility(), false, SettingsManager.getInstance().getFibRetracementDefaultLevels(), defaultShowPriceLabel);
+            return new FibonacciRetracementObject(UUID.randomUUID(), startPoint, previewEndPoint, defaultColor, defaultStroke, createDefaultVisibility(), false, SettingsService.getInstance().getFibRetracementDefaultLevels(), defaultShowPriceLabel);
         }
         return null;
     }

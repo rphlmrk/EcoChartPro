@@ -1,6 +1,7 @@
 package com.EcoChartPro.core.journal;
 
-import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.core.settings.SettingsService;
+import com.EcoChartPro.core.settings.config.TradingConfig;
 import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.Trade;
 import com.EcoChartPro.model.TradeDirection;
@@ -39,15 +40,15 @@ public class AutomatedTaggingService {
         }
 
         // --- NEW: "Out-Side-Trading-Hours" Tag (subjective, based on settings) ---
-        SettingsManager settings = SettingsManager.getInstance();
-        List<SettingsManager.TradingSession> preferredSessions = settings.getPreferredTradingSessions();
+        SettingsService settings = SettingsService.getInstance();
+        List<TradingConfig.TradingSession> preferredSessions = settings.getPreferredTradingSessions();
 
         // Only perform this check if the user has defined preferred sessions.
         if (preferredSessions != null && !preferredSessions.isEmpty()) {
             boolean isInPreferredHours = false;
             LocalTime tradeTime = entryZdt.toLocalTime();
 
-            for (SettingsManager.TradingSession session : preferredSessions) {
+            for (TradingConfig.TradingSession session : preferredSessions) {
                 LocalTime startTime = settings.getSessionStartTimes().get(session);
                 LocalTime endTime = settings.getSessionEndTimes().get(session);
 

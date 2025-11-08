@@ -8,7 +8,7 @@ import com.EcoChartPro.api.indicator.drawing.DrawablePolygon;
 import com.EcoChartPro.api.indicator.drawing.DrawablePolyline;
 import com.EcoChartPro.core.indicator.Indicator;
 import com.EcoChartPro.core.model.ChartDataModel;
-import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.core.settings.SettingsService;
 import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.Timeframe;
 import com.EcoChartPro.ui.chart.axis.ChartAxis;
@@ -50,12 +50,12 @@ public class IndicatorPanel extends JPanel implements PropertyChangeListener {
 
         setOpaque(true);
         // Set background and border from theme-aware sources.
-        setBackground(SettingsManager.getInstance().getChartBackground());
+        setBackground(SettingsService.getInstance().getChartBackground());
         setBorder(BorderFactory.createLineBorder(UIManager.getColor("Component.borderColor")));
 
         // Listen for data updates and theme changes to trigger repaints.
         this.mainDataModel.addPropertyChangeListener(this);
-        SettingsManager.getInstance().addPropertyChangeListener(this);
+        SettingsService.getInstance().addPropertyChangeListener(this);
     }
     
     /**
@@ -63,7 +63,7 @@ public class IndicatorPanel extends JPanel implements PropertyChangeListener {
      */
     public void cleanup() {
         this.mainDataModel.removePropertyChangeListener(this);
-        SettingsManager.getInstance().removePropertyChangeListener(this);
+        SettingsService.getInstance().removePropertyChangeListener(this);
     }
 
 
@@ -72,7 +72,7 @@ public class IndicatorPanel extends JPanel implements PropertyChangeListener {
         // Added listener for theme/color changes.
         if ("dataUpdated".equals(evt.getPropertyName()) || "chartColorsChanged".equals(evt.getPropertyName())) {
             if ("chartColorsChanged".equals(evt.getPropertyName())) {
-                setBackground(SettingsManager.getInstance().getChartBackground());
+                setBackground(SettingsService.getInstance().getChartBackground());
                 setBorder(BorderFactory.createLineBorder(UIManager.getColor("Component.borderColor")));
             }
             repaint();

@@ -1,6 +1,7 @@
 package com.EcoChartPro.ui.dialogs;
 
-import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.core.settings.SettingsService;
+import com.EcoChartPro.core.settings.config.DrawingConfig.DrawingToolTemplate;
 import com.EcoChartPro.model.Timeframe;
 import com.EcoChartPro.model.drawing.TextObject;
 import com.EcoChartPro.model.drawing.TextProperties;
@@ -11,6 +12,7 @@ import com.EcoChartPro.ui.components.VisibilityPanel;
 import javax.swing.*;
 import javax.swing.border.TitledBorder;
 import java.awt.*;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.function.Consumer;
@@ -67,7 +69,9 @@ public class TextSettingsDialog extends JDialog {
             wrapTextCheckBox = new JCheckBox("Text wrap", props.wrapText());
 
         } else { // Defaults for a new object
-            SettingsManager sm = SettingsManager.getInstance();
+            SettingsService sm = SettingsService.getInstance();
+            DrawingToolTemplate activeTemplate = sm.getActiveTemplateForTool("TextObject");
+            
             TextProperties defaultProps = sm.getToolDefaultTextProperties("TextObject", new TextProperties(false, new Color(33, 150, 243, 80), false, new Color(33, 150, 243), true, false));
             selectedFont = sm.getToolDefaultFont("TextObject", new Font("SansSerif", Font.PLAIN, 14));
             isScreenAnchored = false; // This is determined by the tool, not the settings dialog
@@ -75,7 +79,7 @@ public class TextSettingsDialog extends JDialog {
             
             textArea = new JTextArea("Your text here...");
             textColorButton = new JButton();
-            textColorButton.setBackground(sm.getToolDefaultColor("TextObject", Color.WHITE));
+            textColorButton.setBackground(activeTemplate.color());
             fontDisplayLabel = new JLabel();
             changeFontButton = new JButton("Font...");
             showBackgroundCheckBox = new JCheckBox("Background", defaultProps.showBackground());
@@ -128,29 +132,56 @@ public class TextSettingsDialog extends JDialog {
     }
 
     private void onSaveAsDefault() {
-        SettingsManager sm = SettingsManager.getInstance();
+        SettingsService sm = SettingsService.getInstance();
+        String toolName = "TextObject";
 
-        // Save Color
-        sm.setToolDefaultColor("TextObject", textColorButton.getBackground());
+        DrawingToolTemplate activeTemplate = sm.getActiveTemplateForTool(toolName);
+        if (activeTemplate == null) return;
 
-        // Save Font
-        sm.setToolDefaultFont("TextObject", this.selectedFont);
+        // Gather current settings from dialog
+        Color newColor = textColorButton.getBackground();
+        Font newFont = this.selectedFont;
 
-        // Save Text Properties (excluding screen-anchored state)
-        TextProperties defaultProps = sm.getToolDefaultTextProperties("TextObject", null);
-        boolean currentScreenAnchored = (defaultProps != null) && defaultProps.screenAnchored();
-
+        // Safely preserve screen-anchored property from the existing default
+        boolean screenAnchored = false;
+        Object textPropsObj = activeTemplate.specificProps().get("textProperties");
+        if (textPropsObj instanceof TextProperties props) {
+            screenAnchored = props.screenAnchored();
+        } else if (textPropsObj instanceof Map) {
+            // Fallback if it's a map after deserialization
+            Object anchored = ((Map) textPropsObj).get("screenAnchored");
+            if (anchored instanceof Boolean) {
+                screenAnchored = (Boolean) anchored;
+            }
+        }
+        
         TextProperties newProps = new TextProperties(
             showBackgroundCheckBox.isSelected(),
             backgroundColorButton.getBackground(),
             showBorderCheckBox.isSelected(),
             borderColorButton.getBackground(),
             wrapTextCheckBox.isSelected(),
-            currentScreenAnchored // Preserve the existing screen-anchored default
+            screenAnchored
         );
-        sm.setToolDefaultTextProperties("TextObject", newProps);
 
-        JOptionPane.showMessageDialog(this, "Default settings for Text tool saved.", "Defaults Saved", JOptionPane.INFORMATION_MESSAGE);
+        // Create a mutable copy of the specific properties map and update it
+        Map<String, Object> newSpecificProps = new HashMap<>(activeTemplate.specificProps());
+        newSpecificProps.put("font", newFont);
+        newSpecificProps.put("textProperties", newProps);
+
+        // Create the updated template
+        DrawingToolTemplate updatedTemplate = new DrawingToolTemplate(
+            activeTemplate.id(),
+            activeTemplate.name(),
+            newColor,
+            activeTemplate.stroke(), // Stroke is not edited here for Text
+            activeTemplate.showPriceLabel(), // Not applicable for Text
+            newSpecificProps
+        );
+        
+        sm.updateTemplate(toolName, updatedTemplate);
+
+        JOptionPane.showMessageDialog(this, "Active template '" + activeTemplate.name() + "' updated for Text tool.", "Defaults Saved", JOptionPane.INFORMATION_MESSAGE);
     }
 
     private void openFontChooser() {

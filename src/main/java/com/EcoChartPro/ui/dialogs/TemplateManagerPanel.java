@@ -1,7 +1,7 @@
 package com.EcoChartPro.ui.dialogs;
 
-import com.EcoChartPro.core.settings.SettingsManager;
-import com.EcoChartPro.core.settings.SettingsManager.DrawingToolTemplate;
+import com.EcoChartPro.core.settings.SettingsService;
+import com.EcoChartPro.core.settings.config.DrawingConfig.DrawingToolTemplate;
 import com.EcoChartPro.ui.components.CustomColorChooserPanel;
 
 import javax.swing.*;
@@ -21,7 +21,7 @@ class TemplateManagerPanel extends JPanel implements ListSelectionListener {
     private final String toolClassName;
     private final JList<DrawingToolTemplate> templateList;
     private final DefaultListModel<DrawingToolTemplate> listModel;
-    private final SettingsManager settingsManager;
+    private final SettingsService settingsService;
 
     private final JPanel propertiesPanel;
     private JButton colorButton;
@@ -31,7 +31,7 @@ class TemplateManagerPanel extends JPanel implements ListSelectionListener {
 
     TemplateManagerPanel(String toolClassName, String toolDisplayName) {
         this.toolClassName = toolClassName;
-        this.settingsManager = SettingsManager.getInstance();
+        this.settingsService = SettingsService.getInstance();
         setLayout(new BorderLayout(10, 10));
         setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
@@ -118,7 +118,7 @@ class TemplateManagerPanel extends JPanel implements ListSelectionListener {
 
     private void loadTemplates() {
         listModel.clear();
-        List<DrawingToolTemplate> templates = settingsManager.getTemplatesForTool(toolClassName);
+        List<DrawingToolTemplate> templates = settingsService.getTemplatesForTool(toolClassName);
         if (templates != null) {
             listModel.addAll(templates);
         }
@@ -146,7 +146,7 @@ class TemplateManagerPanel extends JPanel implements ListSelectionListener {
             colorButton.setBackground(template.color());
             thicknessSpinner.setValue((int)template.stroke().getLineWidth());
             showLabelCheckBox.setSelected(template.showPriceLabel());
-            UUID activeId = settingsManager.getActiveTemplateId(toolClassName);
+            UUID activeId = settingsService.getActiveTemplateId(toolClassName);
             setActiveButton.setEnabled(!template.id().equals(activeId));
         }
     }
@@ -163,15 +163,15 @@ class TemplateManagerPanel extends JPanel implements ListSelectionListener {
             showLabelCheckBox.isSelected(),
             selected.specificProps() // Preserve specific properties
         );
-        settingsManager.updateTemplate(toolClassName, updatedTemplate);
+        settingsService.updateTemplate(toolClassName, updatedTemplate);
     }
 
     private void addTemplate() {
         String name = JOptionPane.showInputDialog(this, "Enter template name:", "New Template", JOptionPane.PLAIN_MESSAGE);
         if (name != null && !name.isBlank()) {
-            DrawingToolTemplate defaultTemplate = settingsManager.getActiveTemplateForTool(toolClassName);
+            DrawingToolTemplate defaultTemplate = settingsService.getActiveTemplateForTool(toolClassName);
             DrawingToolTemplate newTemplate = new DrawingToolTemplate(UUID.randomUUID(), name, defaultTemplate.color(), defaultTemplate.stroke(), defaultTemplate.showPriceLabel(), Collections.emptyMap());
-            settingsManager.addTemplate(toolClassName, newTemplate);
+            settingsService.addTemplate(toolClassName, newTemplate);
             loadTemplates();
             templateList.setSelectedValue(newTemplate, true);
         }
@@ -182,7 +182,7 @@ class TemplateManagerPanel extends JPanel implements ListSelectionListener {
         if (selected != null) {
             int choice = JOptionPane.showConfirmDialog(this, "Are you sure you want to delete '" + selected.name() + "'?", "Confirm Deletion", JOptionPane.YES_NO_OPTION);
             if (choice == JOptionPane.YES_OPTION) {
-                settingsManager.deleteTemplate(toolClassName, selected.id());
+                settingsService.deleteTemplate(toolClassName, selected.id());
                 loadTemplates();
             }
         }
@@ -194,7 +194,7 @@ class TemplateManagerPanel extends JPanel implements ListSelectionListener {
             String newName = (String) JOptionPane.showInputDialog(this, "Enter new name:", "Rename Template", JOptionPane.PLAIN_MESSAGE, null, null, selected.name());
             if (newName != null && !newName.isBlank()) {
                 DrawingToolTemplate updated = new DrawingToolTemplate(selected.id(), newName, selected.color(), selected.stroke(), selected.showPriceLabel(), selected.specificProps());
-                settingsManager.updateTemplate(toolClassName, updated);
+                settingsService.updateTemplate(toolClassName, updated);
                 loadTemplates();
                 templateList.setSelectedValue(updated, true);
             }
@@ -204,7 +204,7 @@ class TemplateManagerPanel extends JPanel implements ListSelectionListener {
     private void setActiveTemplate() {
         DrawingToolTemplate selected = templateList.getSelectedValue();
         if (selected != null) {
-            settingsManager.setActiveTemplate(toolClassName, selected.id());
+            settingsService.setActiveTemplate(toolClassName, selected.id());
             setActiveButton.setEnabled(false);
             templateList.repaint(); // To update the bold font
         }
@@ -234,7 +234,7 @@ class TemplateManagerPanel extends JPanel implements ListSelectionListener {
             JLabel label = (JLabel) super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
             if (value instanceof DrawingToolTemplate template) {
                 label.setText(template.name());
-                UUID activeId = settingsManager.getActiveTemplateId(toolClassName);
+                UUID activeId = settingsService.getActiveTemplateId(toolClassName);
                 if (template.id().equals(activeId)) {
                     label.setFont(label.getFont().deriveFont(Font.BOLD));
                     label.setText(template.name() + " (Active)");

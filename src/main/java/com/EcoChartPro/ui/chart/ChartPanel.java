@@ -14,7 +14,7 @@ import com.EcoChartPro.core.manager.PriceRange;
 import com.EcoChartPro.core.manager.TimeRange;
 import com.EcoChartPro.core.manager.listener.DrawingListener;
 import com.EcoChartPro.core.model.ChartDataModel;
-import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.core.settings.SettingsService;
 import com.EcoChartPro.core.tool.DrawingTool;
 import com.EcoChartPro.core.tool.InfoTool;
 import com.EcoChartPro.core.trading.PaperTradingService;
@@ -127,12 +127,12 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
         this.svpRenderer = new SessionVolumeProfileRenderer();
         this.drawingController = new DrawingController(this, onToolStateChange);
         this.infoPanel = new InfoPanel();
-        this.chartType = SettingsManager.getInstance().getCurrentChartType(); // [NEW] Initialize with default
+        this.chartType = SettingsService.getInstance().getCurrentChartType(); // [NEW] Initialize with default
 
         // Ensure double buffering is enabled for smooth rendering performance
         setDoubleBuffered(true);
 
-        SettingsManager settings = SettingsManager.getInstance();
+        SettingsService settings = SettingsService.getInstance();
         setBackground(settings.getChartBackground());
         setBorder(INACTIVE_BORDER);
         setLayout(null);
@@ -223,7 +223,7 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
             }
         }
 
-        if (bestPrice != null && minDistance < SettingsManager.getInstance().getSnapRadius()) {
+        if (bestPrice != null && minDistance < SettingsService.getInstance().getSnapRadius()) {
             return new DrawingObjectPoint(rawPoint.timestamp(), bestPrice);
         } else {
             return rawPoint;
@@ -330,7 +330,7 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
         CrosshairManager.getInstance().removePropertyChangeListener("crosshairMoved", this);
         dataModel.removePropertyChangeListener(this);
         interactionManager.removePropertyChangeListener(this);
-        SettingsManager.getInstance().removePropertyChangeListener(this);
+        SettingsService.getInstance().removePropertyChangeListener(this);
         if (timeAxisPanel != null) {
             timeAxisPanel.cleanup();
         }
@@ -346,7 +346,7 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
 
         // [MODIFIED] Removed "chartTypeChanged" from this condition to decouple state.
         if ("chartColorsChanged".equals(propName) || "volumeProfileVisibilityChanged".equals(propName) || "peakHoursLinesVisibilityChanged".equals(propName) || "peakHoursOverrideChanged".equals(propName) || "peakHoursSettingsChanged".equals(propName)) {
-            SettingsManager settings = SettingsManager.getInstance();
+            SettingsService settings = SettingsService.getInstance();
             setBackground(settings.getChartBackground());
             if (getBorder() != INACTIVE_BORDER) {
                 setBorder(BorderFactory.createLineBorder(settings.getBullColor(), 2));
@@ -409,7 +409,7 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
     }
     public void setActive(boolean isActive) {
         if (isActive) {
-            setBorder(BorderFactory.createLineBorder(SettingsManager.getInstance().getBullColor(), 2));
+            setBorder(BorderFactory.createLineBorder(SettingsService.getInstance().getBullColor(), 2));
         } else {
             setBorder(INACTIVE_BORDER);
         }
@@ -432,7 +432,7 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
         Graphics2D g2d = (Graphics2D) g.create();
         g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
-        SettingsManager settings = SettingsManager.getInstance();
+        SettingsService settings = SettingsService.getInstance();
         List<KLine> rawVisibleKLines = dataModel.getVisibleKLines();
 
         BigDecimal minP, maxP;
@@ -625,7 +625,7 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
             targetKline = visibleKLines.get(slotIndex);
         }
 
-        infoPanel.updateData(targetKline, dataModel.getIndicatorManager().getIndicators(), SettingsManager.getInstance().getDisplayZoneId());
+        infoPanel.updateData(targetKline, dataModel.getIndicatorManager().getIndicators(), SettingsService.getInstance().getDisplayZoneId());
 
         Point screenPoint = infoTool.getScreenPoint();
         if (screenPoint == null) {
@@ -660,7 +660,7 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
 
         Stroke dashed = new BasicStroke(1, BasicStroke.CAP_BUTT, BasicStroke.JOIN_BEVEL, 0, new float[]{2}, 0);
         g2d.setStroke(dashed);
-        g2d.setColor(SettingsManager.getInstance().getCrosshairColor());
+        g2d.setColor(SettingsService.getInstance().getCrosshairColor());
 
         g2d.drawLine(0, y, getWidth(), y);
         if (x >= 0) {

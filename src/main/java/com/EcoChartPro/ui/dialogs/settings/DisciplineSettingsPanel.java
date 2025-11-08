@@ -1,6 +1,8 @@
 package com.EcoChartPro.ui.dialogs.settings;
 
-import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.core.settings.SettingsService;
+import com.EcoChartPro.core.settings.config.DisciplineCoachConfig;
+import com.EcoChartPro.core.settings.config.TradingConfig;
 import com.EcoChartPro.ui.components.CustomColorChooserPanel;
 
 import javax.swing.*;
@@ -14,7 +16,7 @@ import java.util.List;
 import java.util.function.Consumer;
 
 public class DisciplineSettingsPanel extends JPanel {
-    private final SettingsManager sm;
+    private final SettingsService sm;
 
     // --- Components ---
     // Make mainPanel an instance field to be accessible by helper methods
@@ -33,8 +35,8 @@ public class DisciplineSettingsPanel extends JPanel {
     private JSpinner barHeightSpinner;
     private JButton shadeColorButton, startIndicatorColorButton, endIndicatorColorButton;
 
-    public DisciplineSettingsPanel(SettingsManager settingsManager) {
-        this.sm = settingsManager;
+    public DisciplineSettingsPanel(SettingsService settingsService) {
+        this.sm = settingsService;
         setLayout(new BorderLayout(10, 10));
         setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
         initUI();
@@ -95,9 +97,9 @@ public class DisciplineSettingsPanel extends JPanel {
     private JPanel createPreferredSessionsPanel() {
         JPanel panel = new JPanel(new GridLayout(1, 4));
         panel.setBorder(BorderFactory.createTitledBorder("Preferred Trading Sessions (for Auto-Tagging)"));
-        List<SettingsManager.TradingSession> preferred = sm.getPreferredTradingSessions();
+        List<TradingConfig.TradingSession> preferred = sm.getPreferredTradingSessions();
         int i = 0;
-        for (SettingsManager.TradingSession session : SettingsManager.TradingSession.values()) {
+        for (TradingConfig.TradingSession session : TradingConfig.TradingSession.values()) {
             preferredSessionCheckboxes[i] = new JCheckBox(session.name());
             preferredSessionCheckboxes[i].setSelected(preferred.contains(session));
             panel.add(preferredSessionCheckboxes[i]);
@@ -240,10 +242,10 @@ public class DisciplineSettingsPanel extends JPanel {
         }
         
         // Preferred Sessions
-        List<SettingsManager.TradingSession> preferred = new ArrayList<>();
+        List<TradingConfig.TradingSession> preferred = new ArrayList<>();
         for (int i=0; i<4; i++) {
             if (preferredSessionCheckboxes[i].isSelected()) {
-                preferred.add(SettingsManager.TradingSession.values()[i]);
+                preferred.add(TradingConfig.TradingSession.values()[i]);
             }
         }
         sm.setPreferredTradingSessions(preferred);
@@ -269,9 +271,9 @@ public class DisciplineSettingsPanel extends JPanel {
         
         // Visual Aids
         sm.setShowPeakHoursLines(showVisualAidsCheckbox.isSelected());
-        if(shadeAreaRadio.isSelected()) sm.setPeakHoursDisplayStyle(SettingsManager.PeakHoursDisplayStyle.SHADE_AREA);
-        else if (indicatorLinesRadio.isSelected()) sm.setPeakHoursDisplayStyle(SettingsManager.PeakHoursDisplayStyle.INDICATOR_LINES);
-        else sm.setPeakHoursDisplayStyle(SettingsManager.PeakHoursDisplayStyle.BOTTOM_BAR);
+        if(shadeAreaRadio.isSelected()) sm.setPeakHoursDisplayStyle(DisciplineCoachConfig.PeakHoursDisplayStyle.SHADE_AREA);
+        else if (indicatorLinesRadio.isSelected()) sm.setPeakHoursDisplayStyle(DisciplineCoachConfig.PeakHoursDisplayStyle.INDICATOR_LINES);
+        else sm.setPeakHoursDisplayStyle(DisciplineCoachConfig.PeakHoursDisplayStyle.BOTTOM_BAR);
         sm.setPeakHoursBottomBarHeight((Integer)barHeightSpinner.getValue());
         sm.setPeakHoursColorShade(shadeColorButton.getBackground());
         sm.setPeakHoursColorStart(startIndicatorColorButton.getBackground());

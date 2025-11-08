@@ -1,6 +1,6 @@
 package com.EcoChartPro.ui.toolbar.components;
 
-import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.core.settings.SettingsService;
 import com.EcoChartPro.core.state.ReplaySessionState;
 import com.EcoChartPro.core.state.SymbolSessionState;
 import com.EcoChartPro.model.Symbol;
@@ -147,7 +147,7 @@ public final class SymbolProgressCache {
      */
     public List<SymbolProgressInfo> getFilteredProgressInfo(String query, String selectedProvider, boolean showOnlyFavorites, boolean isReplayMode) {
         String lowerCaseQuery = (query != null) ? query.toLowerCase().trim() : "";
-        SettingsManager sm = SettingsManager.getInstance();
+        SettingsService sm = SettingsService.getInstance();
 
         return progressCache.values().stream()
                 .filter(info -> {

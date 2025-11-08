@@ -4,7 +4,7 @@ import com.EcoChartPro.core.controller.LiveWindowManager;
 import com.EcoChartPro.core.controller.ReplaySessionManager;
 import com.EcoChartPro.core.journal.AutomatedTaggingService;
 import com.EcoChartPro.core.service.PnlCalculationService;
-import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.core.settings.SettingsService;
 import com.EcoChartPro.core.manager.DrawingManager;
 import com.EcoChartPro.core.state.ReplaySessionState;
 import com.EcoChartPro.core.state.SymbolSessionState;
@@ -352,7 +352,7 @@ public class PaperTradingService implements TradingService {
                 Trade closedTrade = finalizeTrade(position, closePrice, bar.timestamp(), true);
                 logger.info("Closed position {} for symbol {} via {}.", position.id(), symbol, closeReason);
 
-                if (SettingsManager.getInstance().isAutoJournalOnTradeClose()) {
+                if (SettingsService.getInstance().isAutoJournalOnTradeClose()) {
                     ReplaySessionManager.getInstance().pause();
                     pcs.firePropertyChange("tradeClosedForJournaling", null, closedTrade);
                 }
@@ -400,7 +400,7 @@ public class PaperTradingService implements TradingService {
             logger.info("Initialized candle cache for new position {} with {} buffer candles.", newPosition.id(), entryBuffer.size());
         }
 
-        BigDecimal commission = SettingsManager.getInstance().getCommissionPerTrade();
+        BigDecimal commission = SettingsService.getInstance().getCommissionPerTrade();
         if (commission != null && commission.compareTo(BigDecimal.ZERO) > 0) {
             context.accountBalance = context.accountBalance.subtract(commission);
             logger.info("Applied entry commission of {} for trade {}. New balance: {}",
@@ -416,13 +416,13 @@ public class PaperTradingService implements TradingService {
         BigDecimal pnl;
         if (position.direction() == TradeDirection.LONG) {
             pnl = exitPrice.subtract(position.entryPrice()).multiply(position.size());
-            BigDecimal spread = SettingsManager.getInstance().getSimulatedSpreadPoints();
+            BigDecimal spread = SettingsService.getInstance().getSimulatedSpreadPoints();
             if (spread != null && spread.compareTo(BigDecimal.ZERO) > 0) {
                 pnl = pnl.subtract(spread.multiply(position.size()));
             }
         } else { // SHORT
             pnl = position.entryPrice().subtract(exitPrice).multiply(position.size());
-            BigDecimal spread = SettingsManager.getInstance().getSimulatedSpreadPoints();
+            BigDecimal spread = SettingsService.getInstance().getSimulatedSpreadPoints();
             if (spread != null && spread.compareTo(BigDecimal.ZERO) > 0) {
                 pnl = pnl.subtract(spread.multiply(position.size()));
             }
@@ -625,7 +625,7 @@ public class PaperTradingService implements TradingService {
         Trade closedTrade = finalizeTrade(positionToClose, closingBar.close(), closingBar.timestamp(), false);
         logger.info("Market-closed position: {}", positionId);
 
-        if (SettingsManager.getInstance().isAutoJournalOnTradeClose()) {
+        if (SettingsService.getInstance().isAutoJournalOnTradeClose()) {
             ReplaySessionManager.getInstance().pause();
             pcs.firePropertyChange("tradeClosedForJournaling", null, closedTrade);
         }

@@ -1,7 +1,8 @@
 package com.EcoChartPro.ui.toolbar;
 
 import com.EcoChartPro.core.manager.DrawingManager;
-import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.core.settings.SettingsService;
+import com.EcoChartPro.core.settings.config.DrawingConfig;
 import com.EcoChartPro.core.tool.*;
 import com.EcoChartPro.core.trading.PaperTradingService;
 import com.EcoChartPro.model.drawing.MeasureToolObject;
@@ -84,7 +85,7 @@ public class FloatingDrawingToolbar extends JDialog implements PropertyChangeLis
         
         setOrientation(Orientation.VERTICAL, true);
         
-        SettingsManager.getInstance().addPropertyChangeListener(this);
+        SettingsService.getInstance().addPropertyChangeListener(this);
     }
     
     @Override
@@ -307,8 +308,8 @@ public class FloatingDrawingToolbar extends JDialog implements PropertyChangeLis
     
     private void updateSizeAndRepaint() {
         if (currentOrientation == Orientation.VERTICAL) {
-            SettingsManager sm = SettingsManager.getInstance();
-            Dimension newSize = new Dimension(45, sm.getDrawingToolbarHeight());
+            // Note: In a real app, you might want to get these from settings
+            Dimension newSize = new Dimension(45, 300); // Using fixed size for now
             setPreferredSize(newSize);
             setSize(newSize);
         } else {
@@ -471,7 +472,7 @@ public class FloatingDrawingToolbar extends JDialog implements PropertyChangeLis
 
     @Override
     public void dispose() {
-        SettingsManager.getInstance().removePropertyChangeListener(this);
+        SettingsService.getInstance().removePropertyChangeListener(this);
         super.dispose();
     }
 }

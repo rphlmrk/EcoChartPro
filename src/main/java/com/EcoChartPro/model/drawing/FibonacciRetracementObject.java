@@ -3,7 +3,7 @@ package com.EcoChartPro.model.drawing;
 import com.EcoChartPro.core.manager.DrawingManager;
 import com.EcoChartPro.core.manager.PriceRange;
 import com.EcoChartPro.core.manager.TimeRange;
-import com.EcoChartPro.core.settings.SettingsManager;
+import com.EcoChartPro.core.settings.SettingsService;
 import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.Timeframe;
 import com.EcoChartPro.ui.chart.axis.ChartAxis;
@@ -39,11 +39,11 @@ public record FibonacciRetracementObject(
     public record FibLevelProperties(boolean enabled, Color color) {}
 
     public FibonacciRetracementObject(UUID id, DrawingObjectPoint p1, DrawingObjectPoint p2, Color color, BasicStroke stroke, Map<Timeframe, Boolean> visibility) {
-        this(id, p1, p2, color, stroke, visibility, false, SettingsManager.getInstance().getFibRetracementDefaultLevels(), true);
+        this(id, p1, p2, color, stroke, visibility, false, SettingsService.getInstance().getFibRetracementDefaultLevels(), true);
     }
     
     public FibonacciRetracementObject(UUID id, DrawingObjectPoint p1, DrawingObjectPoint p2, Color color, BasicStroke stroke, Map<Timeframe, Boolean> visibility, boolean isLocked) {
-        this(id, p1, p2, color, stroke, visibility, isLocked, SettingsManager.getInstance().getFibRetracementDefaultLevels(), true);
+        this(id, p1, p2, color, stroke, visibility, isLocked, SettingsService.getInstance().getFibRetracementDefaultLevels(), true);
     }
 
     public FibonacciRetracementObject(UUID id, DrawingObjectPoint p1, DrawingObjectPoint p2, Color color, BasicStroke stroke, Map<Timeframe, Boolean> visibility, boolean isLocked, Map<Double, FibLevelProperties> fibLevels) {
@@ -123,7 +123,7 @@ public record FibonacciRetracementObject(
         Point s1 = new Point(axis.timeToX(p1.timestamp(), klines, tf), axis.priceToY(p1.price()));
         Point s2 = new Point(axis.timeToX(p2.timestamp(), klines, tf), axis.priceToY(p2.price()));
         Rectangle bounds = new Rectangle(Math.min(s1.x, s2.x), Math.min(s1.y, s2.y), Math.abs(s1.x - s2.x), Math.abs(s1.y - s2.y));
-        bounds.grow(SettingsManager.getInstance().getDrawingHitThreshold(), SettingsManager.getInstance().getDrawingHitThreshold());
+        bounds.grow(SettingsService.getInstance().getDrawingHitThreshold(), SettingsService.getInstance().getDrawingHitThreshold());
         return bounds.contains(screenPoint);
     }
 
@@ -196,7 +196,7 @@ public record FibonacciRetracementObject(
     }
     
     private void drawHandle(Graphics2D g, Point position) {
-        int handleSize = SettingsManager.getInstance().getDrawingHandleSize();
+        int handleSize = SettingsService.getInstance().getDrawingHandleSize();
         int x = position.x - handleSize / 2;
         int y = position.y - handleSize / 2;
         g.setStroke(new BasicStroke(1.0f));
