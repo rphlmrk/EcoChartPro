@@ -10,6 +10,8 @@ import com.EcoChartPro.ui.dashboard.theme.UITheme;
 
 import javax.swing.*;
 import java.awt.*;
+import java.beans.PropertyChangeEvent;
+import java.beans.PropertyChangeListener;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
@@ -84,7 +86,13 @@ public class TradeReplayChartPanel extends JPanel {
             updatePlayButtonIcon();
         });
 
-        SettingsService.getInstance().addPropertyChangeListener("tradeReplayTimeframesChanged", evt -> rebuildTimeframeButtons());
+        // [FIX] Corrected the listener registration to match SettingsService's method signature.
+        // The lambda now filters for the specific property change event.
+        SettingsService.getInstance().addPropertyChangeListener(evt -> {
+            if ("tradeReplayTimeframesChanged".equals(evt.getPropertyName())) {
+                SwingUtilities.invokeLater(this::rebuildTimeframeButtons);
+            }
+        });
         rebuildTimeframeButtons();
     }
 

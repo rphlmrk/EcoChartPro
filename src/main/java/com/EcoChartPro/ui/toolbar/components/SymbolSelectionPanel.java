@@ -74,7 +74,9 @@ public class SymbolSelectionPanel extends JPanel implements PropertyChangeListen
         setPreferredSize(new Dimension(300, 350));
         
         filterList(); // Initial population
-        SettingsService.getInstance().addPropertyChangeListener("favoritesChanged", this);
+        // [FIX] Corrected the method call to match the signature in SettingsService.
+        // The propertyChange method already filters for "favoritesChanged".
+        SettingsService.getInstance().addPropertyChangeListener(this);
     }
 
     @Override

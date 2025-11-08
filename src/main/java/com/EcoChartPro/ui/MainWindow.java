@@ -12,8 +12,8 @@ import com.EcoChartPro.core.manager.DrawingManager;
 import com.EcoChartPro.core.manager.UndoManager;
 import com.EcoChartPro.core.model.ChartDataModel;
 import com.EcoChartPro.core.service.InternetConnectivityService;
-import com.EcoChartPro.core.settings.SettingsService;
-import com.EcoChartPro.core.settings.config.DrawingConfig;
+import com.EcoChartPro.core.settings.SettingsService; // MODIFIED
+import com.EcoChartPro.core.settings.config.DrawingConfig; // MODIFIED
 import com.EcoChartPro.core.state.ReplaySessionState;
 import com.EcoChartPro.core.trading.PaperTradingService;
 import com.EcoChartPro.data.LiveDataManager;
@@ -239,7 +239,6 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
         PaperTradingService.getInstance().addPropertyChangeListener(this);
         InternetConnectivityService.getInstance().addPropertyChangeListener(this);
         LiveDataManager.getInstance().addPropertyChangeListener("realLatencyUpdated", this);
-        // [MODIFIED] Listen for the aggregated system state from LiveDataManager
         LiveDataManager.getInstance().addPropertyChangeListener("liveDataSystemStateChanged", this);
     }
 
@@ -259,7 +258,7 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
         PaperTradingService.getInstance().removePropertyChangeListener(this);
         InternetConnectivityService.getInstance().removePropertyChangeListener(this);
         LiveDataManager.getInstance().removePropertyChangeListener("realLatencyUpdated", this);
-        LiveDataManager.getInstance().removePropertyChangeListener("liveDataSystemStateChanged", this); // Cleanup new listener
+        LiveDataManager.getInstance().removePropertyChangeListener("liveDataSystemStateChanged", this);
 
         uiManager.disposeDialogs();
         titleBarManager.dispose();
@@ -323,13 +322,11 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
                     break;
                 case "connectivityChanged":
                     updateMenuBarConnectivityStatus((boolean) evt.getNewValue());
-                    // [MODIFIED] In replay mode, general connectivity is still relevant for the widget
                     if (isReplayMode) {
                         updateForGeneralConnectivity((boolean) evt.getNewValue());
                     }
                     break;
                 case "liveDataSystemStateChanged":
-                    // [MODIFIED] Handle the aggregated state event
                     if (evt.getNewValue() instanceof LiveDataManager.LiveDataSystemState state) {
                         updateConnectionWidget(state);
                     }
@@ -355,23 +352,16 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
             connectivityStatusLabel.setIcon(UITheme.getIcon(UITheme.Icons.WIFI_ON, 16, 16, javax.swing.UIManager.getColor("app.color.positive")));
         } else {
             connectivityStatusLabel.setIcon(UITheme.getIcon(UITheme.Icons.WIFI_OFF, 16, 16, javax.swing.UIManager.getColor("app.color.negative")));
-            // Reset latency display on disconnect
             latencyLabel.setText("-- ms");
             latencyLabel.setForeground(javax.swing.UIManager.getColor("Label.foreground"));
         }
     }
 
-    /**
-     * [MODIFIED] Central method to update the on-chart connection widget based on the live data system's state.
-     * @param state The overall state of the live data system from LiveDataManager.
-     */
     private void updateConnectionWidget(LiveDataManager.LiveDataSystemState state) {
         if (isReplayMode) {
-            // This method is primarily for live mode state changes. Replay mode is handled by updateForGeneralConnectivity.
             return;
         }
 
-        // In live mode, the live data system state is what matters.
         switch (state) {
             case INTERRUPTED:
                 connectionStatusWidget.showStatus(
@@ -391,12 +381,9 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
                 connectionStatusWidget.hideStatus();
                 break;
         }
-        repositionOverlayWidgets(); // Reposition after visibility or size changes.
+        repositionOverlayWidgets();
     }
 
-    /**
-     * [MODIFIED] Helper for replay mode or when general connectivity is the only concern.
-     */
     private void updateForGeneralConnectivity(boolean isConnected) {
         if (isConnected) {
             connectionStatusWidget.hideStatus();
@@ -689,7 +676,6 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
     public void loadSessionState(ReplaySessionState state) {
         DrawingManager.getInstance().clearAllDrawingsForAllSymbols();
         
-        // [MODIFIED] Only initialize replay-specific managers if in replay mode
         if (isReplayMode) {
             ReplaySessionManager.getInstance().startSessionFromState(state);
         }
@@ -713,7 +699,6 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
         
         workspaceManager.applyLayout(WorkspaceManager.LayoutType.ONE);
         if (!workspaceManager.getChartPanels().isEmpty()) {
-            // When loading a live session, we need to load the chart data for the active symbol
             if (!isReplayMode) {
                 loadChartForSource(sourceOpt.get());
             } else {
@@ -738,20 +723,16 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
             String command = e.getActionCommand();
             ChartPanel activePanel = workspaceManager.getActiveChartPanel();
 
-            // --- 1. Handle Symbol Change ---
             if ("selectionChanged".equals(command)) {
                 DataSourceManager.ChartDataSource newSource = topToolbarPanel.getSelectedDataSource();
                 if (isReplayMode) {
                     handleReplaySymbolChange();
                 } else {
-                    // In live mode, load the new source and update all relevant services and charts.
                     loadChartForSource(newSource);
                 }
             } 
-            // --- 2. Handle Timeframe Change ---
             else if (command.startsWith("timeframeChanged")) {
                 Timeframe newTimeframe = null;
-                // --- Custom Timeframe Dialog ---
                 if (e.getSource() instanceof Timeframe) {
                     newTimeframe = (Timeframe) e.getSource();
                 } else {
@@ -769,7 +750,6 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
                     }
                 }
             } 
-            // --- 3. Handle Layout Change ---
             else if (command.startsWith("layoutChanged:")) {
                 try {
                     String layoutName = command.substring("layoutChanged:".length());
@@ -779,35 +759,25 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
                     System.err.println("Invalid layout type received: " + command);
                 }
             } 
-            // --- 4. Handle Chart Type Change ---
             else if (command.startsWith("chartTypeChanged:")) {
-                if (activePanel != null) { // [MODIFIED] Check for active panel
+                if (activePanel != null) {
                     try {
                         String typeName = command.substring("chartTypeChanged:".length());
                         ChartType type = ChartType.valueOf(typeName);
-                        activePanel.setChartType(type); // [MODIFIED] Command the active panel
+                        activePanel.setChartType(type);
                     } catch (IllegalArgumentException ex) {
                         System.err.println("Invalid chart type received: " + command);
                     }
                 }
             }
-            // --- 5. Handle Trading Actions ---
             else if ("placeLongOrder".equals(command) || "placeShortOrder".equals(command)) {
                 handleTradeAction(command);
             }
         });
     }
 
-    /**
-     * [NEW] A callback method invoked by WorkspaceManager when the active chart panel changes.
-     * This method is responsible for synchronizing shared UI elements, like the top toolbar,
-     * with the state of the newly activated panel.
-     * @param oldPanel The previously active panel (can be null).
-     * @param newPanel The newly active panel (can be null).
-     */
     public void onActivePanelChanged(ChartPanel oldPanel, ChartPanel newPanel) {
         if (newPanel != null) {
-            // Update the toolbar's UI to reflect the new active panel's state
             topToolbarPanel.updateChartTypeDisplay(newPanel.getChartType());
             if (newPanel.getDataModel().getCurrentDisplayTimeframe() != null) {
                 topToolbarPanel.selectTimeframe(newPanel.getDataModel().getCurrentDisplayTimeframe().displayName());
@@ -828,14 +798,14 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
         
         Timeframe newTimeframe = workspaceManager.getActiveChartPanel() != null
                 ? workspaceManager.getActiveChartPanel().getDataModel().getCurrentDisplayTimeframe()
-                : Timeframe.M5; // Fallback to 5m
+                : Timeframe.M5;
 
         topToolbarPanel.populateTimeframes(newSource.timeframes());
         topToolbarPanel.selectTimeframe(newTimeframe.displayName());
         
         for (ChartPanel panel : workspaceManager.getChartPanels()) {
             panel.getDataModel().configureForReplay(newTimeframe, newSource);
-            panel.getDataModel().setDisplayTimeframe(newTimeframe, true); // Force reload
+            panel.getDataModel().setDisplayTimeframe(newTimeframe, true);
         }
         
     }
@@ -845,9 +815,7 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
         if (source.dbPath() != null) {
             setDbManagerForSource(source);
         } else {
-            // For live sources, we might use a global DB or none if it's purely API driven.
-            // Let's assume a global DB for now. If activeDbManager is null, ChartDataModel will handle it.
-            setDbManagerForSource(null); // Or set to a global DB manager instance
+            setDbManagerForSource(null);
         }
         PaperTradingService.getInstance().switchActiveSymbol(source.symbol());
         DrawingManager.getInstance().setActiveSymbol(source.symbol());
@@ -869,23 +837,14 @@ public class MainWindow extends JFrame implements PropertyChangeListener {
         }
     }
 
-    /**
-     * Changes the active symbol for the current chart window.
-     * This method is designed to be called from the KeyboardShortcutManager.
-     * @param newSource The new data source to load.
-     */
     public void changeActiveSymbol(DataSourceManager.ChartDataSource newSource) {
         if (newSource == null) return;
 
-        // Update the UI component that shows the current symbol
         topToolbarPanel.setCurrentSymbol(newSource);
 
-        // Trigger the actual data loading / session switching
         if (isReplayMode) {
-            // This method reads the source from the toolbar, which we just set.
             handleReplaySymbolChange();
         } else {
-            // This method handles loading a new source in live mode.
             loadChartForSource(newSource);
         }
     }

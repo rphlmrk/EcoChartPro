@@ -73,8 +73,9 @@ public class ChartTypeSelectionPanel extends JPanel implements PropertyChangeLis
         svpCheckBox.addActionListener(e -> sm.setSvpVisible(svpCheckBox.isSelected()));
         add(svpCheckBox, gbc);
 
-        // Listen for external changes to update the checkboxes
-        sm.addPropertyChangeListener("volumeProfileVisibilityChanged", this);
+        // [FIX] Corrected the method call to match the signature in SettingsService.
+        // The propertyChange method already filters for "volumeProfileVisibilityChanged".
+        sm.addPropertyChangeListener(this);
     }
 
     @Override

@@ -32,7 +32,9 @@ public final class CrosshairManager implements PropertyChangeListener {
 
     private CrosshairManager() {
         this.frameDelayMs = SettingsService.getInstance().getCrosshairFps().getDelayMs();
-        SettingsService.getInstance().addPropertyChangeListener("crosshairFpsChanged", this);
+        // [FIX] Corrected the method call to match the signature in SettingsService.
+        // The propertyChange method already filters for "crosshairFpsChanged".
+        SettingsService.getInstance().addPropertyChangeListener(this);
     }
 
     public static CrosshairManager getInstance() {

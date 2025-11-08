@@ -1,6 +1,5 @@
 package com.EcoChartPro.ui.dialogs;
 
-import com.EcoChartPro.core.settings.ChecklistManager;
 import com.EcoChartPro.core.settings.MistakeManager;
 import com.EcoChartPro.core.settings.SettingsService;
 import com.EcoChartPro.ui.dialogs.settings.*;

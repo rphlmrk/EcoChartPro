@@ -8,8 +8,7 @@ import com.EcoChartPro.model.drawing.FibonacciRetracementObject.FibLevelProperti
 import com.EcoChartPro.model.drawing.TextProperties;
 import com.EcoChartPro.utils.AppDataManager;
 import com.EcoChartPro.utils.SessionManager;
-import com.fasterxml.jackson.annotation.JsonAutoDetect;
-import com.fasterxml.jackson.annotation.PropertyAccessor;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.module.SimpleModule;
@@ -22,31 +21,36 @@ import java.awt.Color;
 import java.awt.Font;
 import java.beans.PropertyChangeListener;
 import java.beans.PropertyChangeSupport;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalTime;
 import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Properties;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
- * A singleton service that manages all application settings.
- * It governs domain-specific configuration objects, handles persistence,
- * and notifies listeners of changes. This replaces the old monolithic SettingsManager.
+ * [REFACTORED] A singleton service that manages all application settings using a .properties file
+ * for robust startup, while maintaining a modern internal structure with config objects.
  */
 public final class SettingsService {
 
     private static final Logger logger = LoggerFactory.getLogger(SettingsService.class);
     private static volatile SettingsService instance;
-    // [FIX] Mark the PropertyChangeSupport as transient to prevent serialization
     private transient final PropertyChangeSupport pcs = new PropertyChangeSupport(this);
+    private final Properties properties = new Properties();
     private static final ObjectMapper jsonMapper = new ObjectMapper();
 
-    // --- Configuration Data Objects ---
+    // Configuration Data Objects
     private GeneralConfig generalConfig = new GeneralConfig();
     private ChartConfig chartConfig = new ChartConfig();
     private VolumeProfileConfig volumeProfileConfig = new VolumeProfileConfig();
@@ -57,8 +61,6 @@ public final class SettingsService {
     static {
         jsonMapper.registerModule(new JavaTimeModule());
         jsonMapper.enable(SerializationFeature.INDENT_OUTPUT);
-        jsonMapper.setVisibility(PropertyAccessor.FIELD, JsonAutoDetect.Visibility.ANY);
-
         SimpleModule module = new SimpleModule();
         module.addSerializer(Color.class, new SessionManager.ColorSerializer());
         module.addDeserializer(Color.class, new SessionManager.ColorDeserializer());
@@ -85,54 +87,240 @@ public final class SettingsService {
     }
 
     private void loadSettings() {
-        Optional<Path> configPathOpt = AppDataManager.getConfigFilePath("settings.json");
+        Optional<Path> configPathOpt = AppDataManager.getAppConfigPath();
         if (configPathOpt.isPresent() && Files.exists(configPathOpt.get())) {
-            try {
-                // Read the top-level service object from JSON
-                SettingsService loadedService = jsonMapper.readValue(configPathOpt.get().toFile(), SettingsService.class);
-                // Assign the loaded config objects to this instance
-                this.generalConfig = loadedService.generalConfig;
-                this.chartConfig = loadedService.chartConfig;
-                this.volumeProfileConfig = loadedService.volumeProfileConfig;
-                this.drawingConfig = loadedService.drawingConfig;
-                this.tradingConfig = loadedService.tradingConfig;
-                this.disciplineCoachConfig = loadedService.disciplineCoachConfig;
-                logger.info("Successfully loaded settings from settings.json");
+            try (FileInputStream in = new FileInputStream(configPathOpt.get().toFile())) {
+                properties.load(in);
+                logger.info("Successfully loaded settings from app_state.properties");
             } catch (IOException e) {
-                logger.error("Failed to load settings from settings.json, using defaults.", e);
-                initializeDefaultColors(); // Fallback to defaults
+                logger.error("Failed to load settings file, using defaults.", e);
             }
         } else {
-            logger.info("No settings.json file found. Initializing with default values.");
-            initializeDefaultColors();
-            saveSettings(); // Create the file for the first time
+            logger.info("No app_state.properties file found. Initializing with default values.");
+        }
+
+        // --- General Config ---
+        generalConfig.setUiScale(Float.parseFloat(properties.getProperty("app.uiScale", "1.0f")));
+        generalConfig.setCurrentTheme(Theme.valueOf(properties.getProperty("app.theme", "DARK")));
+        generalConfig.setDisplayZoneId(ZoneId.of(properties.getProperty("chart.zoneId", ZoneId.systemDefault().getId())));
+        generalConfig.setImageSource(GeneralConfig.ImageSource.valueOf(properties.getProperty("dashboard.imageSource", "LOCAL")));
+
+        // --- Chart Config ---
+        chartConfig.initializeDefaultColors(generalConfig.getCurrentTheme() == Theme.DARK);
+        chartConfig.setCurrentChartType(ChartType.valueOf(properties.getProperty("chart.type", "CANDLES")));
+        chartConfig.setBullColor(parseColor(properties.getProperty("chart.bullColor"), chartConfig.getBullColor()));
+        chartConfig.setBearColor(parseColor(properties.getProperty("chart.bearColor"), chartConfig.getBearColor()));
+        chartConfig.setGridColor(parseColor(properties.getProperty("chart.gridColor"), chartConfig.getGridColor()));
+        chartConfig.setChartBackground(parseColor(properties.getProperty("chart.backgroundColor"), chartConfig.getChartBackground()));
+        chartConfig.setCrosshairColor(parseColor(properties.getProperty("chart.crosshairColor"), chartConfig.getCrosshairColor()));
+        chartConfig.setAxisTextColor(parseColor(properties.getProperty("chart.axisTextColor"), chartConfig.getAxisTextColor()));
+        chartConfig.setLivePriceLabelBullTextColor(parseColor(properties.getProperty("chart.livePriceLabel.bullTextColor"), chartConfig.getLivePriceLabelBullTextColor()));
+        chartConfig.setLivePriceLabelBearTextColor(parseColor(properties.getProperty("chart.livePriceLabel.bearTextColor"), chartConfig.getLivePriceLabelBearTextColor()));
+        chartConfig.setLivePriceLabelFontSize(Integer.parseInt(properties.getProperty("chart.livePriceLabel.fontSize", "12")));
+        chartConfig.setCrosshairLabelBackgroundColor(parseColor(properties.getProperty("crosshair.label.backgroundColor"), chartConfig.getCrosshairLabelBackgroundColor()));
+        chartConfig.setCrosshairLabelForegroundColor(parseColor(properties.getProperty("crosshair.label.foregroundColor"), chartConfig.getCrosshairLabelForegroundColor()));
+        chartConfig.setDaySeparatorsEnabled(Boolean.parseBoolean(properties.getProperty("chart.daySeparators.enabled", "true")));
+        chartConfig.setDaySeparatorStartTime(LocalTime.parse(properties.getProperty("chart.daySeparators.startTimeUTC", "00:00")));
+        chartConfig.setDaySeparatorColor(parseColor(properties.getProperty("chart.daySeparators.color"), chartConfig.getDaySeparatorColor()));
+        chartConfig.setCrosshairFps(ChartConfig.CrosshairFPS.valueOf(properties.getProperty("chart.crosshairFps", "FPS_45")));
+        chartConfig.setPriceAxisLabelsEnabled(Boolean.parseBoolean(properties.getProperty("chart.priceAxisLabels.enabled", "true")));
+        chartConfig.setPriceAxisLabelsShowOrders(Boolean.parseBoolean(properties.getProperty("chart.priceAxisLabels.showOrders", "true")));
+        chartConfig.setPriceAxisLabelsShowDrawings(Boolean.parseBoolean(properties.getProperty("chart.priceAxisLabels.showDrawings", "true")));
+        chartConfig.setPriceAxisLabelsShowFibonaccis(Boolean.parseBoolean(properties.getProperty("chart.priceAxisLabels.showFibonaccis", "false")));
+        chartConfig.setFootprintCandleOpacity(Integer.parseInt(properties.getProperty("footprint.candleOpacity", "20")));
+
+        // --- Volume Profile Config ---
+        volumeProfileConfig.setVrvpVisible(Boolean.parseBoolean(properties.getProperty("chart.vrvpVisible", "false")));
+        volumeProfileConfig.setSvpVisible(Boolean.parseBoolean(properties.getProperty("chart.svpVisible", "false")));
+        volumeProfileConfig.setVrvpUpVolumeColor(parseColor(properties.getProperty("vrvp.color.upVolume"), volumeProfileConfig.getVrvpUpVolumeColor()));
+        volumeProfileConfig.setVrvpDownVolumeColor(parseColor(properties.getProperty("vrvp.color.downVolume"), volumeProfileConfig.getVrvpDownVolumeColor()));
+        volumeProfileConfig.setVrvpPocColor(parseColor(properties.getProperty("vrvp.color.poc"), volumeProfileConfig.getVrvpPocColor()));
+        volumeProfileConfig.setVrvpValueAreaUpColor(parseColor(properties.getProperty("vrvp.color.valueAreaUp"), volumeProfileConfig.getVrvpValueAreaUpColor()));
+        volumeProfileConfig.setVrvpValueAreaDownColor(parseColor(properties.getProperty("vrvp.color.valueAreaDown"), volumeProfileConfig.getVrvpValueAreaDownColor()));
+        volumeProfileConfig.setVrvpRowHeight(Integer.parseInt(properties.getProperty("vrvp.rowHeight", "1")));
+        volumeProfileConfig.setVrvpPocLineStroke(new BasicStroke(Float.parseFloat(properties.getProperty("vrvp.pocLineWidth", "2.0"))));
+
+        // --- Drawing Config ---
+        drawingConfig.setDrawingToolbarPosition(DrawingConfig.ToolbarPosition.valueOf(properties.getProperty("toolbar.position", "LEFT")));
+        drawingConfig.setSnapRadius(Integer.parseInt(properties.getProperty("chart.snapRadius", "10")));
+        drawingConfig.setDrawingHitThreshold(Integer.parseInt(properties.getProperty("drawing.hitThreshold", "8")));
+        drawingConfig.setDrawingHandleSize(Integer.parseInt(properties.getProperty("drawing.handleSize", "8")));
+        loadComplexProperty("tool.templates.v2.json", new TypeReference<Map<String, List<DrawingConfig.DrawingToolTemplate>>>() {}, drawingConfig::setToolTemplates);
+        loadComplexProperty("tool.activeTemplates.v2.json", new TypeReference<Map<String, UUID>>() {}, drawingConfig::setActiveToolTemplates);
+        
+        // --- Trading Config ---
+        tradingConfig.setAutoSaveInterval(Integer.parseInt(properties.getProperty("replay.autoSaveInterval", "100")));
+        tradingConfig.setCommissionPerTrade(new BigDecimal(properties.getProperty("simulation.commissionPerTrade", "0.0")));
+        tradingConfig.setSimulatedSpreadPoints(new BigDecimal(properties.getProperty("simulation.simulatedSpreadPoints", "0.0")));
+        tradingConfig.setAutoJournalOnTradeClose(Boolean.parseBoolean(properties.getProperty("simulation.autoJournalOnTradeClose", "true")));
+        tradingConfig.setSessionHighlightingEnabled(Boolean.parseBoolean(properties.getProperty("chart.sessionHighlighting.enabled", "true")));
+        tradingConfig.setTradeCandleRetentionMonths(Integer.parseInt(properties.getProperty("trading.candleRetentionMonths", "12")));
+        tradingConfig.setTradeReplayAvailableTimeframes(new ArrayList<>(Arrays.asList(properties.getProperty("tradeReplay.availableTimeframes", "1m,5m,15m").split(","))));
+        String favSymbols = properties.getProperty("favorite.symbols", "");
+        if (!favSymbols.isEmpty()) {
+            tradingConfig.setFavoriteSymbols(new ArrayList<>(Arrays.asList(favSymbols.split(","))));
+        }
+        for (TradingConfig.TradingSession session : TradingConfig.TradingSession.values()) {
+            tradingConfig.getSessionEnabled().put(session, Boolean.parseBoolean(properties.getProperty("session." + session.name() + ".enabled", "true")));
+        }
+        
+        // --- Discipline Coach Config ---
+        disciplineCoachConfig.setDisciplineCoachEnabled(Boolean.parseBoolean(properties.getProperty("discipline.enabled", "true")));
+        disciplineCoachConfig.setOptimalTradeCountOverride(Integer.parseInt(properties.getProperty("discipline.tradeCountOverride", "-1")));
+        disciplineCoachConfig.setOvertrainingNudgeEnabled(Boolean.parseBoolean(properties.getProperty("discipline.nudge.overtraining", "true")));
+        disciplineCoachConfig.setFatigueNudgeEnabled(Boolean.parseBoolean(properties.getProperty("discipline.nudge.fatigue", "true")));
+        disciplineCoachConfig.setWinStreakNudgeEnabled(Boolean.parseBoolean(properties.getProperty("discipline.nudge.winStreak", "true")));
+        disciplineCoachConfig.setLossStreakNudgeEnabled(Boolean.parseBoolean(properties.getProperty("discipline.nudge.lossStreak", "true")));
+        disciplineCoachConfig.setFastForwardTime(LocalTime.parse(properties.getProperty("discipline.nudge.fastForwardTime", "00:00")));
+        disciplineCoachConfig.setShowPeakHoursLines(Boolean.parseBoolean(properties.getProperty("discipline.showPeakHoursLines", "true")));
+        disciplineCoachConfig.setPeakHoursDisplayStyle(DisciplineCoachConfig.PeakHoursDisplayStyle.valueOf(properties.getProperty("discipline.peakHours.style", "INDICATOR_LINES")));
+        disciplineCoachConfig.setPeakHoursColorShade(parseColor(properties.getProperty("discipline.peakHours.color.shade"), new Color(76, 175, 80, 20)));
+        disciplineCoachConfig.setPeakHoursColorStart(parseColor(properties.getProperty("discipline.peakHours.color.start"), new Color(76, 175, 80, 150)));
+        disciplineCoachConfig.setPeakHoursColorEnd(parseColor(properties.getProperty("discipline.peakHours.color.end"), new Color(0, 150, 136, 150)));
+        disciplineCoachConfig.setPeakHoursBottomBarHeight(Integer.parseInt(properties.getProperty("discipline.peakHours.bottomBarHeight", "4")));
+        String overrideHoursStr = properties.getProperty("discipline.peakHoursOverride", "");
+        if (!overrideHoursStr.isEmpty()) {
+            disciplineCoachConfig.setPeakPerformanceHoursOverride(Arrays.stream(overrideHoursStr.split(",")).map(String::trim).map(Integer::parseInt).collect(Collectors.toList()));
+        }
+        String preferredSessionsStr = properties.getProperty("discipline.preferredTradingSessions", "LONDON,NEW_YORK");
+        if (!preferredSessionsStr.isEmpty()) {
+             disciplineCoachConfig.setPreferredTradingSessions(Arrays.stream(preferredSessionsStr.split(",")).map(String::trim).map(TradingConfig.TradingSession::valueOf).collect(Collectors.toList()));
+        }
+
+        saveSettings(); // Ensure any new default properties are written to the file
+    }
+
+    private <T> void loadComplexProperty(String key, TypeReference<T> type, java.util.function.Consumer<T> setter) {
+        String json = properties.getProperty(key);
+        if (json != null && !json.isBlank()) {
+            try {
+                setter.accept(jsonMapper.readValue(json, type));
+            } catch (IOException e) {
+                logger.error("Failed to parse complex property '{}' from settings.", key, e);
+            }
         }
     }
 
     private synchronized void saveSettings() {
-        Optional<Path> configPathOpt = AppDataManager.getConfigFilePath("settings.json");
+        // General
+        properties.setProperty("app.uiScale", String.valueOf(generalConfig.getUiScale()));
+        properties.setProperty("app.theme", generalConfig.getCurrentTheme().name());
+        properties.setProperty("chart.zoneId", generalConfig.getDisplayZoneId().getId());
+        properties.setProperty("dashboard.imageSource", generalConfig.getImageSource().name());
+
+        // Chart
+        properties.setProperty("chart.type", chartConfig.getCurrentChartType().name());
+        properties.setProperty("chart.bullColor", formatColor(chartConfig.getBullColor()));
+        properties.setProperty("chart.bearColor", formatColor(chartConfig.getBearColor()));
+        properties.setProperty("chart.gridColor", formatColor(chartConfig.getGridColor()));
+        properties.setProperty("chart.backgroundColor", formatColor(chartConfig.getChartBackground()));
+        properties.setProperty("chart.crosshairColor", formatColor(chartConfig.getCrosshairColor()));
+        properties.setProperty("chart.axisTextColor", formatColor(chartConfig.getAxisTextColor()));
+        properties.setProperty("chart.livePriceLabel.bullTextColor", formatColor(chartConfig.getLivePriceLabelBullTextColor()));
+        properties.setProperty("chart.livePriceLabel.bearTextColor", formatColor(chartConfig.getLivePriceLabelBearTextColor()));
+        properties.setProperty("chart.livePriceLabel.fontSize", String.valueOf(chartConfig.getLivePriceLabelFontSize()));
+        properties.setProperty("crosshair.label.backgroundColor", formatColor(chartConfig.getCrosshairLabelBackgroundColor()));
+        properties.setProperty("crosshair.label.foregroundColor", formatColor(chartConfig.getCrosshairLabelForegroundColor()));
+        properties.setProperty("chart.daySeparators.enabled", String.valueOf(chartConfig.isDaySeparatorsEnabled()));
+        properties.setProperty("chart.daySeparators.startTimeUTC", chartConfig.getDaySeparatorStartTime().toString());
+        properties.setProperty("chart.daySeparators.color", formatColor(chartConfig.getDaySeparatorColor()));
+        properties.setProperty("chart.crosshairFps", chartConfig.getCrosshairFps().name());
+        properties.setProperty("chart.priceAxisLabels.enabled", String.valueOf(chartConfig.isPriceAxisLabelsEnabled()));
+        properties.setProperty("chart.priceAxisLabels.showOrders", String.valueOf(chartConfig.isPriceAxisLabelsShowOrders()));
+        properties.setProperty("chart.priceAxisLabels.showDrawings", String.valueOf(chartConfig.isPriceAxisLabelsShowDrawings()));
+        properties.setProperty("chart.priceAxisLabels.showFibonaccis", String.valueOf(chartConfig.isPriceAxisLabelsShowFibonaccis()));
+        properties.setProperty("footprint.candleOpacity", String.valueOf(chartConfig.getFootprintCandleOpacity()));
+
+        // Volume Profile
+        properties.setProperty("chart.vrvpVisible", String.valueOf(volumeProfileConfig.isVrvpVisible()));
+        properties.setProperty("chart.svpVisible", String.valueOf(volumeProfileConfig.isSvpVisible()));
+        properties.setProperty("vrvp.color.upVolume", formatColor(volumeProfileConfig.getVrvpUpVolumeColor()));
+        properties.setProperty("vrvp.color.downVolume", formatColor(volumeProfileConfig.getVrvpDownVolumeColor()));
+        properties.setProperty("vrvp.color.poc", formatColor(volumeProfileConfig.getVrvpPocColor()));
+        properties.setProperty("vrvp.color.valueAreaUp", formatColor(volumeProfileConfig.getVrvpValueAreaUpColor()));
+        properties.setProperty("vrvp.color.valueAreaDown", formatColor(volumeProfileConfig.getVrvpValueAreaDownColor()));
+        properties.setProperty("vrvp.rowHeight", String.valueOf(volumeProfileConfig.getVrvpRowHeight()));
+        properties.setProperty("vrvp.pocLineWidth", String.valueOf(volumeProfileConfig.getVrvpPocLineStroke().getLineWidth()));
+
+        // Drawing
+        properties.setProperty("toolbar.position", drawingConfig.getDrawingToolbarPosition().name());
+        properties.setProperty("chart.snapRadius", String.valueOf(drawingConfig.getSnapRadius()));
+        properties.setProperty("drawing.hitThreshold", String.valueOf(drawingConfig.getDrawingHitThreshold()));
+        properties.setProperty("drawing.handleSize", String.valueOf(drawingConfig.getDrawingHandleSize()));
+        saveComplexProperty("tool.templates.v2.json", drawingConfig.getToolTemplates());
+        saveComplexProperty("tool.activeTemplates.v2.json", drawingConfig.getActiveToolTemplates());
+
+        // Trading
+        properties.setProperty("replay.autoSaveInterval", String.valueOf(tradingConfig.getAutoSaveInterval()));
+        properties.setProperty("simulation.commissionPerTrade", tradingConfig.getCommissionPerTrade().toPlainString());
+        properties.setProperty("simulation.simulatedSpreadPoints", tradingConfig.getSimulatedSpreadPoints().toPlainString());
+        properties.setProperty("simulation.autoJournalOnTradeClose", String.valueOf(tradingConfig.isAutoJournalOnTradeClose()));
+        properties.setProperty("chart.sessionHighlighting.enabled", String.valueOf(tradingConfig.isSessionHighlightingEnabled()));
+        properties.setProperty("trading.candleRetentionMonths", String.valueOf(tradingConfig.getTradeCandleRetentionMonths()));
+        properties.setProperty("tradeReplay.availableTimeframes", String.join(",", tradingConfig.getTradeReplayAvailableTimeframes()));
+        properties.setProperty("favorite.symbols", String.join(",", tradingConfig.getFavoriteSymbols()));
+        for (TradingConfig.TradingSession session : TradingConfig.TradingSession.values()) {
+            properties.setProperty("session." + session.name() + ".enabled", String.valueOf(tradingConfig.getSessionEnabled().get(session)));
+        }
+
+        // Discipline Coach
+        properties.setProperty("discipline.enabled", String.valueOf(disciplineCoachConfig.isDisciplineCoachEnabled()));
+        properties.setProperty("discipline.tradeCountOverride", String.valueOf(disciplineCoachConfig.getOptimalTradeCountOverride()));
+        properties.setProperty("discipline.nudge.overtraining", String.valueOf(disciplineCoachConfig.isOvertrainingNudgeEnabled()));
+        properties.setProperty("discipline.nudge.fatigue", String.valueOf(disciplineCoachConfig.isFatigueNudgeEnabled()));
+        properties.setProperty("discipline.nudge.winStreak", String.valueOf(disciplineCoachConfig.isWinStreakNudgeEnabled()));
+        properties.setProperty("discipline.nudge.lossStreak", String.valueOf(disciplineCoachConfig.isLossStreakNudgeEnabled()));
+        properties.setProperty("discipline.nudge.fastForwardTime", disciplineCoachConfig.getFastForwardTime().toString());
+        properties.setProperty("discipline.showPeakHoursLines", String.valueOf(disciplineCoachConfig.isShowPeakHoursLines()));
+        properties.setProperty("discipline.peakHours.style", disciplineCoachConfig.getPeakHoursDisplayStyle().name());
+        properties.setProperty("discipline.peakHours.color.shade", formatColor(disciplineCoachConfig.getPeakHoursColorShade()));
+        properties.setProperty("discipline.peakHours.color.start", formatColor(disciplineCoachConfig.getPeakHoursColorStart()));
+        properties.setProperty("discipline.peakHours.color.end", formatColor(disciplineCoachConfig.getPeakHoursColorEnd()));
+        properties.setProperty("discipline.peakHours.bottomBarHeight", String.valueOf(disciplineCoachConfig.getPeakHoursBottomBarHeight()));
+        properties.setProperty("discipline.peakHoursOverride", disciplineCoachConfig.getPeakPerformanceHoursOverride().stream().map(String::valueOf).collect(Collectors.joining(",")));
+        properties.setProperty("discipline.preferredTradingSessions", disciplineCoachConfig.getPreferredTradingSessions().stream().map(Enum::name).collect(Collectors.joining(",")));
+
+        // Persist to file
+        Optional<Path> configPathOpt = AppDataManager.getAppConfigPath();
         if (configPathOpt.isPresent()) {
-            try {
-                jsonMapper.writeValue(configPathOpt.get().toFile(), this);
+            try (FileOutputStream out = new FileOutputStream(configPathOpt.get().toFile())) {
+                properties.store(out, "Eco Chart Pro Application State");
             } catch (IOException e) {
-                logger.error("Failed to save settings to settings.json.", e);
+                logger.error("Failed to save settings.", e);
             }
         }
     }
-    
-    private void initializeDefaultColors() {
-        boolean isDark = generalConfig.getCurrentTheme() == Theme.DARK;
-        chartConfig.initializeDefaultColors(isDark);
-        volumeProfileConfig.initializeDefaultColors(isDark);
+
+    private void saveComplexProperty(String key, Object value) {
+        try {
+            properties.setProperty(key, jsonMapper.writeValueAsString(value));
+        } catch (IOException e) {
+            logger.error("Failed to serialize complex property '{}' to settings.", key, e);
+        }
     }
 
-    // --- Property Change Listeners ---
-    public void addPropertyChangeListener(PropertyChangeListener listener) { pcs.addPropertyChangeListener(listener); }
-    public void addPropertyChangeListener(String propertyName, PropertyChangeListener listener) { pcs.addPropertyChangeListener(propertyName, listener); }
-    public void removePropertyChangeListener(PropertyChangeListener listener) { pcs.removePropertyChangeListener(listener); }
-    public void removePropertyChangeListener(String propertyName, PropertyChangeListener listener) { pcs.removePropertyChangeListener(propertyName, listener); }
+    private String formatColor(Color c) {
+        if (c == null) return "0,0,0,255";
+        return c.getRed() + "," + c.getGreen() + "," + c.getBlue() + "," + c.getAlpha();
+    }
 
-    // --- Delegating Getters & Setters ---
+    private Color parseColor(String s, Color defaultColor) {
+        if (s == null || s.isBlank()) return defaultColor;
+        try {
+            String[] parts = s.split(",");
+            return new Color(Integer.parseInt(parts[0]), Integer.parseInt(parts[1]), Integer.parseInt(parts[2]), Integer.parseInt(parts[3]));
+        } catch (Exception e) {
+            logger.warn("Could not parse color string '{}', using default.", s);
+            return defaultColor;
+        }
+    }
+
+    // --- The rest of the getters and setters are the same as before ---
+    // --- They just delegate to the internal config objects ---
+    
+    // Property Change Listeners
+    public void addPropertyChangeListener(PropertyChangeListener listener) { pcs.addPropertyChangeListener(listener); }
+    public void removePropertyChangeListener(PropertyChangeListener listener) { pcs.removePropertyChangeListener(listener); }
 
     // GeneralConfig
     public Theme getCurrentTheme() { return generalConfig.getCurrentTheme(); }
@@ -141,8 +329,8 @@ public final class SettingsService {
             Theme oldVal = this.generalConfig.getCurrentTheme();
             this.generalConfig.setCurrentTheme(newTheme);
             ThemeManager.applyTheme(newTheme);
-            // Update all theme-dependent colors
-            initializeDefaultColors();
+            chartConfig.initializeDefaultColors(newTheme == Theme.DARK);
+            volumeProfileConfig.initializeDefaultColors(newTheme == Theme.DARK);
             saveSettings();
             pcs.firePropertyChange("themeChanged", oldVal, newTheme);
             pcs.firePropertyChange("chartColorsChanged", null, null);

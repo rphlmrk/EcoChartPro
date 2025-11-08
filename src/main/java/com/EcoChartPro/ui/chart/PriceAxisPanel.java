@@ -72,13 +72,9 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
         PriceScaleDrawer drawer = new PriceScaleDrawer();
         add(drawer, BorderLayout.CENTER);
 
-        SettingsService sm = SettingsService.getInstance();
-        sm.addPropertyChangeListener("priceAxisLabelsEnabledChanged", this);
-        sm.addPropertyChangeListener("priceAxisLabelsVisibilityChanged", this);
-        sm.addPropertyChangeListener("chartColorsChanged", this);
-        sm.addPropertyChangeListener("livePriceLabelFontSizeChanged", this);
-        sm.addPropertyChangeListener("crosshairLabelColorChanged", this);
-        // [REMOVED] Listening to global chart type change is no longer correct.
+        // [FIX] Replaced multiple invalid calls with a single valid listener registration.
+        // The propertyChange method already calls repaint() for all events.
+        SettingsService.getInstance().addPropertyChangeListener(this);
         CrosshairManager.getInstance().addPropertyChangeListener("crosshairMoved", this);
         
         startRepaintTimer();
@@ -126,6 +122,7 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
                 this.crosshairPoint = null;
             }
         }
+        // Repaint for any received event (from SettingsService or CrosshairManager)
         repaint();
     }
     

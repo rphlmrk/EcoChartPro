@@ -82,7 +82,8 @@ runtime {
         'java.security.jgss',
         'java.security.sasl',
         'jdk.crypto.ec',
-        'jdk.crypto.cryptoki'
+        'jdk.crypto.cryptoki',
+        'jdk.localedata'
     ]
 
     jpackage {
@@ -130,3 +131,7 @@ runtime {
 
 // Ensure the fat JAR is built before the jpackage task runs
 tasks.jpackage.dependsOn(tasks.shadowJar)
+
+tasks.named('run') {
+  jvmArgs = ['-Duser.language=en', '-Duser.country=US']
+}

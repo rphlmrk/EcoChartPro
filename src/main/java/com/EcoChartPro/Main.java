@@ -20,8 +20,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
-// MODIFIED: Removed AtomicBoolean as it's ineffective across classloaders
-// import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.Locale; // Import Locale
 
 import javax.swing.JDialog;
 import javax.swing.JFrame;
@@ -32,11 +31,16 @@ import com.EcoChartPro.utils.DatabaseManager;
 public class Main {
 
     private static Logger logger;
-    // MODIFIED: Replaced AtomicBoolean with a System Property check for a true global lock.
     private static final String INITIALIZED_PROPERTY = "ecochartpro.initialized";
 
 
     public static void main(String[] args) {
+        // [DEFINITIVE FIX] Set a default, stable locale as the VERY FIRST action.
+        // This prevents a NoClassDefFoundError for java.util.Formatter on systems
+        // with misconfigured locales, which can be triggered by early class loading
+        // (e.g., during BigDecimal deserialization by Jackson).
+        Locale.setDefault(Locale.US);
+
         // MODIFIED: Use a system property to ensure single initialization across the entire JVM.
         if ("true".equals(System.getProperty(INITIALIZED_PROPERTY))) {
             System.out.println("Application already initialized. Ignoring subsequent main() call.");
