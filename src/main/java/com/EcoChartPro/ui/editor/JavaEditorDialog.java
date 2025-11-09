@@ -168,22 +168,21 @@ public class JavaEditorDialog extends JDialog {
         JPanel panel = new JPanel(new BorderLayout());
         DefaultMutableTreeNode root = new DefaultMutableTreeNode("Indicator Examples");
 
-        // --- Basic Stateless Examples ---
         DefaultMutableTreeNode basic = new DefaultMutableTreeNode("Basic (Stateless)");
         basic.add(new DefaultMutableTreeNode("Moving Average"));
         root.add(basic);
 
-        // --- Advanced Stateful Examples ---
         DefaultMutableTreeNode advanced = new DefaultMutableTreeNode("Advanced (Stateful)");
         advanced.add(new DefaultMutableTreeNode("Stateful EMA"));
         advanced.add(new DefaultMutableTreeNode("Stateful RSI"));
         root.add(advanced);
 
-        // --- Visual & Stateful Examples ---
         DefaultMutableTreeNode visual = new DefaultMutableTreeNode("Visual & Stateful");
         visual.add(new DefaultMutableTreeNode("Volume Bubbles"));
+        visual.add(new DefaultMutableTreeNode("Big Trade Volume Bubbles"));
+        visual.add(new DefaultMutableTreeNode("Footprint Delta")); // [MODIFIED] Added new example
         visual.add(new DefaultMutableTreeNode("HTF Overlay"));
-        visual.add(new DefaultMutableTreeNode("HTF Candle Projections")); // [MODIFIED] Added new example
+        visual.add(new DefaultMutableTreeNode("HTF Candle Projections"));
         root.add(visual);
 
         JTree exampleTree = new JTree(root);
@@ -194,11 +193,8 @@ public class JavaEditorDialog extends JDialog {
             @Override
             public Component getTreeCellRendererComponent(JTree tree, Object value, boolean sel, boolean expanded, boolean leaf, int row, boolean hasFocus) {
                 super.getTreeCellRendererComponent(tree, value, sel, expanded, leaf, row, hasFocus);
-                if (leaf) {
-                    setIcon(UITheme.getIcon(UITheme.Icons.PLUGIN_JAVA, 16, 16));
-                } else {
-                    setIcon(UITheme.getIcon(UITheme.Icons.FOLDER, 16, 16));
-                }
+                if (leaf) setIcon(UITheme.getIcon(UITheme.Icons.PLUGIN_JAVA, 16, 16));
+                else setIcon(UITheme.getIcon(UITheme.Icons.FOLDER, 16, 16));
                 return this;
             }
         });
@@ -213,6 +209,56 @@ public class JavaEditorDialog extends JDialog {
         });
         panel.add(new JScrollPane(exampleTree), BorderLayout.CENTER);
         return panel;
+    }
+    
+    private void loadExample(String exampleName) {
+        if (isDirty) {
+            int choice = JOptionPane.showConfirmDialog(this, "You have unsaved changes. Discard them?", "Unsaved Changes", JOptionPane.YES_NO_OPTION);
+            if (choice == JOptionPane.NO_OPTION) {
+                if (currentlyOpenFile != null) fileList.setSelectedValue(currentlyOpenFile, true);
+                return;
+            }
+        }
+
+        String fileName;
+        // [MODIFIED] Added case for the new Footprint Delta indicator
+        if ("HTF Candle Projections".equals(exampleName)) {
+            fileName = "HTFCandleProjections.java.txt";
+        } else if ("Big Trade Volume Bubbles".equals(exampleName)) {
+            fileName = "BigTradeVolumeBubbles.java.txt";
+        } else if ("Footprint Delta".equals(exampleName)) {
+            fileName = "FootprintDeltaIndicator.java.txt";
+        } else {
+            fileName = exampleName.replace(" ", "") + "Indicator.java.txt";
+        }
+
+        String resourcePath = "/com/EcoChartPro/editor/templates/" + fileName;
+
+        try (InputStream is = getClass().getResourceAsStream(resourcePath)) {
+            if (is == null) {
+                logMessage("ERROR: Could not find example resource: " + resourcePath);
+                return;
+            }
+            clearErrorHighlights();
+            String content = new String(is.readAllBytes(), StandardCharsets.UTF_8);
+
+            String originalClassName = extractSimpleClassName(content);
+            if(originalClassName != null) {
+                String newClassName = "My" + originalClassName;
+                content = content.replaceAll("\\b" + originalClassName + "\\b", newClassName);
+            }
+
+            textArea.setText(content);
+            textArea.discardAllEdits();
+            currentlyOpenFile = null;
+            fileList.clearSelection();
+            setDirty(true);
+            clearConsole();
+            logMessage("Loaded '" + exampleName + "' example. Save it to 'My Scripts' to compile.");
+        } catch (IOException e) {
+            logMessage("ERROR: Failed to read example file: " + e.getMessage());
+            JOptionPane.showMessageDialog(this, "Could not read example file: " + e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+        }
     }
 
     private JPanel createApiReferencePanel() {
@@ -297,8 +343,6 @@ public class JavaEditorDialog extends JDialog {
         panel.add(new JScrollPane(consoleArea), BorderLayout.CENTER);
         return panel;
     }
-
-    // --- Business Logic ---
 
     private void compileAndApply() {
         if (isDirty && currentlyOpenFile != null) {
@@ -427,52 +471,6 @@ public class JavaEditorDialog extends JDialog {
             logMessage("Loaded '" + file.getFileName() + "'.");
         } catch (IOException e) {
             JOptionPane.showMessageDialog(this, "Could not read file: " + e.getMessage(), "File Error", JOptionPane.ERROR_MESSAGE);
-        }
-    }
-
-    private void loadExample(String exampleName) {
-        if (isDirty) {
-            int choice = JOptionPane.showConfirmDialog(this, "You have unsaved changes. Discard them?", "Unsaved Changes", JOptionPane.YES_NO_OPTION);
-            if (choice == JOptionPane.NO_OPTION) {
-                if (currentlyOpenFile != null) fileList.setSelectedValue(currentlyOpenFile, true);
-                return;
-            }
-        }
-
-        String fileName;
-        // [MODIFIED] Added special case for the new example file name
-        if ("HTF Candle Projections".equals(exampleName)) {
-            fileName = "HTFCandleProjections.java.txt";
-        } else {
-            fileName = exampleName.replace(" ", "") + "Indicator.java.txt";
-        }
-
-        String resourcePath = "/com/EcoChartPro/editor/templates/" + fileName;
-
-        try (InputStream is = getClass().getResourceAsStream(resourcePath)) {
-            if (is == null) {
-                logMessage("ERROR: Could not find example resource: " + resourcePath);
-                return;
-            }
-            clearErrorHighlights();
-            String content = new String(is.readAllBytes(), StandardCharsets.UTF_8);
-
-            String originalClassName = extractSimpleClassName(content);
-            if(originalClassName != null) {
-                String newClassName = "My" + originalClassName;
-                content = content.replaceAll("\\b" + originalClassName + "\\b", newClassName);
-            }
-
-            textArea.setText(content);
-            textArea.discardAllEdits();
-            currentlyOpenFile = null;
-            fileList.clearSelection();
-            setDirty(true);
-            clearConsole();
-            logMessage("Loaded '" + exampleName + "' example. Save it to 'My Scripts' to compile.");
-        } catch (IOException e) {
-            logMessage("ERROR: Failed to read example file: " + e.getMessage());
-            JOptionPane.showMessageDialog(this, "Could not read example file: " + e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
         }
     }
 

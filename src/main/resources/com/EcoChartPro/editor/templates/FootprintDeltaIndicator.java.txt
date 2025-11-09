@@ -1,0 +1,197 @@
+package com.EcoChartPro.plugins.inapp;
+
+import com.EcoChartPro.api.indicator.*;
+import com.EcoChartPro.api.indicator.drawing.*;
+import com.EcoChartPro.core.indicator.IndicatorContext;
+import com.EcoChartPro.model.chart.FootprintBar;
+
+import java.awt.Color;
+import java.awt.Font;
+import java.math.BigDecimal;
+import java.math.MathContext;
+import java.math.RoundingMode;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * =====================================================================================================================
+ * Indicator: Footprint Delta Indicator
+ * Author: Mrkrphl
+ * Version: 1.0
+ * =====================================================================================================================
+ *
+ * Description:
+ * This indicator detects significant market aggression by analyzing Footprint Delta. Delta is the difference between
+ * market buy orders (aggressor buyers) and market sell orders (aggressor sellers) within a candle. This provides a
+ * more precise signal for "big trades" than total volume alone.
+ *
+ * NOTE: This indicator ONLY works when the Chart Type is set to "Footprint", as it requires
+ * the detailed bid/ask data to calculate delta.
+ *
+ * Features:
+ *  - Delta-Based Detection: Flags candles where the absolute delta exceeds a standard deviation threshold.
+ *  - Aggression Bubbles: Highlights high-delta candles. Bubble size and color reflect the magnitude of the delta.
+ *  - Automatic S/R Zones: Draws support zones from high positive delta (strong buyers) and resistance zones from
+ *    high negative delta (strong sellers).
+ *
+ * =====================================================================================================================
+ */
+public class FootprintDeltaIndicator implements CustomIndicator {
+
+    private static final MathContext MC = new MathContext(10, RoundingMode.HALF_UP);
+
+    @Override
+    public String getName() {
+        return "Footprint Delta Indicator";
+    }
+
+    @Override
+    public IndicatorType getType() {
+        return IndicatorType.OVERLAY;
+    }
+
+    @Override
+    public List<Parameter> getParameters() {
+        return List.of(
+            new Parameter("Delta Lookback", ParameterType.INTEGER, 20, "Period for Delta Mean & Std Dev"),
+            new Parameter("Delta Std Dev Multiplier", ParameterType.DECIMAL, BigDecimal.valueOf(2.0)),
+            new Parameter("Minimum Delta", ParameterType.DECIMAL, BigDecimal.ZERO, "Absolute delta value filter (0 to disable)"),
+            new Parameter("Show Bubbles", ParameterType.BOOLEAN, true),
+            new Parameter("Show Zones", ParameterType.BOOLEAN, true),
+            new Parameter("Buy Color", ParameterType.COLOR, new Color(0, 180, 0)),
+            new Parameter("Sell Color", ParameterType.COLOR, new Color(220, 0, 0))
+            // Other visualization parameters can be added here (e.g., bubble size, zone height)
+        );
+    }
+
+    @Override
+    public List<DrawableObject> calculate(IndicatorContext context) {
+        final Map<Instant, FootprintBar> footprintData = context.footprintData();
+        
+        // This indicator is dependent on footprint data.
+        if (footprintData == null || footprintData.isEmpty()) {
+            context.log(0, "Warning", "Footprint Delta Indicator requires Chart Type to be set to 'Footprint'.");
+            return Collections.emptyList();
+        }
+
+        final List<ApiKLine> klineData = context.klineData();
+        final Map<String, Object> settings = context.settings();
+        final int lookback = (int) settings.get("Delta Lookback");
+
+        if (klineData.size() < lookback) return Collections.emptyList();
+
+        // 1. --- Extract Delta Series from Footprint Data ---
+        List<BigDecimal> deltas = new ArrayList<>();
+        for (ApiKLine kline : klineData) {
+            FootprintBar fpBar = footprintData.get(kline.timestamp());
+            if (fpBar != null) {
+                deltas.add(fpBar.getTotalDelta().abs()); // Use absolute delta for statistical calculation
+            } else {
+                deltas.add(BigDecimal.ZERO); // Add a placeholder if no footprint data for this candle
+            }
+        }
+
+        // 2. --- Calculate Delta SMA and Standard Deviation ---
+        List<BigDecimal> deltaSMA = IndicatorUtils.calculateSMA(deltas, lookback);
+        List<BigDecimal> deltaStdDev = calculateStandardDeviation(deltas, deltaSMA, lookback);
+
+        final List<DrawableObject> drawables = new ArrayList<>();
+        final BigDecimal minDeltaFilter = (BigDecimal) settings.get("Minimum Delta");
+        final BigDecimal stdDevMultiplier = (BigDecimal) settings.get("Delta Std Dev Multiplier");
+
+        int calculationOffset = klineData.size() - deltaStdDev.size();
+
+        // 3. --- Main Loop: Detect Big Delta and Create Drawings ---
+        for (int i = 0; i < deltaStdDev.size(); i++) {
+            int dataIndex = i + calculationOffset;
+            ApiKLine kline = klineData.get(dataIndex);
+            
+            FootprintBar fpBar = footprintData.get(kline.timestamp());
+            if (fpBar == null) continue;
+
+            BigDecimal currentDelta = fpBar.getTotalDelta();
+            BigDecimal absCurrentDelta = currentDelta.abs();
+
+            BigDecimal avgDelta = deltaSMA.get(i);
+            BigDecimal stdDev = deltaStdDev.get(i);
+            BigDecimal threshold = avgDelta.add(stdDev.multiply(stdDevMultiplier));
+
+            boolean isBigDelta = absCurrentDelta.compareTo(threshold) > 0 && absCurrentDelta.compareTo(minDeltaFilter) > 0;
+
+            if (isBigDelta) {
+                boolean isAggressiveBuy = currentDelta.signum() > 0;
+
+                if ((boolean) settings.get("Show Bubbles")) {
+                     createDeltaBubble(drawables, settings, kline, currentDelta, isAggressiveBuy);
+                }
+                if ((boolean) settings.get("Show Zones")) {
+                    createZone(drawables, settings, kline, isAggressiveBuy);
+                }
+            }
+        }
+        return drawables;
+    }
+
+    private void createDeltaBubble(List<DrawableObject> drawables, Map<String, Object> s, ApiKLine k, BigDecimal delta, boolean isBuy) {
+        Color bubbleColor = isBuy ? (Color) s.get("Buy Color") : (Color) s.get("Sell Color");
+        
+        // Simple fixed size for delta bubbles, but could be scaled similarly to volume
+        int bubbleSize = 30;
+
+        BigDecimal pricePosition = isBuy ? k.low() : k.high();
+        TextAnchor anchor = isBuy ? TextAnchor.TOP_CENTER : TextAnchor.BOTTOM_CENTER;
+        
+        DataPoint bubblePosition = new DataPoint(k.timestamp(), pricePosition);
+
+        drawables.add(new DrawableText(bubblePosition, "●", new Font("SansSerif", Font.PLAIN, bubbleSize), bubbleColor, anchor));
+        drawables.add(new DrawableText(bubblePosition, formatVolume(delta), new Font("SansSerif", Font.BOLD, 10), Color.WHITE, TextAnchor.CENTER));
+    }
+
+    private void createZone(List<DrawableObject> drawables, Map<String, Object> s, ApiKLine k, boolean isAggressiveBuy) {
+        BigDecimal zoneHeight = k.high().subtract(k.low()).multiply(new BigDecimal("0.25")); // Simple 25% height
+        Color zoneColor;
+        BigDecimal price1, price2;
+
+        if (isAggressiveBuy) { // High positive delta = support
+            price1 = k.low();
+            price2 = k.low().add(zoneHeight);
+            zoneColor = new Color(0, 100, 255, 20); // Support color
+        } else { // High negative delta = resistance
+            price1 = k.high();
+            price2 = k.high().subtract(zoneHeight);
+            zoneColor = new Color(255, 82, 82, 20); // Resistance color
+        }
+        
+        DataPoint corner1 = new DataPoint(k.timestamp(), price1);
+        DataPoint corner2 = new DataPoint(DrawingSentinels.RIGHT_EDGE_PIXEL_SENTINEL, price2);
+        
+        drawables.add(new DrawableBox(corner1, corner2, zoneColor, null, 0));
+    }
+
+    private List<BigDecimal> calculateStandardDeviation(List<BigDecimal> data, List<BigDecimal> sma, int period) {
+        if (data.size() < period || sma.isEmpty()) return Collections.emptyList();
+        List<BigDecimal> stdDevs = new ArrayList<>();
+        int smaOffset = data.size() - sma.size();
+        for (int i = 0; i < sma.size(); i++) {
+            BigDecimal mean = sma.get(i);
+            BigDecimal sumOfSquares = BigDecimal.ZERO;
+            for (int j = 0; j < period; j++) {
+                BigDecimal deviation = data.get(i + smaOffset - period + 1 + j).subtract(mean);
+                sumOfSquares = sumOfSquares.add(deviation.pow(2));
+            }
+            BigDecimal variance = sumOfSquares.divide(BigDecimal.valueOf(period), MC);
+            stdDevs.add(variance.sqrt(MC));
+        }
+        return stdDevs;
+    }
+
+    private String formatVolume(BigDecimal v) {
+        if (v == null) return "";
+        if (v.abs().compareTo(new BigDecimal("1000000")) >= 0) return v.divide(new BigDecimal("1000000"), 1, RoundingMode.HALF_UP) + "M";
+        if (v.abs().compareTo(new BigDecimal("1000")) >= 0) return v.divide(new BigDecimal("1000"), 1, RoundingMode.HALF_UP) + "K";
+        return v.setScale(0, RoundingMode.HALF_UP).toString();
+    }
+}

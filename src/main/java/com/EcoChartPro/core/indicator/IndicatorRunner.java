@@ -32,7 +32,7 @@ public class IndicatorRunner {
     // The persistent state store for this indicator instance.
     private final Map<String, Object> stateStore = new HashMap<>();
     
-    // [NEW] Flag to signal a state reset to the indicator
+    // Flag to signal a state reset to the indicator
     private boolean isResetNeeded = true;
 
 
@@ -67,13 +67,15 @@ public class IndicatorRunner {
             return mtfCache.computeIfAbsent(timeframe, dataModel::getResampledDataForView);
         };
 
+        // [MODIFIED] Create the context with the new footprint data
         IndicatorContext context = new IndicatorContext(
             apiDataSlice,
             indicator.getSettings(),
             mtfDataProvider,
             loggerConsumer,
             this.stateStore,
-            this.isResetNeeded // Pass the reset flag
+            this.isResetNeeded,
+            dataModel.getFootprintData() // Pass footprint data from the model
         );
 
         try {
@@ -99,7 +101,7 @@ public class IndicatorRunner {
      */
     public void onSettingsChanged(Map<String, Object> newSettings) {
         indicator.setSettings(newSettings);
-        this.isResetNeeded = true; // [MODIFIED] Signal that a reset is required on next calculation.
+        this.isResetNeeded = true; // Signal that a reset is required on next calculation.
         if (indicator instanceof CustomIndicatorAdapter adapter) {
             try {
                 adapter.getPlugin().onSettingsChanged(newSettings, this.stateStore);

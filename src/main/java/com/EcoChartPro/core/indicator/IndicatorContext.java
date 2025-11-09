@@ -3,7 +3,9 @@ package com.EcoChartPro.core.indicator;
 import com.EcoChartPro.api.indicator.ApiKLine;
 import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.Timeframe;
+import com.EcoChartPro.model.chart.FootprintBar; // [NEW] Import FootprintBar
 
+import java.time.Instant; // [NEW] Import Instant for the map key
 import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
@@ -22,6 +24,7 @@ import java.util.stream.Collectors;
  * @param state A mutable map for the indicator to store and retrieve state between calculation calls.
  * @param isReset A flag indicating that this is the first calculation run or that
  *                settings have changed, signaling that the indicator should re-initialize its state.
+ * @param footprintData [NEW] The map of calculated footprint bars for the visible data.
  */
 public record IndicatorContext(
     List<ApiKLine> klineData,
@@ -29,7 +32,8 @@ public record IndicatorContext(
     Function<Timeframe, List<KLine>> getHigherTimeframeData,
     Consumer<IndicatorContext.DebugLogEntry> debugLogger,
     Map<String, Object> state,
-    boolean isReset
+    boolean isReset,
+    Map<Instant, FootprintBar> footprintData // [MODIFIED] Add this field
 ) {
     /**
      * A record to hold a single piece of debug information from an indicator calculation.

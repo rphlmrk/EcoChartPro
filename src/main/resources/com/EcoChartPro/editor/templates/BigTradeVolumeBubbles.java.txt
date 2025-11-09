@@ -1,0 +1,302 @@
+package com.EcoChartPro.plugins.inapp;
+
+import com.EcoChartPro.api.indicator.*;
+import com.EcoChartPro.api.indicator.drawing.*;
+import com.EcoChartPro.core.indicator.IndicatorContext;
+
+import java.awt.Color;
+import java.awt.Font;
+import java.math.BigDecimal;
+import java.math.MathContext;
+import java.math.RoundingMode;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
+import java.util.stream.Collectors;
+
+/**
+ * =====================================================================================================================
+ * Indicator: Big Trade Volume Bubbles
+ * Author: MrkRphl
+ * Version: 1.3 (Added Minimum Volume Filter)
+ * =====================================================================================================================
+ *
+ * Description:
+ * This advanced indicator identifies significant trading activity by detecting volume spikes that exceed a statistical
+ * threshold (standard deviation) above the recent average. It provides a rich set of visualizations to help traders
+ * spot institutional activity, potential support/resistance levels, and areas of high interest.
+ *
+ * Features:
+ *  - Standard Deviation Logic: Flags trades where volume is N standard deviations above a moving average.
+ *  - Minimum Volume Filter: Optionally, only show big trades that also exceed a user-defined absolute volume.
+ *  - Volume Bubbles: Visually highlights these big trades on the chart with bubbles. Bubble size reflects the
+ *    magnitude of the volume spike.
+ *  - Automatic S/R Zones: Automatically draws and extends horizontal support (from bullish spikes) and resistance
+ *    (from bearish spikes) zones, which can act as future price magnets.
+ *  - Advanced Coloring: Mono, Buy/Sell, and Heatmap modes.
+ *  - Advanced Scaling: All Loaded, Visible Range, and Session modes.
+ *
+ * How to Interpret:
+ *  - A bubble on a bullish candle (especially near a low) suggests strong buying pressure (absorption). The zone drawn
+ *    becomes a potential support level.
+ *  - A bubble on a bearish candle (especially near a high) suggests strong selling pressure (distribution). The zone
+ *    drawn becomes a potential resistance level.
+ *  - Larger, "hotter" (red) bubbles in Heatmap mode indicate the most statistically significant volume events.
+ *
+ * =====================================================================================================================
+ */
+public class BigTradeVolumeBubbles implements CustomIndicator {
+
+    private static final MathContext MC = new MathContext(10, RoundingMode.HALF_UP);
+
+    private record SessionVolumeStats(BigDecimal minVol, BigDecimal maxVol, BigDecimal volRange) {}
+
+    @Override
+    public String getName() {
+        return "Big Trade Volume Bubbles";
+    }
+
+    @Override
+    public IndicatorType getType() {
+        return IndicatorType.OVERLAY;
+    }
+
+    @Override
+    public List<Parameter> getParameters() {
+        return List.of(
+            // --- Detection ---
+            new Parameter("Lookback Period", ParameterType.INTEGER, 20, "Period for Mean & Std Dev"),
+            new Parameter("Std Dev Multiplier", ParameterType.DECIMAL, BigDecimal.valueOf(2.5), "Multiplier for detection threshold"),
+            new Parameter("Minimum Volume", ParameterType.DECIMAL, BigDecimal.ZERO, "Absolute volume threshold (0 to disable)"),
+
+            // --- Bubble Visualization ---
+            new Parameter("Show Bubbles", ParameterType.BOOLEAN, true),
+            new Parameter("Show Volume Text", ParameterType.BOOLEAN, true),
+            new Parameter("Color Mode", ParameterType.CHOICE, "Buy/Sell", "Buy/Sell", "Heatmap", "Mono"),
+            new Parameter("Scaling Mode", ParameterType.CHOICE, "Session", "All Loaded", "Visible Range", "Session"),
+            new Parameter("Min Bubble Size", ParameterType.INTEGER, 10),
+            new Parameter("Max Bubble Size", ParameterType.INTEGER, 60),
+            new Parameter("Bubble Offset %", ParameterType.DECIMAL, BigDecimal.valueOf(5.0), "Offset from candle high/low"),
+
+            // --- Zone Visualization ---
+            new Parameter("Show Zones", ParameterType.BOOLEAN, true),
+            new Parameter("Zone Height %", ParameterType.DECIMAL, BigDecimal.valueOf(50.0), "% of candle body for zone height"),
+            new Parameter("Support Zone Color", ParameterType.COLOR, new Color(0, 100, 255, 20)),
+            new Parameter("Resistance Zone Color", ParameterType.COLOR, new Color(255, 82, 82, 20)),
+
+            // --- Color & Time Settings ---
+            new Parameter("Buy Color", ParameterType.COLOR, new Color(0, 180, 0)),
+            new Parameter("Sell Color", ParameterType.COLOR, new Color(220, 0, 0)),
+            new Parameter("Mono Color", ParameterType.COLOR, new Color(255, 165, 0)),
+            new Parameter("Zone ID", ParameterType.CHOICE, "UTC", "UTC", "America/New_York", "Europe/London", "Asia/Tokyo")
+        );
+    }
+
+    @Override
+    public List<DrawableObject> calculate(IndicatorContext context) {
+        // 1. --- Retrieve Settings & Data ---
+        final List<ApiKLine> allKlineData = context.klineData();
+        final Map<String, Object> settings = context.settings();
+
+        final int lookback = (int) settings.get("Lookback Period");
+        if (allKlineData.size() < lookback) {
+            return Collections.emptyList();
+        }
+
+        final BigDecimal stdDevMultiplier = (BigDecimal) settings.get("Std Dev Multiplier");
+        final boolean showBubbles = (boolean) settings.get("Show Bubbles");
+        final boolean showZones = (boolean) settings.get("Show Zones");
+        final List<BigDecimal> volumes = IndicatorUtils.extractSourceData(allKlineData, ApiKLine::volume);
+        final List<DrawableObject> drawables = new ArrayList<>();
+        final String scalingMode = (String) settings.get("Scaling Mode");
+        final ZoneId zoneId = ZoneId.of((String) settings.get("Zone ID"));
+        final BigDecimal minVolumeFilter = (BigDecimal) settings.get("Minimum Volume");
+
+        // 2. --- Calculate Volume SMA and Standard Deviation ---
+        List<BigDecimal> volumeSMA = IndicatorUtils.calculateSMA(volumes, lookback);
+        List<BigDecimal> volumeStdDev = calculateStandardDeviation(volumes, volumeSMA, lookback);
+
+        int calculationOffset = allKlineData.size() - volumeStdDev.size();
+
+        // 3. --- Pre-calculate stats for all scaling modes ---
+        final BigDecimal minVolAllLoaded = volumes.stream().min(BigDecimal::compareTo).orElse(BigDecimal.ZERO);
+        final BigDecimal maxVolAllLoaded = volumes.stream().max(BigDecimal::compareTo).orElse(BigDecimal.ONE);
+        final BigDecimal volRangeAllLoaded = maxVolAllLoaded.subtract(minVolAllLoaded);
+
+        int viewStartIndex = Math.max(0, allKlineData.size() - (int) settings.getOrDefault("view.barsPerScreen", 200));
+        List<BigDecimal> visibleVolumes = allKlineData.subList(viewStartIndex, allKlineData.size())
+            .stream().map(ApiKLine::volume).toList();
+        final BigDecimal minVolVisible = visibleVolumes.stream().min(BigDecimal::compareTo).orElse(BigDecimal.ZERO);
+        final BigDecimal maxVolVisible = visibleVolumes.stream().max(BigDecimal::compareTo).orElse(BigDecimal.ONE);
+        final BigDecimal volRangeVisible = maxVolVisible.subtract(minVolVisible);
+
+        final Map<LocalDate, SessionVolumeStats> sessionStatsMap = new HashMap<>();
+        if ("Session".equals(scalingMode)) {
+            Map<LocalDate, List<ApiKLine>> klinesByDay = allKlineData.stream()
+                .collect(Collectors.groupingBy(k -> k.timestamp().atZone(zoneId).toLocalDate()));
+            klinesByDay.forEach((date, dailyKlines) -> {
+                List<BigDecimal> dailyVolumes = dailyKlines.stream().map(ApiKLine::volume).toList();
+                BigDecimal min = dailyVolumes.stream().min(BigDecimal::compareTo).orElse(BigDecimal.ZERO);
+                BigDecimal max = dailyVolumes.stream().max(BigDecimal::compareTo).orElse(BigDecimal.ONE);
+                sessionStatsMap.put(date, new SessionVolumeStats(min, max, max.subtract(min)));
+            });
+        }
+
+        // 4. --- Main Loop: Detect Big Trades and Create Drawings ---
+        for (int i = 0; i < volumeStdDev.size(); i++) {
+            int dataIndex = i + calculationOffset;
+            ApiKLine kline = allKlineData.get(dataIndex);
+            BigDecimal currentVolume = kline.volume();
+            BigDecimal avgVolume = volumeSMA.get(i);
+            BigDecimal stdDev = volumeStdDev.get(i);
+
+            BigDecimal threshold = avgVolume.add(stdDev.multiply(stdDevMultiplier));
+
+            boolean isAboveStdDev = currentVolume.compareTo(threshold) > 0;
+            boolean isAboveMinVolume = currentVolume.compareTo(minVolumeFilter) > 0;
+            boolean isBigTrade = isAboveStdDev && isAboveMinVolume;
+
+            if (isBigTrade) {
+                boolean isBullishCandle = kline.close().compareTo(kline.open()) >= 0;
+
+                if (showBubbles) {
+                    BigDecimal currentMinVol, currentVolRange;
+                    switch (scalingMode) {
+                        case "Session":
+                            LocalDate date = kline.timestamp().atZone(zoneId).toLocalDate();
+                            SessionVolumeStats stats = sessionStatsMap.get(date);
+                            currentMinVol = (stats != null) ? stats.minVol() : minVolAllLoaded;
+                            currentVolRange = (stats != null) ? stats.volRange() : volRangeAllLoaded;
+                            break;
+                        case "Visible Range":
+                            currentMinVol = minVolVisible;
+                            currentVolRange = volRangeVisible;
+                            break;
+                        case "All Loaded":
+                        default:
+                            currentMinVol = minVolAllLoaded;
+                            currentVolRange = volRangeAllLoaded;
+                            break;
+                    }
+                    createBubble(drawables, settings, kline, currentVolume, currentVolRange, currentMinVol);
+                }
+
+                if (showZones) {
+                    createZone(drawables, settings, kline, isBullishCandle);
+                }
+            }
+        }
+        return drawables;
+    }
+
+    private void createBubble(List<DrawableObject> drawables, Map<String, Object> s, ApiKLine k, BigDecimal vol, BigDecimal volRange, BigDecimal minVol) {
+        double scaleFactor = 0.5;
+        if (volRange.compareTo(BigDecimal.ZERO) > 0) {
+            scaleFactor = vol.subtract(minVol).divide(volRange, 4, RoundingMode.HALF_UP).doubleValue();
+        }
+
+        int minSize = (int) s.get("Min Bubble Size");
+        int maxSize = (int) s.get("Max Bubble Size");
+        int bubbleSize = (int) (minSize + (maxSize - minSize) * scaleFactor);
+
+        String colorMode = (String) s.get("Color Mode");
+        boolean isBullish = k.close().compareTo(k.open()) >= 0;
+        Color bubbleColor;
+        switch (colorMode) {
+            case "Heatmap":
+                bubbleColor = getHeatmapColor(scaleFactor);
+                break;
+            case "Mono":
+                bubbleColor = (Color) s.get("Mono Color");
+                break;
+            case "Buy/Sell":
+            default:
+                bubbleColor = isBullish ? (Color) s.get("Buy Color") : (Color) s.get("Sell Color");
+                break;
+        }
+
+        BigDecimal candlePriceRange = k.high().subtract(k.low());
+        BigDecimal offsetPercent = (BigDecimal) s.get("Bubble Offset %");
+        BigDecimal priceOffset = candlePriceRange.multiply(offsetPercent).divide(BigDecimal.valueOf(100), 8, RoundingMode.HALF_UP);
+        BigDecimal verticalPosition = isBullish ? k.low().subtract(priceOffset) : k.high().add(priceOffset);
+        DataPoint bubblePosition = new DataPoint(k.timestamp(), verticalPosition);
+        TextAnchor anchor = isBullish ? TextAnchor.TOP_CENTER : TextAnchor.BOTTOM_CENTER;
+
+        drawables.add(new DrawableText(bubblePosition, "●", new Font("SansSerif", Font.PLAIN, bubbleSize), bubbleColor, anchor));
+
+        if ((boolean) s.get("Show Volume Text")) {
+            drawables.add(new DrawableText(
+                bubblePosition,
+                formatVolume(vol),
+                new Font("SansSerif", Font.BOLD, 10),
+                Color.WHITE,
+                TextAnchor.CENTER
+            ));
+        }
+    }
+    
+    private void createZone(List<DrawableObject> drawables, Map<String, Object> s, ApiKLine k, boolean isBullish) {
+        BigDecimal bodyHigh = k.close().max(k.open());
+        BigDecimal bodyLow = k.close().min(k.open());
+        BigDecimal bodyRange = bodyHigh.subtract(bodyLow);
+        BigDecimal zoneHeightPercent = (BigDecimal) s.get("Zone Height %");
+        BigDecimal zoneHeight = bodyRange.multiply(zoneHeightPercent).divide(BigDecimal.valueOf(100), 8, RoundingMode.HALF_UP);
+        
+        BigDecimal price1, price2;
+        Color zoneColor;
+        if (isBullish) {
+            price1 = k.low();
+            price2 = k.low().add(zoneHeight);
+            zoneColor = (Color) s.get("Support Zone Color");
+        } else {
+            price1 = k.high();
+            price2 = k.high().subtract(zoneHeight);
+            zoneColor = (Color) s.get("Resistance Zone Color");
+        }
+        
+        DataPoint corner1 = new DataPoint(k.timestamp(), price1);
+        DataPoint corner2 = new DataPoint(DrawingSentinels.RIGHT_EDGE_PIXEL_SENTINEL, price2);
+        
+        drawables.add(new DrawableBox(corner1, corner2, zoneColor, null, 0));
+    }
+
+    private List<BigDecimal> calculateStandardDeviation(List<BigDecimal> data, List<BigDecimal> sma, int period) {
+        if (data.size() < period || sma.isEmpty()) return Collections.emptyList();
+        List<BigDecimal> stdDevs = new ArrayList<>();
+        int smaOffset = data.size() - sma.size();
+        for (int i = 0; i < sma.size(); i++) {
+            BigDecimal mean = sma.get(i);
+            BigDecimal sumOfSquares = BigDecimal.ZERO;
+            for (int j = 0; j < period; j++) {
+                BigDecimal deviation = data.get(i + smaOffset - period + 1 + j).subtract(mean);
+                sumOfSquares = sumOfSquares.add(deviation.pow(2));
+            }
+            BigDecimal variance = sumOfSquares.divide(BigDecimal.valueOf(period), MC);
+            stdDevs.add(variance.sqrt(MC));
+        }
+        return stdDevs;
+    }
+
+    private Color getHeatmapColor(double value) {
+        value = Math.max(0.0, Math.min(1.0, value));
+        Color c1 = new Color(0, 0, 255), c2 = new Color(0, 255, 0), c3 = new Color(255, 255, 0), c4 = new Color(255, 0, 0);
+        if (value < 1.0/3.0) return interpolate(c1, c2, value * 3.0);
+        if (value < 2.0/3.0) return interpolate(c2, c3, (value - 1.0/3.0) * 3.0);
+        return interpolate(c3, c4, (value - 2.0/3.0) * 3.0);
+    }
+
+    private Color interpolate(Color c1, Color c2, double p) {
+        return new Color((int)(c1.getRed()*(1-p)+c2.getRed()*p), (int)(c1.getGreen()*(1-p)+c2.getGreen()*p), (int)(c1.getBlue()*(1-p)+c2.getBlue()*p));
+    }
+
+    private String formatVolume(BigDecimal v) {
+        if (v == null) return "";
+        if (v.abs().compareTo(new BigDecimal("1000000")) >= 0) return v.divide(new BigDecimal("1000000"), 1, RoundingMode.HALF_UP) + "M";
+        if (v.abs().compareTo(new BigDecimal("1000")) >= 0) return v.divide(new BigDecimal("1000"), 1, RoundingMode.HALF_UP) + "K";
+        return v.setScale(0, RoundingMode.HALF_UP).toString();
+    }
+}
