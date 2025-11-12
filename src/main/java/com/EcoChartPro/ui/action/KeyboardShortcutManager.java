@@ -1,9 +1,10 @@
 package com.EcoChartPro.ui.action;
 
+import com.EcoChartPro.core.controller.WorkspaceContext;
 import com.EcoChartPro.core.manager.DrawingManager;
 import com.EcoChartPro.core.manager.UndoManager;
 import com.EcoChartPro.model.Timeframe;
-import com.EcoChartPro.ui.MainWindow;
+import com.EcoChartPro.ui.ChartWorkspacePanel;
 import com.EcoChartPro.ui.chart.ChartPanel;
 import com.EcoChartPro.ui.dialogs.SymbolSearchDialog;
 import com.EcoChartPro.ui.dialogs.TimeframeInputDialog;
@@ -23,7 +24,8 @@ import java.util.UUID;
 public class KeyboardShortcutManager {
 
     private final JComponent rootComponent;
-    private final MainWindow owner;
+    private final ChartWorkspacePanel owner;
+    private final WorkspaceContext workspaceContext; // [NEW]
     private final boolean isMac;
 
     // --- Fields for timeframe input ---
@@ -38,18 +40,19 @@ public class KeyboardShortcutManager {
 
     private KeyEventDispatcher keyEventDispatcher;
 
-    public KeyboardShortcutManager(JComponent rootComponent, MainWindow owner) {
+    public KeyboardShortcutManager(JComponent rootComponent, ChartWorkspacePanel owner, WorkspaceContext context) { // [MODIFIED]
         this.rootComponent = rootComponent;
         this.owner = owner;
+        this.workspaceContext = context; // [NEW]
         this.isMac = System.getProperty("os.name").toLowerCase().contains("mac");
 
         // Initialize timeframe input components
-        this.timeframeInputDialog = new TimeframeInputDialog(owner);
+        this.timeframeInputDialog = new TimeframeInputDialog(owner.getFrameOwner());
         this.timeframeInputTimer = new Timer(3000, e -> clearTimeframeInput());
         this.timeframeInputTimer.setRepeats(false);
 
         // Initialize symbol search components and add listener for MOUSE clicks
-        this.symbolSearchDialog = new SymbolSearchDialog(owner, owner.getReplayController().isPresent());
+        this.symbolSearchDialog = new SymbolSearchDialog(owner.getFrameOwner(), owner.getReplayController().isPresent());
         this.symbolSearchDialog.addActionListener(e -> {
             if (e.getSource() instanceof ChartDataSource) {
                 owner.changeActiveSymbol((ChartDataSource) e.getSource());
@@ -89,9 +92,9 @@ public class KeyboardShortcutManager {
         actionMap.put("deleteDrawing", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                UUID selectedId = DrawingManager.getInstance().getSelectedDrawingId();
+                UUID selectedId = workspaceContext.getDrawingManager().getSelectedDrawingId(); // [MODIFIED]
                 if (selectedId != null) {
-                    DrawingManager.getInstance().removeDrawing(selectedId);
+                    workspaceContext.getDrawingManager().removeDrawing(selectedId); // [MODIFIED]
                 }
             }
         });
@@ -112,8 +115,7 @@ public class KeyboardShortcutManager {
                     }
                 }
                 owner.getDrawingToolbar().clearSelection();
-                DrawingManager.getInstance().setSelectedDrawingId(null);
-                owner.getTitleBarManager().restoreIdleTitle();
+                workspaceContext.getDrawingManager().setSelectedDrawingId(null); // [MODIFIED]
             }
         });
 
@@ -138,7 +140,7 @@ public class KeyboardShortcutManager {
         actionMap.put("undo", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                UndoManager.getInstance().undo();
+                workspaceContext.getUndoManager().undo(); // [MODIFIED]
             }
         });
 
@@ -149,13 +151,14 @@ public class KeyboardShortcutManager {
         actionMap.put("redo", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                UndoManager.getInstance().redo();
+                workspaceContext.getUndoManager().redo(); // [MODIFIED]
             }
         });
         
         // --- Global Key Event Dispatcher ---
         this.keyEventDispatcher = e -> {
-            if (!owner.isActive()) return false;
+            // Check if the panel is showing on screen before processing key events.
+            if (!owner.isShowing()) return false;
             
             Component focused = e.getComponent();
             if (focused instanceof JTextComponent) return false;

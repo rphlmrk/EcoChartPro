@@ -1,12 +1,13 @@
 package com.EcoChartPro.ui.toolbar;
 
+import com.EcoChartPro.core.controller.WorkspaceContext;
 import com.EcoChartPro.core.manager.DrawingManager;
 import com.EcoChartPro.core.settings.SettingsService;
 import com.EcoChartPro.core.settings.config.DrawingConfig;
 import com.EcoChartPro.core.tool.*;
 import com.EcoChartPro.core.trading.PaperTradingService;
 import com.EcoChartPro.model.drawing.MeasureToolObject;
-import com.EcoChartPro.ui.MainWindow;
+import com.EcoChartPro.ui.ChartWorkspacePanel;
 import com.EcoChartPro.ui.chart.ChartPanel;
 import com.EcoChartPro.ui.dashboard.theme.UITheme;
 
@@ -25,7 +26,8 @@ import java.util.function.Supplier;
 
 public class FloatingDrawingToolbar extends JDialog implements PropertyChangeListener {
 
-    private final MainWindow mainWindow;
+    private final ChartWorkspacePanel workspacePanel;
+    private final WorkspaceContext context;
     private final JPanel contentPanel;
     private final JPanel handlePanel;
     private final JPanel buttonsPanel;
@@ -44,9 +46,10 @@ public class FloatingDrawingToolbar extends JDialog implements PropertyChangeLis
     public enum Orientation { VERTICAL, HORIZONTAL }
     public enum DockSide { LEFT, RIGHT, NONE }
 
-    public FloatingDrawingToolbar(MainWindow owner) {
-        super(owner, false);
-        this.mainWindow = owner;
+    public FloatingDrawingToolbar(ChartWorkspacePanel owner) {
+        super(owner.getFrameOwner(), false);
+        this.workspacePanel = owner;
+        this.context = owner.getWorkspaceContext();
 
         setUndecorated(true);
         setBackground(new Color(0, 0, 0, 0));
@@ -165,11 +168,11 @@ public class FloatingDrawingToolbar extends JDialog implements PropertyChangeLis
 
         mainButton.addActionListener(e -> {
             FlyoutAction currentAction = (FlyoutAction) mainButton.getClientProperty("flyout.action");
-            if (currentAction != null && mainWindow.getActiveChartPanel() != null) {
+            if (currentAction != null && workspacePanel.getActiveChartPanel() != null) {
                 if (mainButton.isSelected()) {
-                    mainWindow.getActiveChartPanel().getDrawingController().setActiveTool(currentAction.toolSupplier.get());
+                    workspacePanel.getActiveChartPanel().getDrawingController().setActiveTool(currentAction.toolSupplier.get());
                 } else {
-                    mainWindow.getActiveChartPanel().getDrawingController().setActiveTool(null);
+                    workspacePanel.getActiveChartPanel().getDrawingController().setActiveTool(null);
                 }
             }
         });
@@ -207,8 +210,8 @@ public class FloatingDrawingToolbar extends JDialog implements PropertyChangeLis
                 popupMenu.setVisible(false);
 
                 if (mainButton.isSelected()) {
-                    if (mainWindow.getActiveChartPanel() != null) {
-                        mainWindow.getActiveChartPanel().getDrawingController().setActiveTool(action.toolSupplier.get());
+                    if (workspacePanel.getActiveChartPanel() != null) {
+                        workspacePanel.getActiveChartPanel().getDrawingController().setActiveTool(action.toolSupplier.get());
                     }
                 } else {
                     mainButton.setSelected(true);
@@ -241,12 +244,12 @@ public class FloatingDrawingToolbar extends JDialog implements PropertyChangeLis
     }
 
     private void handleToolSelection(boolean isSelected, DrawingTool tool) {
-        if (mainWindow.getActiveChartPanel() != null) {
+        if (workspacePanel.getActiveChartPanel() != null) {
             if (isSelected) {
                 tool.reset();
-                mainWindow.getActiveChartPanel().getDrawingController().setActiveTool(tool);
+                workspacePanel.getActiveChartPanel().getDrawingController().setActiveTool(tool);
             } else {
-                mainWindow.getActiveChartPanel().getDrawingController().setActiveTool(null);
+                workspacePanel.getActiveChartPanel().getDrawingController().setActiveTool(null);
             }
         }
     }
@@ -322,7 +325,7 @@ public class FloatingDrawingToolbar extends JDialog implements PropertyChangeLis
     
     private void showVisibilityMenu(ActionEvent e) {
         JButton visibilityButton = (JButton) e.getSource();
-        ChartPanel chartPanel = mainWindow.getActiveChartPanel();
+        ChartPanel chartPanel = workspacePanel.getActiveChartPanel();
         if (chartPanel == null) return;
         JPopupMenu menu = new JPopupMenu();
         JCheckBoxMenuItem hideDrawingsItem = new JCheckBoxMenuItem("Hide Drawings", !chartPanel.getShowDrawings());
@@ -341,16 +344,17 @@ public class FloatingDrawingToolbar extends JDialog implements PropertyChangeLis
 
     private void showRemovalMenu(ActionEvent e) {
         JButton removalButton = (JButton) e.getSource();
-        ChartPanel chartPanel = mainWindow.getActiveChartPanel();
+        ChartPanel chartPanel = workspacePanel.getActiveChartPanel();
         if (chartPanel == null) return;
         JPopupMenu menu = new JPopupMenu();
-        int drawingCount = DrawingManager.getInstance().getAllDrawings().size();
+        DrawingManager drawingManager = context.getDrawingManager();
+        int drawingCount = drawingManager.getAllDrawings().size();
         if (drawingCount > 0) {
             JMenuItem removeDrawingsItem = new JMenuItem(String.format("Remove %d Drawing(s)", drawingCount));
             removeDrawingsItem.addActionListener(evt -> {
-                int choice = JOptionPane.showConfirmDialog(mainWindow, "Are you sure you want to remove all drawings?", "Confirm Removal", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+                int choice = JOptionPane.showConfirmDialog(workspacePanel.getFrameOwner(), "Are you sure you want to remove all drawings?", "Confirm Removal", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
                 if (choice == JOptionPane.YES_OPTION) {
-                    DrawingManager.getInstance().clearAllDrawings();
+                    drawingManager.clearAllDrawings();
                     chartPanel.repaint();
                 }
             });
@@ -360,7 +364,7 @@ public class FloatingDrawingToolbar extends JDialog implements PropertyChangeLis
         if (indicatorCount > 0) {
             JMenuItem removeIndicatorsItem = new JMenuItem(String.format("Remove %d Indicator(s)", indicatorCount));
             removeIndicatorsItem.addActionListener(evt -> {
-                int choice = JOptionPane.showConfirmDialog(mainWindow, "Are you sure you want to remove all indicators?", "Confirm Removal", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+                int choice = JOptionPane.showConfirmDialog(workspacePanel.getFrameOwner(), "Are you sure you want to remove all indicators?", "Confirm Removal", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
                 if (choice == JOptionPane.YES_OPTION) {
                     chartPanel.getDataModel().getIndicatorManager().clearAllIndicators();
                 }
@@ -368,7 +372,7 @@ public class FloatingDrawingToolbar extends JDialog implements PropertyChangeLis
             menu.add(removeIndicatorsItem);
         }
         if (chartPanel.getDataModel().isInReplayMode()) {
-            PaperTradingService service = PaperTradingService.getInstance();
+            PaperTradingService service = context.getPaperTradingService();
             int tradeObjectsCount = service.getOpenPositions().size() + service.getPendingOrders().size();
             if (tradeObjectsCount > 0) {
                 JMenuItem removeTradesItem = new JMenuItem(String.format("Remove %d Trade Object(s)", tradeObjectsCount));
@@ -398,8 +402,8 @@ public class FloatingDrawingToolbar extends JDialog implements PropertyChangeLis
         });
         c.addMouseMotionListener(new MouseMotionAdapter() {
             public void mouseDragged(MouseEvent e) {
-                Rectangle parentBounds = mainWindow.getContentPane().getBounds();
-                Point parentLocationOnScreen = mainWindow.getContentPane().getLocationOnScreen();
+                Rectangle parentBounds = workspacePanel.getBounds();
+                Point parentLocationOnScreen = workspacePanel.getLocationOnScreen();
                 Point currentMouseOnScreen = e.getLocationOnScreen();
                 int newX = currentMouseOnScreen.x - initialClick.x;
                 int newY = currentMouseOnScreen.y - initialClick.y;
@@ -422,7 +426,7 @@ public class FloatingDrawingToolbar extends JDialog implements PropertyChangeLis
     }
 
     public void updatePosition(DockSide defaultSide) {
-        ChartPanel chartPanel = mainWindow.getActiveChartPanel();
+        ChartPanel chartPanel = workspacePanel.getActiveChartPanel();
         if (chartPanel == null || !chartPanel.isShowing()) return;
         setOrientation(Orientation.VERTICAL, false);
         Point chartLocation = chartPanel.getLocationOnScreen();
@@ -434,7 +438,7 @@ public class FloatingDrawingToolbar extends JDialog implements PropertyChangeLis
     }
     
     private void checkForDocking() {
-        ChartPanel chartPanel = mainWindow.getActiveChartPanel();
+        ChartPanel chartPanel = workspacePanel.getActiveChartPanel();
         if (chartPanel == null || !chartPanel.isShowing()) return;
         Point chartLocation = chartPanel.getLocationOnScreen();
         Dimension chartSize = chartPanel.getSize();
@@ -456,12 +460,12 @@ public class FloatingDrawingToolbar extends JDialog implements PropertyChangeLis
     * @param toolName The base name of the tool, e.g., "Trendline".
     */
     public void activateToolByName(String toolName) {
-        if (mainWindow.getActiveChartPanel() == null) return;
+        if (workspacePanel.getActiveChartPanel() == null) return;
         
         JToggleButton buttonToSelect = toolButtonMap.get(toolName);
         if (buttonToSelect != null) {
             buttonToSelect.doClick(); // This will trigger its action listener
-            mainWindow.getTitleBarManager().setStaticTitle(toolName + " Active | Click to start drawing");
+            // Title bar management is now handled by PrimaryFrame
         }
     }
 

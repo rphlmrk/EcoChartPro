@@ -7,7 +7,7 @@ import com.EcoChartPro.core.service.InternetConnectivityService;
 import com.EcoChartPro.core.settings.SettingsService;
 import com.EcoChartPro.core.theme.ThemeManager;
 import com.EcoChartPro.data.LiveDataManager;
-import com.EcoChartPro.ui.dashboard.DashboardFrame;
+import com.EcoChartPro.ui.PrimaryFrame;
 import com.EcoChartPro.ui.toolbar.components.SymbolProgressCache;
 import com.EcoChartPro.utils.AppDataManager;
 import com.EcoChartPro.utils.DataSourceManager;
@@ -32,13 +32,10 @@ public class Main {
 
     private static Logger logger;
     private static final String INITIALIZED_PROPERTY = "ecochartpro.initialized";
-
+    private static PrimaryFrame primaryFrame; // [NEW] Keep a reference to the main frame
 
     public static void main(String[] args) {
         // [DEFINITIVE FIX] Set a default, stable locale as the VERY FIRST action.
-        // This prevents a NoClassDefFoundError for java.util.Formatter on systems
-        // with misconfigured locales, which can be triggered by early class loading
-        // (e.g., during BigDecimal deserialization by Jackson).
         Locale.setDefault(Locale.US);
 
         // MODIFIED: Use a system property to ensure single initialization across the entire JVM.
@@ -86,7 +83,9 @@ public class Main {
             } else {
                 logger.info("Application shutting down normally.");
                 // [MODIFIED] Save the live session state on normal shutdown
-                LiveSessionTrackerService.getInstance().stop(); // This will perform a final save
+                if (primaryFrame != null) {
+                    primaryFrame.getLiveContext().getSessionTracker().stop(); // Stop performs a final save
+                }
                 com.EcoChartPro.core.gamification.GamificationService.getInstance().saveState();
                 AchievementService.getInstance().saveState();
                 com.EcoChartPro.core.controller.ReplaySessionManager.getInstance().shutdown();
@@ -116,8 +115,8 @@ public class Main {
         // [NEW] Start the internet connectivity checker
         InternetConnectivityService.getInstance().start();
         
-        // [NEW] Start the live session tracker
-        LiveSessionTrackerService.getInstance().start();
+        // [REMOVED] LiveSessionTrackerService is no longer a global singleton.
+        // Its lifecycle is managed by the ChartWorkspacePanel.
 
         try {
             DataSourceManager.getInstance().scanDataDirectory();
@@ -137,9 +136,9 @@ public class Main {
         }
 
         SwingUtilities.invokeLater(() -> {
-            DashboardFrame dashboard = new DashboardFrame();
-            dashboard.setVisible(true);
-            logger.info("Dashboard launched.");
+            primaryFrame = new PrimaryFrame(); // [MODIFIED] Store the reference
+            primaryFrame.setVisible(true);
+            logger.info("PrimaryFrame launched.");
         });
     }
 

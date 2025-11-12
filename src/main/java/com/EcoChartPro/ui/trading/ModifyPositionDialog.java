@@ -1,5 +1,6 @@
 package com.EcoChartPro.ui.trading;
 
+import com.EcoChartPro.core.controller.WorkspaceContext;
 import com.EcoChartPro.model.trading.Position;
 import com.EcoChartPro.ui.chart.ChartPanel;
 
@@ -16,19 +17,16 @@ public class ModifyPositionDialog extends JDialog implements PropertyChangeListe
 
     private final ChartPanel chartPanel;
     private final ModifyPositionPanel modifyPanel;
-    // private static final DecimalFormat PRICE_FORMAT = new DecimalFormat("#.########");
 
-    public ModifyPositionDialog(Frame owner, ChartPanel chartPanel, Position position) {
-        super(owner, true); // Modal, title is now handled by our custom header
+    public ModifyPositionDialog(Frame owner, ChartPanel chartPanel, Position position, WorkspaceContext context) {
+        super(owner, true);
         this.chartPanel = chartPanel;
 
         setUndecorated(true);
 
-        // Main container with a border to define the dialog's edge
         JPanel rootPanel = new JPanel(new BorderLayout());
         rootPanel.setBorder(BorderFactory.createLineBorder(UIManager.getColor("Component.borderColor")));
 
-        // Custom header panel
         String symbolString = position.symbol().name();
         String titleText = "Modify Position - " + symbolString;
         JPanel headerPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 8));
@@ -38,8 +36,7 @@ public class ModifyPositionDialog extends JDialog implements PropertyChangeListe
         headerPanel.add(titleLabel);
 
 
-        this.modifyPanel = new ModifyPositionPanel(position, chartPanel, (success) -> {
-            // This callback is triggered by both "Modify Position" and "Cancel" buttons.
+        this.modifyPanel = new ModifyPositionPanel(position, chartPanel, context, (success) -> {
             dispose();
         });
         
@@ -50,7 +47,6 @@ public class ModifyPositionDialog extends JDialog implements PropertyChangeListe
         modifyButton.setForeground(Color.WHITE);
         modifyButton.setFocusPainted(false);
 
-        // Assemble the dialog with the custom header
         rootPanel.add(headerPanel, BorderLayout.NORTH);
         rootPanel.add(modifyPanel, BorderLayout.CENTER);
         setContentPane(rootPanel);
@@ -60,14 +56,10 @@ public class ModifyPositionDialog extends JDialog implements PropertyChangeListe
         setResizable(false);
     }
     
-    /**
-     * Overriding dispose to ensure the chart state is always cleaned up.
-     * This is called when the dialog is closed via the panel's callback.
-     */
     @Override
     public void dispose() {
-        chartPanel.exitPriceSelectionMode(); // Explicitly exit the chart's mode
-        chartPanel.setOrderPreview(null);      // Clear any lingering preview lines
+        chartPanel.exitPriceSelectionMode();
+        chartPanel.setOrderPreview(null);
         super.dispose();
     }
     
@@ -84,7 +76,7 @@ public class ModifyPositionDialog extends JDialog implements PropertyChangeListe
             SwingUtilities.invokeLater(() -> {
                 chartPanel.enterPriceSelectionMode(selectedPrice -> {
                     if (selectedPrice == null) {
-                        setVisible(true); // Just make the dialog visible again
+                        setVisible(true);
                         return;
                     }
                     String formattedPrice = selectedPrice.setScale(8, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString();

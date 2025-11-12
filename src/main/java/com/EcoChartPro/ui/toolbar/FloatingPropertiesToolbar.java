@@ -1,9 +1,10 @@
 package com.EcoChartPro.ui.toolbar;
 
+import com.EcoChartPro.core.controller.WorkspaceContext;
 import com.EcoChartPro.core.manager.DrawingManager;
 import com.EcoChartPro.model.drawing.DrawingObject;
 import com.EcoChartPro.model.drawing.TextObject;
-import com.EcoChartPro.ui.MainWindow;
+import com.EcoChartPro.ui.ChartWorkspacePanel;
 import com.EcoChartPro.ui.chart.ChartPanel;
 import com.EcoChartPro.ui.components.CustomColorChooserPanel;
 import com.EcoChartPro.ui.dashboard.theme.UITheme;
@@ -21,20 +22,22 @@ import java.util.function.Consumer;
  */
 public class FloatingPropertiesToolbar extends JDialog implements PropertyChangeListener {
 
-    private final MainWindow mainWindow;
+    private final ChartWorkspacePanel workspacePanel;
+    private final WorkspaceContext context;
     private final JButton colorButton;
     private final JSpinner thicknessSpinner;
     private final JToggleButton lockButton;
     private final JButton moreOptionsButton;
-    private final JButton templateButton; // New button
+    private final JButton templateButton;
     private final JButton deleteButton;
 
     private final Icon lockOnIcon = UITheme.getIcon("/icons/lock_on.svg", 18, 18);
     private final Icon lockOffIcon = UITheme.getIcon("/icons/lock_off.svg", 18, 18);
 
-    public FloatingPropertiesToolbar(MainWindow owner) {
-        super(owner, false); // false = non-modal
-        this.mainWindow = owner;
+    public FloatingPropertiesToolbar(ChartWorkspacePanel owner) {
+        super(owner.getFrameOwner(), false); // false = non-modal
+        this.workspacePanel = owner;
+        this.context = owner.getWorkspaceContext();
 
         setUndecorated(true);
         setBackground(new Color(0, 0, 0, 0)); // Transparent background
@@ -59,36 +62,29 @@ public class FloatingPropertiesToolbar extends JDialog implements PropertyChange
         setContentPane(contentPanel);
 
         // --- Toolbar Components ---
-
-        // Color Button
         colorButton = new JButton();
         colorButton.setToolTipText("Line Color");
         colorButton.setPreferredSize(new Dimension(24, 24));
         colorButton.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         colorButton.setBorder(BorderFactory.createLineBorder(UIManager.getColor("Component.borderColor")));
 
-        // Thickness Spinner
         SpinnerNumberModel thicknessModel = new SpinnerNumberModel(2, 1, 10, 1);
         thicknessSpinner = new JSpinner(thicknessModel);
         thicknessSpinner.setToolTipText("Line Thickness");
         thicknessSpinner.setPreferredSize(new Dimension(50, 24));
 
-        // Lock Button
         lockButton = new JToggleButton(lockOffIcon);
         lockButton.setSelectedIcon(lockOnIcon);
         configureToolbarButton(lockButton);
 
-        // More Options Button
         moreOptionsButton = new JButton(UITheme.getIcon(UITheme.Icons.SETTINGS, 18, 18));
         moreOptionsButton.setToolTipText("More Options...");
         configureToolbarButton(moreOptionsButton);
 
-        // --- NEW: Template Button ---
         templateButton = new JButton(UITheme.getIcon(UITheme.Icons.TEMPLATE, 18, 18));
         templateButton.setToolTipText("Drawing Templates...");
         configureToolbarButton(templateButton);
 
-        // Delete Button
         deleteButton = new JButton(UITheme.getIcon(UITheme.Icons.DELETE, 18, 18));
         deleteButton.setToolTipText("Delete Drawing");
         configureToolbarButton(deleteButton);
@@ -101,19 +97,19 @@ public class FloatingPropertiesToolbar extends JDialog implements PropertyChange
         contentPanel.add(deleteButton);
 
         setupActions();
-        DrawingManager.getInstance().addPropertyChangeListener("selectedDrawingChanged", this);
+        context.getDrawingManager().addPropertyChangeListener("selectedDrawingChanged", this);
 
         pack();
     }
 
     @Override
     public void dispose() {
-        DrawingManager.getInstance().removePropertyChangeListener("selectedDrawingChanged", this);
+        context.getDrawingManager().removePropertyChangeListener("selectedDrawingChanged", this);
         super.dispose();
     }
 
     private void setupActions() {
-        DrawingManager drawingManager = DrawingManager.getInstance();
+        DrawingManager drawingManager = context.getDrawingManager();
 
         deleteButton.addActionListener(e -> {
             UUID selectedId = drawingManager.getSelectedDrawingId();
@@ -171,7 +167,7 @@ public class FloatingPropertiesToolbar extends JDialog implements PropertyChange
             DrawingObject drawing = drawingManager.getDrawingById(selectedId);
             if (drawing == null || drawing.isLocked()) return;
 
-            drawing.showSettingsDialog(this.mainWindow, drawingManager);
+            drawing.showSettingsDialog(workspacePanel.getFrameOwner(), drawingManager);
         });
     }
 
@@ -182,22 +178,14 @@ public class FloatingPropertiesToolbar extends JDialog implements PropertyChange
 
             if (selectedId == null) {
                 this.setVisible(false);
-                ChartPanel activePanel = mainWindow.getWorkspaceManager().getActiveChartPanel();
-                if (activePanel == null || activePanel.getDrawingController().getActiveTool() == null) {
-                    mainWindow.getTitleBarManager().restoreIdleTitle();
-                }
                 return;
             }
 
-            DrawingObject drawing = DrawingManager.getInstance().getDrawingById(selectedId);
+            DrawingObject drawing = context.getDrawingManager().getDrawingById(selectedId);
             if (drawing == null) {
                 this.setVisible(false);
-                mainWindow.getTitleBarManager().restoreIdleTitle();
                 return;
             }
-
-            String lockedStatus = drawing.isLocked() ? " (Locked)" : "";
-            mainWindow.getTitleBarManager().setStaticTitle("Object Selected" + lockedStatus + " | Press Delete to remove");
 
             setLockedState(drawing.isLocked());
             getThicknessSpinner().setEnabled(!drawing.isLocked() && !(drawing instanceof TextObject));
@@ -206,7 +194,7 @@ public class FloatingPropertiesToolbar extends JDialog implements PropertyChange
                 getThicknessSpinner().setValue((int) drawing.stroke().getLineWidth());
             }
 
-            ChartPanel activeChartPanel = mainWindow.getWorkspaceManager().getActiveChartPanel();
+            ChartPanel activeChartPanel = workspacePanel.getWorkspaceManager().getActiveChartPanel();
             if (activeChartPanel != null && activeChartPanel.isShowing()) {
                 Point chartLocation = activeChartPanel.getLocationOnScreen();
                 int x = chartLocation.x + (activeChartPanel.getWidth() / 2) - (getWidth() / 2);

@@ -3,12 +3,14 @@ package com.EcoChartPro.ui;
 import com.EcoChartPro.core.controller.ChartController;
 import com.EcoChartPro.core.controller.ChartInteractionManager;
 import com.EcoChartPro.core.controller.ReplaySessionManager;
+import com.EcoChartPro.core.controller.WorkspaceContext;
 import com.EcoChartPro.core.indicator.Indicator;
 import com.EcoChartPro.core.model.ChartDataModel;
 import com.EcoChartPro.core.settings.SettingsService;
 import com.EcoChartPro.core.settings.config.DrawingConfig;
 import com.EcoChartPro.core.tool.DrawingTool;
 import com.EcoChartPro.model.Timeframe;
+import com.EcoChartPro.ui.action.TitleBarManager;
 import com.EcoChartPro.ui.chart.ChartPanel;
 import com.EcoChartPro.ui.chart.IndicatorPanel;
 import com.EcoChartPro.ui.chart.PriceAxisPanel;
@@ -40,12 +42,13 @@ public class WorkspaceManager {
 
     public enum LayoutType { ONE, TWO, THREE_RIGHT, THREE_LEFT, FOUR, THREE_VERTICAL, FOUR_VERTICAL, TWO_VERTICAL, THREE_HORIZONTAL }
 
-    private final MainWindow owner;
+    private final ChartWorkspacePanel owner;
     private final JPanel chartAreaPanel;
     private final java.util.List<ChartPanel> chartPanels = new ArrayList<>();
     private ChartPanel activeChartPanel;
     private final Map<UUID, Component> indicatorPaneMap = new HashMap<>();
     private final PropertyChangeSupport pcs = new PropertyChangeSupport(this);
+    private final WorkspaceContext context;
 
     private final ComponentListener activeChartListener = new ComponentAdapter() {
         private void updateToolbarPosition() {
@@ -71,23 +74,31 @@ public class WorkspaceManager {
         }
     };
 
-    public WorkspaceManager(MainWindow owner) {
+    public WorkspaceManager(ChartWorkspacePanel owner, WorkspaceContext context) {
         this.owner = owner;
+        this.context = context;
         this.chartAreaPanel = new JPanel();
         this.chartAreaPanel.setLayout(new BoxLayout(this.chartAreaPanel, BoxLayout.Y_AXIS));
     }
 
     public void initializeStandardMode() {
-        // Create the first chart view, but don't add it directly. applyLayout will handle it.
-        createNewChartView(null, true);
-        applyLayout(LayoutType.ONE); // Apply default layout
-        if (!chartPanels.isEmpty()) {
-            setActiveChartPanel(chartPanels.get(0));
-        }
+        // [MODIFIED] Show a placeholder until a session is started.
+        JPanel placeholder = new JPanel(new GridBagLayout());
+        JLabel message = new JLabel("No live session active. Go to File > New Live Session to begin.");
+        message.setFont(new Font("SansSerif", Font.PLAIN, 16));
+        message.setForeground(Color.GRAY);
+        placeholder.add(message);
+        chartAreaPanel.add(placeholder);
     }
 
     public void initializeReplayMode() {
-        // In replay mode, the initial chart is added when the session starts.
+        // [MODIFIED] Show a placeholder message until a session is loaded.
+        JPanel placeholder = new JPanel(new GridBagLayout());
+        JLabel message = new JLabel("No replay loaded. Go to File > New Replay Session or Load Replay to begin.");
+        message.setFont(new Font("SansSerif", Font.PLAIN, 16));
+        message.setForeground(Color.GRAY);
+        placeholder.add(message);
+        chartAreaPanel.add(placeholder);
     }
 
     public JPanel getChartAreaPanel() {
@@ -122,11 +133,8 @@ public class WorkspaceManager {
             
             activeChartPanel.requestFocusInWindow();
             
-            owner.getDrawingToolbar().setVisible(true);
             SwingUtilities.invokeLater(() -> {
-                if (activeChartPanel.getDrawingController().getActiveTool() == null) {
-                    owner.getTitleBarManager().restoreIdleTitle();
-                }
+                owner.getDrawingToolbar().setVisible(true);
                 owner.getDrawingToolbar().updatePosition(SettingsService.getInstance().getDrawingToolbarPosition() == DrawingConfig.ToolbarPosition.LEFT
                         ? FloatingDrawingToolbar.DockSide.LEFT
                         : FloatingDrawingToolbar.DockSide.RIGHT);
@@ -135,7 +143,6 @@ public class WorkspaceManager {
         } else {
             owner.getDrawingToolbar().setVisible(false);
             owner.getPropertiesToolbar().setVisible(false);
-            owner.getTitleBarManager().setStaticTitle("No Active Chart");
         }
         
         for (ChartPanel p : chartPanels) p.setActive(p == activeChartPanel);
@@ -144,30 +151,30 @@ public class WorkspaceManager {
     }
 
     public Component createNewChartView(Timeframe tf, boolean activateOnClick) {
-        ChartDataModel model = new ChartDataModel();
+        ChartDataModel model = new ChartDataModel(context.getDrawingManager());
         ChartInteractionManager interactionManager = new ChartInteractionManager(model);
         model.setInteractionManager(interactionManager);
 
-        // --- Create UI components first ---
         ChartAxis chartAxis = new ChartAxis();
-        PriceAxisPanel priceAxisPanel = new PriceAxisPanel(model, chartAxis, interactionManager);
+        PriceAxisPanel priceAxisPanel = new PriceAxisPanel(model, chartAxis, interactionManager, context);
         TimeAxisPanel timeAxisPanel = new TimeAxisPanel(model, chartAxis, interactionManager);
 
         Consumer<DrawingTool> onToolStateChange = tool -> {
-            if (tool != null) {
-                String toolName = tool.getClass().getSimpleName().replace("Tool", "");
-                owner.getTitleBarManager().setToolActiveTitle(toolName);
+            TitleBarManager tbm = owner.getTitleBarManager();
+            if (tbm == null) return;
+
+            if (tool == null) {
+                tbm.restoreIdleTitle();
             } else {
-                owner.getTitleBarManager().restoreIdleTitle();
+                String toolName = tool.getClass().getSimpleName().replace("Tool", "");
+                tbm.setToolActiveTitle(toolName);
             }
         };
 
-        ChartPanel chartPanel = new ChartPanel(model, interactionManager, chartAxis, priceAxisPanel, timeAxisPanel, onToolStateChange, owner.getPropertiesToolbar());
+        ChartPanel chartPanel = new ChartPanel(model, interactionManager, chartAxis, priceAxisPanel, timeAxisPanel, onToolStateChange, owner.getPropertiesToolbar(), context);
         
-        // --- Set the view on the model *before* configuring it ---
         model.setView(chartPanel);
         
-        // --- Now configure the model, which creates the data provider ---
         DataSourceManager.ChartDataSource sourceToLoad = owner.getCurrentSource();
         if (sourceToLoad == null && !chartPanels.isEmpty() && chartPanels.get(0).getDataModel().getCurrentSymbol() != null) {
             sourceToLoad = chartPanels.get(0).getDataModel().getCurrentSymbol();
@@ -184,7 +191,7 @@ public class WorkspaceManager {
             model.setDatabaseManager(owner.getActiveDbManager(), sourceToLoad);
         }
 
-        new ChartController(model, interactionManager, chartPanel, owner);
+        new ChartController(model, interactionManager, chartPanel, owner, context);
         
         String selectedTfString = owner.getTopToolbarPanel().getTimeframeButton().getText();
         Timeframe targetTimeframe = (tf != null) ? tf : Timeframe.fromString(selectedTfString);
@@ -305,8 +312,8 @@ public class WorkspaceManager {
         if (activeChartPanel == null) return;
 
         IndicatorPanel indicatorPanel = new IndicatorPanel(activeChartPanel.getDataModel(), activeChartPanel.getChartAxis(), indicator);
-        PriceAxisPanel indicatorAxisPanel = new PriceAxisPanel(null, indicatorPanel.getLocalYAxis(), null);
-
+        PriceAxisPanel indicatorAxisPanel = new PriceAxisPanel(null, indicatorPanel.getLocalYAxis(), null, context);
+        
         JPanel container = new JPanel(new BorderLayout());
         container.add(indicatorPanel, BorderLayout.CENTER);
         container.add(indicatorAxisPanel, BorderLayout.EAST);

@@ -157,13 +157,12 @@ public class DashboardFrame extends JFrame implements PropertyChangeListener {
             ComprehensiveReportPanel liveReportPanel = mainContentPanel.getLiveViewPanel().getReportPanel();
 
             if ("LIVE".equals(viewName)) {
-                LiveSessionTrackerService.getInstance().setActiveSessionType(SessionType.LIVE);
-                PaperTradingService.getInstance().setActiveSessionType(SessionType.LIVE);
-                liveReportPanel.activateLiveMode(LiveSessionTrackerService.getInstance());
+                // [FIX] These calls are incorrect in the new architecture and have been removed.
+                // The PrimaryFrame and its contexts will manage this state.
+                // liveReportPanel.activateLiveMode(LiveSessionTrackerService.getInstance());
             } else { 
-                LiveSessionTrackerService.getInstance().setActiveSessionType(SessionType.REPLAY);
-                PaperTradingService.getInstance().setActiveSessionType(SessionType.REPLAY);
-                liveReportPanel.deactivateLiveMode();
+                // [FIX] These calls are incorrect in the new architecture and have been removed.
+                // liveReportPanel.deactivateLiveMode();
             }
         } else if ("connectivityChanged".equals(evt.getPropertyName())) {
             SwingUtilities.invokeLater(() -> {

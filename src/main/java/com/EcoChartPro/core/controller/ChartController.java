@@ -10,7 +10,7 @@ import com.EcoChartPro.model.drawing.DrawingObjectPoint;
 import com.EcoChartPro.model.drawing.TextObject;
 import com.EcoChartPro.model.trading.Order;
 import com.EcoChartPro.model.trading.Position;
-import com.EcoChartPro.ui.MainWindow;
+import com.EcoChartPro.ui.ChartWorkspacePanel;
 import com.EcoChartPro.ui.chart.ChartPanel;
 import com.EcoChartPro.ui.chart.axis.ChartAxis;
 import com.EcoChartPro.ui.chart.render.trading.OrderRenderer;
@@ -33,9 +33,10 @@ public class ChartController {
     private final ChartDataModel model;
     private final ChartInteractionManager interactionManager;
     private final ChartPanel view;
-    private final MainWindow mainWindow;
+    private final ChartWorkspacePanel chartWorkspacePanel;
     private final DrawingController drawingController;
     private OrderRenderer.InteractiveZone activeInteractionItem = null;
+    private final WorkspaceContext workspaceContext;
 
     // --- Unified Panning Fields ---
     private Point lastMousePoint = null; // For calculating delta in mouseDragged
@@ -43,12 +44,13 @@ public class ChartController {
     private BigDecimal dragStartMinPrice = null;
     private BigDecimal dragStartMaxPrice = null;
 
-    public ChartController(ChartDataModel model, ChartInteractionManager interactionManager, ChartPanel view, MainWindow mainWindow) {
+    public ChartController(ChartDataModel model, ChartInteractionManager interactionManager, ChartPanel view, ChartWorkspacePanel chartWorkspacePanel, WorkspaceContext context) { // [MODIFIED]
         this.model = model;
         this.interactionManager = interactionManager;
         this.view = view;
-        this.mainWindow = mainWindow;
+        this.chartWorkspacePanel = chartWorkspacePanel;
         this.drawingController = view.getDrawingController();
+        this.workspaceContext = context;
         addListeners();
         model.addPropertyChangeListener("liveCandleAdded", this::handleLiveCandleUpdate);
         model.addPropertyChangeListener("liveTickReceived", this::handleLiveTickUpdate);
@@ -60,10 +62,9 @@ public class ChartController {
      * This prevents duplicate processing if multiple charts of the same symbol are open.
      */
     private void handleLiveCandleUpdate(PropertyChangeEvent evt) {
-        // [FIX] Replaced model.getCurrentMode() == ChartMode.LIVE with !model.isInReplayMode()
-        if (!model.isInReplayMode() && view == mainWindow.getActiveChartPanel()) {
+        if (!model.isInReplayMode() && view == chartWorkspacePanel.getActiveChartPanel()) {
             if (evt.getNewValue() instanceof com.EcoChartPro.model.KLine) {
-                PaperTradingService.getInstance().onBarUpdate((com.EcoChartPro.model.KLine) evt.getNewValue());
+                workspaceContext.getPaperTradingService().onBarUpdate((com.EcoChartPro.model.KLine) evt.getNewValue());
             }
         }
     }
@@ -74,10 +75,9 @@ public class ChartController {
      * It only acts if it's controlling the currently active chart panel.
      */
     private void handleLiveTickUpdate(PropertyChangeEvent evt) {
-        // [FIX] Replaced model.getCurrentMode() == ChartMode.LIVE with !model.isInReplayMode()
-        if (!model.isInReplayMode() && view == mainWindow.getActiveChartPanel()) {
+        if (!model.isInReplayMode() && view == chartWorkspacePanel.getActiveChartPanel()) {
             if (evt.getNewValue() instanceof com.EcoChartPro.model.KLine) {
-                PaperTradingService.getInstance().updateLivePnl((com.EcoChartPro.model.KLine) evt.getNewValue());
+                workspaceContext.getPaperTradingService().updateLivePnl((com.EcoChartPro.model.KLine) evt.getNewValue());
             }
         }
     }
@@ -124,7 +124,7 @@ public class ChartController {
                     }
                 }
 
-                DrawingManager dm = DrawingManager.getInstance();
+                DrawingManager dm = workspaceContext.getDrawingManager(); // [MODIFIED]
 
                 // --- DRAWING ACTION ---
                 boolean isDrawingAction = (drawingController.getActiveTool() != null && !(drawingController.getActiveTool() instanceof InfoTool)) ||
@@ -139,7 +139,6 @@ public class ChartController {
                 // If we reach here, it's a pan operation. Deselect any drawing.
                 if (dm.getSelectedDrawingId() != null) {
                     dm.setSelectedDrawingId(null);
-                    mainWindow.getTitleBarManager().restoreIdleTitle();
                 }
 
                 // --- UNIFIED PANNING SETUP ---
@@ -161,8 +160,6 @@ public class ChartController {
                     dragStartMaxPrice = null;
                 }
 
-                // Only pause if we are actually in a replay session that can be paused.
-                // [FIX] Replaced model.getCurrentMode() == ChartMode.REPLAY with model.isInReplayMode()
                 if (model.isInReplayMode()) ReplaySessionManager.getInstance().pause();
             }
 
@@ -182,7 +179,7 @@ public class ChartController {
                 
                 // --- 2. DRAWING DRAG ---
                 boolean isDrawingDrag = (drawingController.getActiveTool() != null && !(drawingController.getActiveTool() instanceof InfoTool)) ||
-                                         DrawingManager.getInstance().getSelectedDrawingId() != null;
+                                         workspaceContext.getDrawingManager().getSelectedDrawingId() != null; // [MODIFIED]
 
                 if (isDrawingDrag) {
                     return; // Drawing drag is handled by DrawingController.
@@ -255,7 +252,7 @@ public class ChartController {
             @Override
             public void mouseClicked(MouseEvent e) {
                 if (e.getClickCount() == 2) {
-                    DrawingManager drawingManager = DrawingManager.getInstance();
+                    DrawingManager drawingManager = workspaceContext.getDrawingManager(); // [MODIFIED]
                     DrawingObject foundDrawing = drawingManager.findDrawingAt(e.getPoint(), view.getChartAxis(), model.getVisibleKLines(), model.getCurrentDisplayTimeframe());
 
                     if (foundDrawing instanceof TextObject textObject) {
@@ -291,7 +288,7 @@ public class ChartController {
                 
                 // DrawingController's mouseMoved listener handles its own cursor changes for tools and handles.
                 // We only handle cursor changes for trading objects here, and only if no drawing action is active.
-                if (drawingController.getActiveTool() != null || DrawingManager.getInstance().getSelectedDrawingId() != null) {
+                if (drawingController.getActiveTool() != null || workspaceContext.getDrawingManager().getSelectedDrawingId() != null) { // [MODIFIED]
                     return;
                 }
 
@@ -320,7 +317,7 @@ public class ChartController {
     }
 
     private void handleCancelOrderRequest(UUID orderId) {
-        Order order = PaperTradingService.getInstance().getPendingOrders().stream()
+        Order order = workspaceContext.getPaperTradingService().getPendingOrders().stream() // [MODIFIED]
                 .filter(o -> o.id().equals(orderId)).findFirst().orElse(null);
         if (order == null) return;
         
@@ -332,7 +329,7 @@ public class ChartController {
                 JOptionPane.QUESTION_MESSAGE);
                 
         if (choice == JOptionPane.YES_OPTION) {
-            PaperTradingService.getInstance().cancelOrder(orderId);
+            workspaceContext.getPaperTradingService().cancelOrder(orderId); // [MODIFIED]
         }
     }
 
@@ -342,14 +339,14 @@ public class ChartController {
             JOptionPane.showMessageDialog(view, "Cannot close position, replay data not available.", "Error", JOptionPane.ERROR_MESSAGE);
             return;
         }
-        Position position = PaperTradingService.getInstance().getOpenPositions().stream().filter(p -> p.id().equals(positionId)).findFirst().orElse(null);
+        Position position = workspaceContext.getPaperTradingService().getOpenPositions().stream().filter(p -> p.id().equals(positionId)).findFirst().orElse(null); // [MODIFIED]
         if (position == null) return;
         int choice = JOptionPane.showConfirmDialog(view, String.format("Are you sure you want to close this %s position on %s at market?", position.direction(), position.symbol().name()), "Confirm Close Position", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
-        if (choice == JOptionPane.YES_OPTION) PaperTradingService.getInstance().closePosition(positionId, model.getCurrentReplayKLine());
+        if (choice == JOptionPane.YES_OPTION) workspaceContext.getPaperTradingService().closePosition(positionId, model.getCurrentReplayKLine()); // [MODIFIED]
     }
 
     private void finalizeOrderModification(UUID objectId, InteractionType dragType, BigDecimal finalPrice) {
-        PaperTradingService service = PaperTradingService.getInstance();
+        PaperTradingService service = workspaceContext.getPaperTradingService(); // [MODIFIED]
         Order pendingOrder = service.getPendingOrders().stream().filter(o -> o.id().equals(objectId)).findFirst().orElse(null);
         Position openPosition = service.getOpenPositions().stream().filter(p -> p.id().equals(objectId)).findFirst().orElse(null);
 

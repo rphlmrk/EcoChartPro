@@ -4,6 +4,7 @@ import com.EcoChartPro.core.gamification.GamificationService;
 import com.EcoChartPro.core.service.PnlCalculationService;
 import com.EcoChartPro.core.settings.SettingsService;
 import com.EcoChartPro.core.settings.config.TradingConfig;
+import com.EcoChartPro.core.state.ReplaySessionState;
 import com.EcoChartPro.core.trading.PaperTradingService;
 import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.Trade;
@@ -11,10 +12,15 @@ import com.EcoChartPro.model.trading.Position;
 import com.EcoChartPro.ui.NotificationService;
 import com.EcoChartPro.ui.chart.ChartPanel;
 import com.EcoChartPro.ui.dashboard.theme.UITheme;
+import com.EcoChartPro.utils.AppDataManager;
+import com.EcoChartPro.utils.SessionManager;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.swing.SwingUtilities;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
+import java.io.File;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -24,17 +30,23 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
 public class ReplayController implements ReplayStateListener, PropertyChangeListener {
 
+    private static final Logger logger = LoggerFactory.getLogger(ReplayController.class);
     private final java.beans.PropertyChangeSupport pcs = new java.beans.PropertyChangeSupport(this);
+    private final WorkspaceContext workspaceContext;
     private ChartPanel activeChartPanel;
     private KLine lastSeenBar;
     private BigDecimal initialBalance = BigDecimal.ZERO;
     private static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("dd MMM yyyy HH:mm:ss");
+
+    // --- Auto-Save Field ---
+    private int barsSinceLastAutoSave = 0;
 
     // --- Real-time Session Monitoring Fields ---
     private List<Trade> sessionTradesToday = new ArrayList<>();
@@ -45,10 +57,10 @@ public class ReplayController implements ReplayStateListener, PropertyChangeList
     private final Set<TradingConfig.TradingSession> activeSessions = new HashSet<>();
     private boolean hasSentFatigueNudgeToday = false;
 
-    public ReplayController() {
-        ReplaySessionManager.getInstance().addListener(this);
+    public ReplayController(WorkspaceContext context) {
+        this.workspaceContext = context;
         SettingsService.getInstance().addPropertyChangeListener(this);
-        PaperTradingService.getInstance().addPropertyChangeListener(this);
+        this.workspaceContext.getPaperTradingService().addPropertyChangeListener(this);
         
         GamificationService gService = GamificationService.getInstance();
         this.optimalTradeCount = gService.getOptimalTradeCount();
@@ -74,7 +86,6 @@ public class ReplayController implements ReplayStateListener, PropertyChangeList
 
     @Override
     public void propertyChange(PropertyChangeEvent evt) {
-        // [MODIFIED] This now efficiently handles balance updates based on specific events.
         if ("displayZoneId".equals(evt.getPropertyName())) {
             updateDateTimeLabel();
         } else if ("unrealizedPnlCalculated".equals(evt.getPropertyName()) || "openPositionsUpdated".equals(evt.getPropertyName()) || "tradeHistoryUpdated".equals(evt.getPropertyName())) {
@@ -84,8 +95,7 @@ public class ReplayController implements ReplayStateListener, PropertyChangeList
 
     @Override
     public void onReplayTick(KLine newM1Bar) {
-        // [MODIFIED] This method is now much more efficient.
-        PaperTradingService.getInstance().onBarUpdate(newM1Bar);
+        workspaceContext.getPaperTradingService().onBarUpdate(newM1Bar);
         this.lastSeenBar = newM1Bar;
         checkSessionTransitions(newM1Bar);
 
@@ -100,7 +110,7 @@ public class ReplayController implements ReplayStateListener, PropertyChangeList
             activeSessions.clear();
         }
         
-        this.sessionTradesToday = PaperTradingService.getInstance().getTradeHistory().stream()
+        this.sessionTradesToday = workspaceContext.getPaperTradingService().getTradeHistory().stream()
             .filter(trade -> trade.entryTime().atZone(ZoneId.of("UTC")).toLocalDate().equals(currentDate))
             .collect(Collectors.toList());
 
@@ -124,13 +134,36 @@ public class ReplayController implements ReplayStateListener, PropertyChangeList
         }
 
         updateDateTimeLabel();
-        // [REMOVED] updateAccountBalanceDisplay() is no longer needed here. It's handled by propertyChange.
+
+        // [NEW] Handle auto-save logic
+        barsSinceLastAutoSave++;
+        if (barsSinceLastAutoSave >= SettingsService.getInstance().getAutoSaveInterval()) {
+            performAutoSave();
+            barsSinceLastAutoSave = 0;
+        }
+    }
+
+    private void performAutoSave() {
+        Optional<File> autoSaveFile = AppDataManager.getAutoSaveFilePath().map(java.nio.file.Path::toFile);
+        if (autoSaveFile.isEmpty()) {
+            logger.error("Could not determine auto-save file path. Auto-save skipped.");
+            return;
+        }
+        
+        ReplaySessionState state = workspaceContext.getPaperTradingService().getCurrentSessionState();
+
+        try {
+            SessionManager.getInstance().saveSession(state, autoSaveFile.get(), true);
+            logger.debug("Auto-save completed for multi-symbol session.");
+        } catch (Exception e) {
+            logger.error("Auto-save failed for multi-symbol session.", e);
+        }
     }
 
     @Override
     public void onReplaySessionStart() {
         this.lastSeenBar = ReplaySessionManager.getInstance().getCurrentBar();
-        this.initialBalance = PaperTradingService.getInstance().getAccountBalance();
+        this.initialBalance = workspaceContext.getPaperTradingService().getAccountBalance();
         this.activeSessions.clear();
         pcs.firePropertyChange("initialBalance", null, this.initialBalance);
 
@@ -148,7 +181,6 @@ public class ReplayController implements ReplayStateListener, PropertyChangeList
 
     @Override
     public void onReplayStateChanged() {
-        // [MODIFIED] Simplified. The ChartDataModel handles its own state now. This just updates UI buttons.
         pcs.firePropertyChange("replayStateChanged", null, null);
     }
     
@@ -215,7 +247,7 @@ public class ReplayController implements ReplayStateListener, PropertyChangeList
     }
 
     private void updateAccountBalanceDisplay() {
-        PaperTradingService service = PaperTradingService.getInstance();
+        PaperTradingService service = workspaceContext.getPaperTradingService();
         BigDecimal realizedBalance = service.getAccountBalance();
         BigDecimal unrealizedPnl = BigDecimal.ZERO;
         KLine currentBar = (activeChartPanel != null) ? activeChartPanel.getDataModel().getCurrentReplayKLine() : this.lastSeenBar;

@@ -1,5 +1,6 @@
 package com.EcoChartPro.ui.sidebar.journal;
 
+import com.EcoChartPro.core.controller.WorkspaceContext;
 import com.EcoChartPro.core.journal.JournalAnalysisService;
 import com.EcoChartPro.core.trading.PaperTradingService;
 import com.EcoChartPro.model.Trade;
@@ -43,7 +44,7 @@ public class SidebarJournalModePanel extends JPanel {
     private static final int MIN_SCROLL_THRESHOLD = 5;
 
 
-    public SidebarJournalModePanel() {
+    public SidebarJournalModePanel(WorkspaceContext context) {
         super(new BorderLayout());
         setOpaque(false);
         this.analysisService = new JournalAnalysisService();
@@ -56,7 +57,7 @@ public class SidebarJournalModePanel extends JPanel {
         calendarContainerPanel.add(fullCalendarView, "FULL_CALENDAR");
         calendarContainerPanel.add(compactWeeklyView, "COMPACT_CALENDAR");
 
-        journalDetailsView = new SidebarJournalDetailsView();
+        journalDetailsView = new SidebarJournalDetailsView(context);
         this.dailySummaryView = journalDetailsView.getDailySummaryView();
         this.tradeListView = journalDetailsView.getTradeListView();
         

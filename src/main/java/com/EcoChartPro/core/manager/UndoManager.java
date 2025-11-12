@@ -10,31 +10,19 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 
 /**
- * A singleton manager that handles the undo and redo functionality for the application.
+ * A manager that handles the undo and redo functionality for a single workspace.
  * It uses two stacks to keep track of executed commands.
  */
 public final class UndoManager {
 
     private static final Logger logger = LoggerFactory.getLogger(UndoManager.class);
-    private static volatile UndoManager instance;
 
     private final Deque<UndoableCommand> undoStack = new ArrayDeque<>();
     private final Deque<UndoableCommand> redoStack = new ArrayDeque<>();
     private final PropertyChangeSupport pcs = new PropertyChangeSupport(this);
 
-    private UndoManager() {
-        // Private constructor for singleton pattern
-    }
-
-    public static UndoManager getInstance() {
-        if (instance == null) {
-            synchronized (UndoManager.class) {
-                if (instance == null) {
-                    instance = new UndoManager();
-                }
-            }
-        }
-        return instance;
+    public UndoManager() {
+        // Public constructor for non-singleton instantiation
     }
 
     /**

@@ -1,5 +1,6 @@
 package com.EcoChartPro.ui.trading;
 
+import com.EcoChartPro.core.controller.WorkspaceContext;
 import com.EcoChartPro.core.trading.PaperTradingService;
 import com.EcoChartPro.model.TradeDirection;
 import com.EcoChartPro.model.trading.Position;
@@ -23,6 +24,7 @@ public class ModifyPositionPanel extends JPanel {
 
     private final Position position;
     private final ChartPanel chartPanel;
+    private final WorkspaceContext context;
     private final JTextField entryPriceField, stopLossField, takeProfitField, trailingStopDistanceField;
     private final JCheckBox slCheckBox, tpCheckBox, trailingStopCheckBox;
     private final JButton modifyPositionButton;
@@ -41,9 +43,10 @@ public class ModifyPositionPanel extends JPanel {
     
     private boolean isInternallyUpdating = false;
 
-    public ModifyPositionPanel(Position position, ChartPanel chartPanel, Consumer<Boolean> closeCallback) {
+    public ModifyPositionPanel(Position position, ChartPanel chartPanel, WorkspaceContext context, Consumer<Boolean> closeCallback) {
         this.position = position;
         this.chartPanel = chartPanel;
+        this.context = context;
         this.tradeDirection = position.direction();
         this.closeCallback = closeCallback;
         setLayout(new GridBagLayout());
@@ -140,7 +143,6 @@ public class ModifyPositionPanel extends JPanel {
 
     private String formatPrice(BigDecimal price) {
         if (price == null) return "";
-        // Round to a max of 8 decimal places, then remove any trailing zeros for clean display.
         return price.setScale(8, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString();
     }
     
@@ -148,9 +150,7 @@ public class ModifyPositionPanel extends JPanel {
         JButton button = new JButton("⌖");
         button.setMargin(new Insets(1, 4, 1, 4));
         button.setToolTipText("Select price from chart");
-        button.addActionListener(e -> {
-            firePropertyChange("priceSelectionRequested", null, fieldName);
-        });
+        button.addActionListener(e -> firePropertyChange("priceSelectionRequested", null, fieldName));
         return button;
     }
 
@@ -196,7 +196,6 @@ public class ModifyPositionPanel extends JPanel {
         try {
             BigDecimal entryPrice = new BigDecimal(entryPriceField.getText());
             
-            // If trailing stop is active, and SL field is manually changed, update the distance.
             if (trailingStopCheckBox.isSelected()) {
                 BigDecimal stopLossPrice = new BigDecimal(stopLossField.getText());
                 BigDecimal distance = entryPrice.subtract(stopLossPrice).abs();
@@ -327,7 +326,7 @@ public class ModifyPositionPanel extends JPanel {
 
             validateOrder(entryPrice, stopLoss, takeProfit);
 
-            PaperTradingService.getInstance().modifyOrder(
+            context.getPaperTradingService().modifyOrder(
                 position.id(),
                 null, // Entry price is not modifiable for an open position
                 stopLoss,

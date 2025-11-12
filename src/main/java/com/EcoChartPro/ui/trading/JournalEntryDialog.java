@@ -1,5 +1,6 @@
 package com.EcoChartPro.ui.trading;
 
+import com.EcoChartPro.core.controller.WorkspaceContext;
 import com.EcoChartPro.core.settings.Checklist;
 import com.EcoChartPro.core.settings.ChecklistManager;
 import com.EcoChartPro.core.settings.MistakeManager;
@@ -23,8 +24,8 @@ import java.util.stream.Collectors;
 
 public class JournalEntryDialog extends JDialog {
 
-
     private final Trade trade;
+    private final WorkspaceContext context;
 
     private JTextArea notesArea;
     private JTextField tagsField;
@@ -38,9 +39,10 @@ public class JournalEntryDialog extends JDialog {
 
     private static final Checklist NO_CHECKLIST_SELECTED = new Checklist(null, "None / Not Applicable", new ArrayList<>());
 
-    public JournalEntryDialog(Frame owner, Trade trade) {
+    public JournalEntryDialog(Frame owner, Trade trade, WorkspaceContext context) {
         super(owner, "Edit Journal Entry for Trade #" + trade.id().toString().substring(0, 8), true);
         this.trade = trade;
+        this.context = context;
 
         setSize(550, 650);
         setLocationRelativeTo(owner);
@@ -104,7 +106,6 @@ public class JournalEntryDialog extends JDialog {
         gbc.anchor = GridBagConstraints.WEST;
         gbc.weightx = 1.0;
 
-        // --- Q&A Section ---
         gbc.gridx = 0; gbc.gridy = 0; gbc.gridwidth = 1;
         panel.add(new JLabel("Plan Adherence:"), gbc);
         gbc.gridx = 1;
@@ -129,7 +130,6 @@ public class JournalEntryDialog extends JDialog {
         checklistComboBox = new JComboBox<>();
         panel.add(checklistComboBox, gbc);
 
-        // --- Mistakes & Lessons Sections ---
         gbc.gridx = 0; gbc.gridy = 4; gbc.gridwidth = 2;
         gbc.fill = GridBagConstraints.BOTH;
         gbc.weighty = 0.5;
@@ -165,7 +165,7 @@ public class JournalEntryDialog extends JDialog {
         
         trade.setLessonsLearned(lessonsLearnedArea.getText());
 
-        PaperTradingService.getInstance().updateTradeJournalReflection(trade);
+        context.getPaperTradingService().updateTradeJournalReflection(trade);
         dispose();
     }
     
@@ -177,7 +177,6 @@ public class JournalEntryDialog extends JDialog {
         gbc.weightx = 1.0;
         gbc.insets = new Insets(5, 0, 5, 0);
 
-        // --- General Notes Area ---
         gbc.gridx = 0;
         gbc.gridy = 0;
         gbc.weighty = 1.0;
@@ -189,7 +188,6 @@ public class JournalEntryDialog extends JDialog {
         notesScrollPane.setBorder(BorderFactory.createTitledBorder("General Notes"));
         panel.add(notesScrollPane, gbc);
 
-        // --- Tags Input Field ---
         gbc.gridy = 1;
         gbc.weighty = 0;
         gbc.fill = GridBagConstraints.HORIZONTAL;
@@ -200,7 +198,6 @@ public class JournalEntryDialog extends JDialog {
         tagsPanel.setBorder(BorderFactory.createTitledBorder("Custom Tags (comma-separated)"));
         panel.add(tagsPanel, gbc);
 
-        // --- Tag Suggestion Panels ---
         gbc.gridy = 2;
         JPanel suggestionsContainer = new JPanel();
         suggestionsContainer.setLayout(new BoxLayout(suggestionsContainer, BoxLayout.Y_AXIS));
@@ -224,9 +221,7 @@ public class JournalEntryDialog extends JDialog {
         String newTag = (String) evt.getNewValue();
         String currentText = tagsField.getText().trim();
 
-        // Use a LinkedHashSet to preserve order and guarantee uniqueness, case-insensitively.
         Set<String> existingTags = new LinkedHashSet<>();
-        // Add existing tags from the text field
         if (!currentText.isEmpty()) {
             Arrays.stream(currentText.split("\\s*,\\s*"))
                   .map(String::trim)
@@ -234,10 +229,7 @@ public class JournalEntryDialog extends JDialog {
                   .forEach(existingTags::add);
         }
 
-        // Add the new tag
         existingTags.add(newTag);
-
-        // Update the text field
         tagsField.setText(String.join(", ", existingTags));
     }
 

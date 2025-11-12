@@ -49,7 +49,7 @@ public record FibonacciExtensionObject(
     }
     
     @Override
-    public void render(Graphics2D g, ChartAxis axis, List<KLine> klines, Timeframe tf) {
+    public void render(Graphics2D g, ChartAxis axis, List<KLine> klines, Timeframe tf, boolean isSelected) { // [MODIFIED]
         if (!axis.isConfigured() || p0 == null || p1 == null || p2 == null) return;
 
         Point s0 = new Point(axis.timeToX(p0.timestamp(), klines, tf), axis.priceToY(p0.price()));
@@ -85,7 +85,7 @@ public record FibonacciExtensionObject(
             g.drawString(levelPrice.setScale(2, RoundingMode.HALF_UP).toPlainString(), s2.x + 5, y + g.getFontMetrics().getAscent() - 4);
         }
 
-        if (id.equals(DrawingManager.getInstance().getSelectedDrawingId()) && !isLocked) {
+        if (isSelected && !isLocked) { // [MODIFIED]
             getHandles(axis, klines, tf).forEach(h -> drawHandle(g, h.position()));
         }
     }

@@ -61,7 +61,7 @@ public class ReplaySessionManager {
     private final ScheduledExecutorService playbackExecutor = Executors.newSingleThreadScheduledExecutor();
     private ScheduledFuture<?> playbackTask;
     private final List<ReplayStateListener> listeners = new CopyOnWriteArrayList<>();
-    private int barsSinceLastAutoSave = 0;
+    private final java.beans.PropertyChangeSupport pcs = new java.beans.PropertyChangeSupport(this);
 
     private ReplaySessionManager() {
     }
@@ -91,10 +91,8 @@ public class ReplaySessionManager {
                 DataSourceManager.getInstance().getAvailableSources().stream()
                     .filter(s -> s.symbol().equalsIgnoreCase(symbol)).findFirst()
                     .ifPresent(source -> {
-                        // [MODIFIED] Check if the source is replayable (has a local DB path) before creating a context.
                         if (source.dbPath() != null) {
                             SymbolReplayContext newContext = createInitialContext(source, symbolState.replayHeadIndex());
-                            // Also check if context creation was successful
                             if (newContext != null) {
                                 contextsBySymbol.put(symbol, newContext);
                                 logger.info("Restored context for symbol: {}. Resuming at index {}.", symbol, symbolState.replayHeadIndex());
@@ -106,7 +104,6 @@ public class ReplaySessionManager {
             }
         }
         
-        // Switch to the last active symbol and load its data window
         switchActiveSymbol(state.lastActiveSymbol());
     }
 
@@ -122,10 +119,6 @@ public class ReplaySessionManager {
         switchActiveSymbol(source.symbol());
     }
     
-    /**
-     * [NEW] The central method for changing the active symbol during a replay session.
-     * @param newSymbol The symbol identifier to switch to.
-     */
     public void switchActiveSymbol(String newSymbol) {
         if (newSymbol == null || newSymbol.equals(activeSymbol)) {
             return;
@@ -134,12 +127,10 @@ public class ReplaySessionManager {
         pause();
         this.activeSymbol = newSymbol;
         
-        // Ensure context exists, creating if it's the first time we see this symbol
         contextsBySymbol.computeIfAbsent(newSymbol, k -> {
             Optional<ChartDataSource> sourceOpt = DataSourceManager.getInstance().getAvailableSources().stream()
                 .filter(s -> s.symbol().equalsIgnoreCase(k)).findFirst();
             if (sourceOpt.isPresent()) {
-                // [MODIFIED] Check for replayability here too when switching to a new symbol for the first time
                 ChartDataSource source = sourceOpt.get();
                 if (source.dbPath() != null) {
                     return createInitialContext(source, 0);
@@ -152,33 +143,26 @@ public class ReplaySessionManager {
             return null;
         });
         
-        // [MODIFIED] If the context is null (because it was not replayable), don't proceed.
         if (contextsBySymbol.get(newSymbol) == null) {
-            // Attempt to fall back to a valid symbol if possible
             Optional<String> fallbackSymbol = contextsBySymbol.keySet().stream().findFirst();
             if (fallbackSymbol.isPresent()) {
                 logger.warn("Falling back to symbol '{}' as the requested symbol was not valid for replay.", fallbackSymbol.get());
                 switchActiveSymbol(fallbackSymbol.get());
             } else {
                 logger.error("No valid replayable symbols available in the current session.");
-                this.activeSymbol = null; // Invalidate the active symbol
+                this.activeSymbol = null;
             }
             return;
         }
 
-        // Load data for the newly active symbol
         loadDataWindowForSymbol(newSymbol);
 
-        // Coordinate the switch with other services
-        PaperTradingService.getInstance().switchActiveSymbol(newSymbol);
-        DrawingManager.getInstance().setActiveSymbol(newSymbol);
-        
-        // Notify UI elements (like ChartPanel) to reload data for the new symbol
+        // The responsibility of updating context-specific services is now
+        // on the listeners (e.g., ChartWorkspacePanel). This manager just signals the change.
         notifySessionStart();
     }
     
     private SymbolReplayContext createInitialContext(ChartDataSource source, int startIndex) {
-        // [MODIFIED] Defensive check in case this is called directly
         if (source.dbPath() == null) {
             logger.error("Attempted to create replay context for source '{}' which has no dbPath.", source.symbol());
             return null;
@@ -274,33 +258,12 @@ public class ReplaySessionManager {
         contextsBySymbol.put(activeSymbol, updatedContext);
 
         notifyTick();
-
-        barsSinceLastAutoSave++;
-        if (barsSinceLastAutoSave >= SettingsService.getInstance().getAutoSaveInterval()) {
-            performAutoSave();
-            barsSinceLastAutoSave = 0;
-        }
-
+        
+        // [REMOVED] Auto-save logic is moved to ReplayController
+        
         if (isReplayFinished()) {
             logger.info("Replay session finished for symbol {}.", activeSymbol);
             pause();
-        }
-    }
-    
-    private void performAutoSave() {
-        Optional<File> autoSaveFile = AppDataManager.getAutoSaveFilePath().map(java.nio.file.Path::toFile);
-        if (autoSaveFile.isEmpty()) {
-            logger.error("Could not determine auto-save file path. Auto-save skipped.");
-            return;
-        }
-        
-        ReplaySessionState state = PaperTradingService.getInstance().getCurrentSessionState();
-
-        try {
-            SessionManager.getInstance().saveSession(state, autoSaveFile.get(), true);
-            logger.debug("Auto-save completed for multi-symbol session.");
-        } catch (Exception e) {
-            logger.error("Auto-save failed for multi-symbol session.", e);
         }
     }
     

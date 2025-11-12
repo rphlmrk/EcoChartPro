@@ -58,7 +58,7 @@ public record MeasureToolObject(
     }
 
     @Override
-    public void render(Graphics2D g, ChartAxis axis, List<KLine> klines, Timeframe tf) {
+    public void render(Graphics2D g, ChartAxis axis, List<KLine> klines, Timeframe tf, boolean isSelected) {
         if (!axis.isConfigured() || p1 == null || p2 == null || tf == null) return;
 
         Point s1 = new Point(axis.timeToX(p1.timestamp(), klines, tf), axis.priceToY(p1.price()));
@@ -90,7 +90,6 @@ public record MeasureToolObject(
         BigDecimal pctChange = p1.price().compareTo(BigDecimal.ZERO) == 0 ? BigDecimal.ZERO :
             absPriceDelta.divide(p1.price(), 4, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100));
         Duration duration = Duration.between(p1.timestamp(), p2.timestamp()).abs();
-        // Use the record's accessor method duration()
         long barCount = tf.duration().isZero() ? 0 : duration.toMillis() / tf.duration().toMillis();
         String sign = priceDelta.signum() >= 0 ? "+" : "-";
 
@@ -133,7 +132,7 @@ public record MeasureToolObject(
         }
 
         // --- 5. Draw Handles if Selected ---
-        if (id.equals(DrawingManager.getInstance().getSelectedDrawingId()) && !isLocked) {
+        if (isSelected && !isLocked) {
             getHandles(axis, klines, tf).forEach(h -> drawHandle(g, h.position()));
         }
 

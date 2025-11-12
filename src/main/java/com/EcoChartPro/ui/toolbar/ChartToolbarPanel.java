@@ -1,12 +1,13 @@
 package com.EcoChartPro.ui.toolbar;
 
+import com.EcoChartPro.core.controller.WorkspaceContext;
 import com.EcoChartPro.core.manager.CrosshairManager;
 import com.EcoChartPro.core.manager.UndoManager;
 import com.EcoChartPro.core.model.ChartDataModel;
 import com.EcoChartPro.core.settings.SettingsService;
 import com.EcoChartPro.model.Timeframe;
 import com.EcoChartPro.model.chart.ChartType;
-import com.EcoChartPro.ui.MainWindow;
+import com.EcoChartPro.ui.ChartWorkspacePanel;
 import com.EcoChartPro.ui.WorkspaceManager;
 import com.EcoChartPro.ui.chart.ChartPanel;
 import com.EcoChartPro.ui.dashboard.theme.UITheme;
@@ -53,12 +54,14 @@ public class ChartToolbarPanel extends JPanel implements PropertyChangeListener 
     private final Icon redoDisabledIcon;
 
     private final WorkspaceManager workspaceManager;
+    private final WorkspaceContext context; // [NEW]
     private ChartPanel activePanel;
     private ChartDataModel activeModel;
 
-    public ChartToolbarPanel(boolean isReplayMode, WorkspaceManager workspaceManager) {
-        this.isReplayMode = isReplayMode;
+    public ChartToolbarPanel(ChartWorkspacePanel owner, WorkspaceManager workspaceManager) { // [MODIFIED]
+        this.isReplayMode = owner.isReplayMode();
         this.workspaceManager = workspaceManager;
+        this.context = owner.getWorkspaceContext(); // [NEW]
         setLayout(new BorderLayout());
         setBackground(UIManager.getColor("ToolBar.background"));
         setPreferredSize(new Dimension(0, 45));
@@ -109,14 +112,12 @@ public class ChartToolbarPanel extends JPanel implements PropertyChangeListener 
         indicatorsButton.setToolTipText("Add, remove, or edit indicators");
         indicatorsButton.setIcon(UITheme.getIcon(UITheme.Icons.INDICATORS, 16, 16, UIManager.getColor("Button.disabledText")));
         indicatorsButton.addActionListener(e -> {
-            Frame owner = (Frame) SwingUtilities.getWindowAncestor(this);
-            if (owner instanceof MainWindow mainWindow) {
-                ChartPanel activePanel = mainWindow.getActiveChartPanel();
-                if (activePanel != null) {
-                    new IndicatorDialog(owner, activePanel).setVisible(true);
-                } else {
-                    JOptionPane.showMessageDialog(owner, "Please select a chart panel first.", "No Active Chart", JOptionPane.INFORMATION_MESSAGE);
-                }
+            Frame frameOwner = owner.getFrameOwner();
+            ChartPanel activeChartPanel = workspaceManager.getActiveChartPanel();
+            if (activeChartPanel != null) {
+                new IndicatorDialog(frameOwner, activeChartPanel).setVisible(true);
+            } else {
+                JOptionPane.showMessageDialog(frameOwner, "Please select a chart panel first.", "No Active Chart", JOptionPane.INFORMATION_MESSAGE);
             }
         });
         leftPanel.add(indicatorsButton);
@@ -128,12 +129,12 @@ public class ChartToolbarPanel extends JPanel implements PropertyChangeListener 
         undoButton = new JButton(undoDisabledIcon);
         styleToolbarButton(undoButton);
         undoButton.setToolTipText("Undo (Ctrl+Z)");
-        undoButton.addActionListener(e -> UndoManager.getInstance().undo());
+        undoButton.addActionListener(e -> context.getUndoManager().undo()); // [MODIFIED]
         leftPanel.add(undoButton);
         redoButton = new JButton(redoDisabledIcon);
         styleToolbarButton(redoButton);
         redoButton.setToolTipText("Redo (Ctrl+Y)");
-        redoButton.addActionListener(e -> UndoManager.getInstance().redo());
+        redoButton.addActionListener(e -> context.getUndoManager().redo()); // [MODIFIED]
         leftPanel.add(redoButton);
 
         leftPanel.add(Box.createHorizontalStrut(5));
@@ -182,12 +183,12 @@ public class ChartToolbarPanel extends JPanel implements PropertyChangeListener 
         setupHoverPopup(chartTypeButton, chartTypePopup);
         setupHoverPopup(layoutButton, layoutPopup);
 
-        UndoManager.getInstance().addPropertyChangeListener(this);
+        context.getUndoManager().addPropertyChangeListener(this); // [MODIFIED]
         this.workspaceManager.addPropertyChangeListener("activePanelChanged", this);
     }
 
     public void dispose() {
-        UndoManager.getInstance().removePropertyChangeListener(this);
+        context.getUndoManager().removePropertyChangeListener(this); // [MODIFIED]
         this.workspaceManager.removePropertyChangeListener("activePanelChanged", this);
         if (activePanel != null) {
             activePanel.removePropertyChangeListener("chartTypeChanged", this);
@@ -239,11 +240,10 @@ public class ChartToolbarPanel extends JPanel implements PropertyChangeListener 
     }
 
     private void updateUndoRedoState() {
-        setUndoEnabled(UndoManager.getInstance().canUndo());
-        setRedoEnabled(UndoManager.getInstance().canRedo());
+        setUndoEnabled(context.getUndoManager().canUndo()); // [MODIFIED]
+        setRedoEnabled(context.getUndoManager().canRedo()); // [MODIFIED]
     }
 
-    // [NEW] Public method to allow MainWindow to update the displayed chart type.
     public void updateChartTypeDisplay(ChartType type) {
         if (type == null) return;
         updateChartTypeButton(type);

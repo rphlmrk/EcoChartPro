@@ -2,6 +2,7 @@ package com.EcoChartPro.ui.chart;
 
 import com.EcoChartPro.core.controller.ChartInteractionManager;
 import com.EcoChartPro.core.controller.ReplaySessionManager;
+import com.EcoChartPro.core.controller.WorkspaceContext;
 import com.EcoChartPro.core.manager.CrosshairManager;
 import com.EcoChartPro.core.manager.DrawingManager;
 import com.EcoChartPro.core.model.ChartDataModel;
@@ -21,7 +22,7 @@ import com.EcoChartPro.model.drawing.RectangleObject;
 import com.EcoChartPro.model.drawing.Trendline;
 import com.EcoChartPro.model.trading.Order;
 import com.EcoChartPro.model.trading.Position;
-import com.EcoChartPro.ui.MainWindow;
+import com.EcoChartPro.ui.ChartWorkspacePanel;
 import com.EcoChartPro.ui.chart.axis.ChartAxis;
 
 import javax.swing.*;
@@ -53,6 +54,7 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
     private final ChartAxis yAxis;
     private DrawingObjectPoint crosshairPoint;
     private final ChartInteractionManager interactionManager;
+    private final WorkspaceContext context;
     private javax.swing.Timer repaintTimer;
     private boolean isPriceSelectionMode = false;
     private ChartPanel priceSelectionController;
@@ -62,10 +64,11 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
      */
     private record PriceLabel(String text, BigDecimal price, Color color, int y) {}
 
-    public PriceAxisPanel(ChartDataModel dataModel, ChartAxis yAxis, ChartInteractionManager interactionManager) {
+    public PriceAxisPanel(ChartDataModel dataModel, ChartAxis yAxis, ChartInteractionManager interactionManager, WorkspaceContext context) {
         this.dataModel = dataModel;
         this.yAxis = yAxis;
         this.interactionManager = interactionManager;
+        this.context = context;
         setPreferredSize(new Dimension(80, 0));
         setLayout(new BorderLayout());
 
@@ -187,10 +190,10 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
 
                         JMenuItem calculatorItem = new JMenuItem("Position Size Calculator...");
                         calculatorItem.addActionListener(evt -> {
-                            Frame owner = (Frame) SwingUtilities.getWindowAncestor(PriceScaleDrawer.this);
-                            if (owner instanceof MainWindow mainWindow) {
+                            Component parent = SwingUtilities.getAncestorOfClass(ChartWorkspacePanel.class, PriceScaleDrawer.this);
+                            if (parent instanceof ChartWorkspacePanel workspacePanel) {
                                 BigDecimal clickedPrice = yAxis.yToPrice(e.getY());
-                                mainWindow.getUiManager().openPositionSizeCalculator(clickedPrice);
+                                workspacePanel.getUiManager().openPositionSizeCalculator(clickedPrice);
                             }
                         });
                         popupMenu.add(calculatorItem);
@@ -293,7 +296,6 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
             }
         
             SettingsService settings = SettingsService.getInstance();
-            // [MODIFIED] Get chart type from the associated ChartPanel, not the global settings.
             boolean isHeikinAshiMode = false;
             ChartPanel panel = dataModel.getChartPanel();
             if (panel != null) {
@@ -386,7 +388,6 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
             }
         
             String countdownText = null;
-            // [FIX] Replaced obsolete `getCurrentMode()` with `isInReplayMode()`.
             if (!dataModel.isInReplayMode()) {
                  long durationMillis = timeframe.duration().toMillis();
                  if (durationMillis <= 0) return null;
@@ -395,9 +396,6 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
                  long systemNow = Instant.now().toEpochMilli();
                  long currentSystemIntervalStart = getIntervalStart(Instant.ofEpochMilli(systemNow), timeframe).toEpochMilli();
  
-                 // Determine the start time of the candle we should be counting down for.
-                 // If the last kline data is from the current system interval, use its start time.
-                 // Otherwise (if data is stale), use the system clock's current interval start time.
                  long relevantIntervalStart = (lastKlineIntervalStart == currentSystemIntervalStart)
                                               ? lastKlineIntervalStart
                                               : currentSystemIntervalStart;
@@ -503,7 +501,7 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
         private void collectPositionAndOrderLabels(List<PriceLabel> labelsToDraw) {
             if (dataModel == null || !SettingsService.getInstance().isPriceAxisLabelsShowOrders()) return;
         
-            PaperTradingService service = PaperTradingService.getInstance();
+            PaperTradingService service = context.getPaperTradingService();
             for (Position pos : service.getOpenPositions()) {
                 Color color = pos.direction() == TradeDirection.LONG ? LONG_COLOR : SHORT_COLOR;
                 labelsToDraw.add(new PriceLabel(pos.size().toPlainString(), pos.entryPrice(), color, 0));
@@ -519,7 +517,7 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
 
         private void collectDrawingLabels(List<PriceLabel> labelsToDraw) {
             if (dataModel == null) return;
-            List<DrawingObject> allDrawings = DrawingManager.getInstance().getAllDrawings();
+            List<DrawingObject> allDrawings = context.getDrawingManager().getAllDrawings();
 
             boolean showDrawings = SettingsService.getInstance().isPriceAxisLabelsShowDrawings();
             boolean showFibonaccis = SettingsService.getInstance().isPriceAxisLabelsShowFibonaccis();
@@ -589,12 +587,10 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
             int rectHeight = labelHeight + 4;
             int y = label.y - rectHeight / 2;
 
-            // --- [MODIFIED] Always draw on the right edge of the axis panel ---
             int rectX = 0;
             int textX = PADDING_X;
             int[] triangleXP = new int[]{rectWidth, rectWidth + TRIANGLE_WIDTH, rectWidth};
             int[] triangleYP = new int[]{y, y + rectHeight / 2, y + rectHeight};
-            // --- End Modification ---
 
             g2d.setColor(label.color);
             g2d.fillRect(rectX, y, rectWidth, rectHeight);

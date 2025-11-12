@@ -69,7 +69,7 @@ public record ProtectedLevelPatternObject(
     }
 
     @Override
-    public void render(Graphics2D g, ChartAxis axis, List<KLine> klines, Timeframe tf) {
+    public void render(Graphics2D g, ChartAxis axis, List<KLine> klines, Timeframe tf, boolean isSelected) {
         if (p0 == null || p1 == null || p2 == null || !axis.isConfigured()) return;
 
         Point s0 = new Point(axis.timeToX(p0.timestamp(), klines, tf), axis.priceToY(p0.price()));
@@ -77,7 +77,6 @@ public record ProtectedLevelPatternObject(
         Point s2 = new Point(axis.timeToX(p2.timestamp(), klines, tf), axis.priceToY(p2.price()));
 
         g.setFont(LABEL_FONT);
-        boolean isSelected = id.equals(DrawingManager.getInstance().getSelectedDrawingId());
         Stroke originalStroke = g.getStroke();
 
         // 1. Draw the solid lines representing the user-drawn setup

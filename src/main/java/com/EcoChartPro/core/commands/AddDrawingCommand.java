@@ -14,9 +14,10 @@ public class AddDrawingCommand implements UndoableCommand {
     /**
      * Constructs a command to add a drawing.
      * @param drawingObject The DrawingObject to be added.
+     * @param drawingManager The specific DrawingManager instance to operate on.
      */
-    public AddDrawingCommand(DrawingObject drawingObject) {
-        this.drawingManager = DrawingManager.getInstance();
+    public AddDrawingCommand(DrawingObject drawingObject, DrawingManager drawingManager) {
+        this.drawingManager = drawingManager;
         this.drawingObject = drawingObject;
     }
 

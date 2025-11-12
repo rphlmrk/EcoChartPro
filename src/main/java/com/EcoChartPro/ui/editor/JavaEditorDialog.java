@@ -3,7 +3,7 @@ package com.EcoChartPro.ui.editor;
 import com.EcoChartPro.api.indicator.CustomIndicator;
 import com.EcoChartPro.core.plugin.PluginManager;
 import com.EcoChartPro.core.service.CompilationService;
-import com.EcoChartPro.ui.MainWindow;
+import com.EcoChartPro.ui.ChartWorkspacePanel;
 import com.EcoChartPro.ui.dashboard.theme.UITheme;
 import com.EcoChartPro.utils.AppDataManager;
 import io.github.classgraph.ClassInfo;
@@ -64,12 +64,12 @@ public class JavaEditorDialog extends JDialog {
     private Path currentlyOpenFile;
     private boolean isDirty = false;
 
-    private final MainWindow mainWindowOwner;
+    private final ChartWorkspacePanel workspacePanelOwner;
     private static final String IN_APP_PACKAGE = "com.EcoChartPro.plugins.inapp";
 
-    public JavaEditorDialog(MainWindow owner) {
+    public JavaEditorDialog(Frame owner, ChartWorkspacePanel workspacePanel) {
         super(owner, "Eco Chart Pro - Java Indicator Editor", false);
-        this.mainWindowOwner = owner;
+        this.workspacePanelOwner = workspacePanel;
         this.errorIcon = UITheme.getIcon(UITheme.Icons.ERROR_CIRCLE, 12, 12);
         this.compilerNoticeParser = new DiagnosticParser();
 
@@ -98,7 +98,7 @@ public class JavaEditorDialog extends JDialog {
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
         pack();
         setSize(1200, 800);
-        setLocationRelativeTo(mainWindowOwner);
+        setLocationRelativeTo(getOwner());
     }
 
     // --- Create Panels ---
@@ -180,7 +180,7 @@ public class JavaEditorDialog extends JDialog {
         DefaultMutableTreeNode visual = new DefaultMutableTreeNode("Visual & Stateful");
         visual.add(new DefaultMutableTreeNode("Volume Bubbles"));
         visual.add(new DefaultMutableTreeNode("Big Trade Volume Bubbles"));
-        visual.add(new DefaultMutableTreeNode("Footprint Delta")); // [MODIFIED] Added new example
+        visual.add(new DefaultMutableTreeNode("Footprint Delta"));
         visual.add(new DefaultMutableTreeNode("HTF Overlay"));
         visual.add(new DefaultMutableTreeNode("HTF Candle Projections"));
         root.add(visual);
@@ -221,7 +221,6 @@ public class JavaEditorDialog extends JDialog {
         }
 
         String fileName;
-        // [MODIFIED] Added case for the new Footprint Delta indicator
         if ("HTF Candle Projections".equals(exampleName)) {
             fileName = "HTFCandleProjections.java.txt";
         } else if ("Big Trade Volume Bubbles".equals(exampleName)) {
@@ -399,7 +398,7 @@ public class JavaEditorDialog extends JDialog {
                         .findFirst();
 
                     if (newPluginOpt.isPresent()) {
-                        mainWindowOwner.applyLiveIndicator(newPluginOpt.get());
+                        workspacePanelOwner.applyLiveIndicator(newPluginOpt.get());
                         logMessage("Success! Indicator has been hot-reloaded on the active chart.");
                         JOptionPane.showMessageDialog(JavaEditorDialog.this, "Compilation Succeeded & Applied!", "Success", JOptionPane.INFORMATION_MESSAGE);
                     } else {

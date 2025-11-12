@@ -1,5 +1,7 @@
 package com.EcoChartPro.ui.sidebar.journal;
 
+import com.EcoChartPro.core.controller.WorkspaceContext;
+
 import javax.swing.*;
 import java.awt.*;
 import java.beans.PropertyChangeListener;
@@ -11,30 +13,24 @@ import java.beans.PropertyChangeListener;
  */
 public class SidebarJournalDetailsView extends JPanel {
 
-    // References to the new, more specific view components.
     private final DailySummaryView dailySummaryView;
     private final TradeListView tradeListView;
 
-    public SidebarJournalDetailsView() {
-        // A BorderLayout respects the preferred size of its NORTH component.
+    public SidebarJournalDetailsView(WorkspaceContext context) {
         setLayout(new BorderLayout());
-        setOpaque(false); // Let the parent's background show through.
+        setOpaque(false);
 
         dailySummaryView = new DailySummaryView();
-        tradeListView = new TradeListView();
+        tradeListView = new TradeListView(context);
 
-        // By placing the summary in the NORTH, it gets its preferred height (250px).
         add(dailySummaryView, BorderLayout.NORTH);
-        // The trade list in the CENTER will take up the remaining available space.
         add(tradeListView, BorderLayout.CENTER);
     }
 
-    // Getter for the daily summary view
     public DailySummaryView getDailySummaryView() {
         return dailySummaryView;
     }
 
-    // Getter for the trade list view
     public TradeListView getTradeListView() {
         return tradeListView;
     }

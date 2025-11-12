@@ -1,5 +1,6 @@
 package com.EcoChartPro.ui.sidebar;
 
+import com.EcoChartPro.core.controller.WorkspaceContext;
 import com.EcoChartPro.core.trading.PaperTradingService;
 import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.TradeDirection;
@@ -21,14 +22,16 @@ public class PositionRowPanel extends JPanel {
     private final JLabel sizeLabel;
     
     private final ChartPanel chartPanel;
+    private final WorkspaceContext context;
 
     private static final DecimalFormat PNL_FORMAT = new DecimalFormat("+$0.00;-$0.00");
     private static final DecimalFormat PERCENT_FORMAT = new DecimalFormat("+#0.00%;-#0.00%");
 
 
-    public PositionRowPanel(Position position, ChartPanel chartPanel) {
+    public PositionRowPanel(Position position, ChartPanel chartPanel, WorkspaceContext context) {
         this.position = position;
         this.chartPanel = chartPanel;
+        this.context = context;
         
         setLayout(new GridBagLayout());
         setOpaque(false);
@@ -173,7 +176,7 @@ public class PositionRowPanel extends JPanel {
         );
         
         if (choice == JOptionPane.YES_OPTION) {
-            PaperTradingService.getInstance().closePosition(position.id(), currentBar);
+            context.getPaperTradingService().closePosition(position.id(), currentBar);
         }
     }
 
@@ -184,7 +187,7 @@ public class PositionRowPanel extends JPanel {
         }
         
         Frame owner = (Frame) SwingUtilities.getWindowAncestor(this);
-        ModifyPositionDialog dialog = new ModifyPositionDialog(owner, chartPanel, position);
+        ModifyPositionDialog dialog = new ModifyPositionDialog(owner, chartPanel, position, context);
         dialog.setVisible(true);
     }
     

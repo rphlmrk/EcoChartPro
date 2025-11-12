@@ -114,7 +114,7 @@ public final class NotificationService {
     
     private Frame findVisibleMainWindow() {
         for (Frame frame : Frame.getFrames()) {
-            if (frame instanceof MainWindow && frame.isVisible()) {
+            if (frame instanceof PrimaryFrame && frame.isVisible()) {
                 return frame;
             }
         }
@@ -132,7 +132,7 @@ public final class NotificationService {
      */
     private class NotificationToast extends JWindow {
         private Timer fadeOutTimer;
-        private final Timer visibilityTimer; // Made into an instance variable
+        private final Timer visibilityTimer;
         private float opacity = 1.0f;
 
         NotificationToast(Frame owner, NotificationPayload payload) {
@@ -140,7 +140,6 @@ public final class NotificationService {
             setSize(TOAST_WIDTH, TOAST_HEIGHT);
             setAlwaysOnTop(true);
 
-            // --- Root Panel with custom painting ---
             JPanel mainPanel = new JPanel(new BorderLayout()) {
                 @Override
                 protected void paintComponent(Graphics g) {
@@ -157,7 +156,6 @@ public final class NotificationService {
             };
             mainPanel.setOpaque(false);
 
-            // --- Content Panel (Icon and Text) ---
             JPanel contentPanel = new JPanel(new BorderLayout(15, 0));
             contentPanel.setOpaque(false);
             contentPanel.setBorder(BorderFactory.createEmptyBorder(10, 15, 10, 10));
@@ -168,7 +166,7 @@ public final class NotificationService {
             JPanel textPanel = new JPanel();
             textPanel.setOpaque(false);
             textPanel.setLayout(new BoxLayout(textPanel, BoxLayout.Y_AXIS));
-            textPanel.add(Box.createVerticalGlue()); // For vertical centering
+            textPanel.add(Box.createVerticalGlue());
 
             JLabel titleLabel = new JLabel(payload.header());
             titleLabel.setFont(javax.swing.UIManager.getFont("app.font.widget_content"));
@@ -188,10 +186,9 @@ public final class NotificationService {
             textPanel.add(titleLabel);
             textPanel.add(Box.createVerticalStrut(4));
             textPanel.add(messageArea);
-            textPanel.add(Box.createVerticalGlue()); // For vertical centering
+            textPanel.add(Box.createVerticalGlue());
             contentPanel.add(textPanel, BorderLayout.CENTER);
 
-            // --- Close Button ---
             JButton closeButton = new JButton("×");
             closeButton.setFont(new Font("SansSerif", Font.BOLD, 22));
             closeButton.setOpaque(false);
@@ -211,7 +208,6 @@ public final class NotificationService {
             buttonContainer.add(closeButton, BorderLayout.NORTH);
             buttonContainer.setBorder(BorderFactory.createEmptyBorder(2, 0, 0, 2));
 
-            // --- Assemble the final layout ---
             mainPanel.add(contentPanel, BorderLayout.CENTER);
             mainPanel.add(buttonContainer, BorderLayout.EAST);
             add(mainPanel);

@@ -1,5 +1,6 @@
 package com.EcoChartPro.ui.sidebar;
 
+import com.EcoChartPro.core.controller.WorkspaceContext;
 import com.EcoChartPro.core.trading.PaperTradingService;
 import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.TradeDirection;
@@ -20,6 +21,7 @@ import java.util.UUID;
 public class PositionsViewPanel extends JPanel {
     private final JPanel contentPanel;
     private ChartPanel activeChartPanel;
+    private final WorkspaceContext context;
 
     private final JLabel totalPnlLabel;
     private List<Position> currentPositions = new ArrayList<>();
@@ -27,7 +29,8 @@ public class PositionsViewPanel extends JPanel {
     private static final DecimalFormat PNL_FORMAT = new DecimalFormat("+$0.00;-$0.00");
 
 
-    public PositionsViewPanel() {
+    public PositionsViewPanel(WorkspaceContext context) {
+        this.context = context;
         setLayout(new BorderLayout());
         setOpaque(false);
         contentPanel = new JPanel();
@@ -68,29 +71,17 @@ public class PositionsViewPanel extends JPanel {
         rebuildView(); // Initial empty state
     }
     
-    /**
-     * Method to receive the active chart context from the parent sidebar.
-     */
     public void setActiveChartPanel(ChartPanel activeChartPanel) {
         this.activeChartPanel = activeChartPanel;
-        // Rebuild if context changes to ensure rows have the correct reference
         rebuildView();
     }
 
-    /**
-     * Rebuilds the list of position rows.
-     * @param positions The new list of open positions.
-     * @param chartPanel The active chart panel context, needed for actions.
-     */
     public void updatePositions(List<Position> positions, ChartPanel chartPanel) {
         this.activeChartPanel = chartPanel;
         this.currentPositions = (positions != null) ? new ArrayList<>(positions) : new ArrayList<>();
         rebuildView();
     }
     
-    /**
-     * method to receive and store updated pending orders.
-     */
     public void updateOrders(List<Order> orders) {
         this.currentOrders = (orders != null) ? new ArrayList<>(orders) : new ArrayList<>();
         rebuildView();
@@ -109,14 +100,13 @@ public class PositionsViewPanel extends JPanel {
             emptyPanel.add(label);
             contentPanel.add(emptyPanel);
 
-            // Reset total P&L label
             totalPnlLabel.setText(PNL_FORMAT.format(BigDecimal.ZERO));
             totalPnlLabel.setForeground(UIManager.getColor("Label.disabledForeground"));
         } else {
             if (!currentPositions.isEmpty()) {
                 contentPanel.add(createHeaderLabel("Open Positions"));
                 for (Position pos : currentPositions) {
-                    PositionRowPanel rowPanel = new PositionRowPanel(pos, this.activeChartPanel);
+                    PositionRowPanel rowPanel = new PositionRowPanel(pos, this.activeChartPanel, context);
                     contentPanel.add(rowPanel);
                 }
             }
@@ -143,9 +133,6 @@ public class PositionsViewPanel extends JPanel {
         return label;
     }
 
-    /**
-     * method to create a UI row for a pending order.
-     */
     private JPanel createPendingOrderRow(Order order) {
         JPanel panel = new JPanel(new GridBagLayout());
         panel.setOpaque(false);
@@ -182,7 +169,7 @@ public class PositionsViewPanel extends JPanel {
         gbc.anchor = GridBagConstraints.EAST;
         JButton cancelButton = createActionButton("X");
         cancelButton.setToolTipText("Cancel Order");
-        cancelButton.addActionListener(e -> PaperTradingService.getInstance().cancelOrder(order.id()));
+        cancelButton.addActionListener(e -> context.getPaperTradingService().cancelOrder(order.id()));
         panel.add(cancelButton, gbc);
 
         // Row 2

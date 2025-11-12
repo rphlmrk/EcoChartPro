@@ -76,14 +76,12 @@ public record Trendline(
     }
 
     @Override
-    public void render(Graphics2D g, ChartAxis axis, List<KLine> klines, Timeframe tf) {
+    public void render(Graphics2D g, ChartAxis axis, List<KLine> klines, Timeframe tf, boolean isSelected) {
         int x1 = axis.timeToX(this.start().timestamp(), klines, tf);
         int y1 = axis.priceToY(this.start().price());
         int x2 = axis.timeToX(this.end().timestamp(), klines, tf);
         int y2 = axis.priceToY(this.end().price());
 
-        UUID selectedId = DrawingManager.getInstance().getSelectedDrawingId();
-        boolean isSelected = this.id().equals(selectedId);
         g.setColor(this.color());
         Stroke originalStroke = g.getStroke();
         g.setStroke(isSelected ? SELECTED_STROKE : this.stroke());

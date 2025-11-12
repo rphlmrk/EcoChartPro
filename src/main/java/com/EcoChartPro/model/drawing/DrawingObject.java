@@ -41,7 +41,7 @@ public interface DrawingObject {
     UUID id();
     Map<Timeframe, Boolean> visibility();
     DrawingObject withVisibility(Map<Timeframe, Boolean> newVisibility);
-    void render(Graphics2D g, ChartAxis axis, List<KLine> klines, Timeframe tf);
+    void render(Graphics2D g, ChartAxis axis, List<KLine> klines, Timeframe tf, boolean isSelected); // [MODIFIED]
     boolean isHit(Point screenPoint, ChartAxis axis, List<KLine> klines, Timeframe tf);
     boolean isVisible(TimeRange timeRange, PriceRange priceRange);
     List<DrawingHandle> getHandles(ChartAxis axis, List<KLine> klines, Timeframe tf);

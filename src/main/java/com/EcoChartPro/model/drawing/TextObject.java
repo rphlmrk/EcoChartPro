@@ -50,7 +50,7 @@ public record TextObject(
 
 
     @Override
-    public void render(Graphics2D g, ChartAxis axis, List<KLine> klines, Timeframe tf) {
+    public void render(Graphics2D g, ChartAxis axis, List<KLine> klines, Timeframe tf, boolean isSelected) {
         if (text == null || text.isBlank()) return;
 
         Point p;
@@ -91,7 +91,7 @@ public record TextObject(
             currentY += fm.getHeight();
         }
 
-        if (id.equals(DrawingManager.getInstance().getSelectedDrawingId()) && !isLocked) {
+        if (isSelected && !isLocked) {
             getHandles(axis, klines, tf).forEach(h -> drawHandle(g, h.position()));
         }
     }

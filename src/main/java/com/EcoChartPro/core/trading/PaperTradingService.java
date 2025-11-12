@@ -45,65 +45,26 @@ import java.util.stream.Collectors;
 public class PaperTradingService implements TradingService {
 
     private static final Logger logger = LoggerFactory.getLogger(PaperTradingService.class);
-    private static volatile PaperTradingService instance;
 
-    // --- NEW: Inner class to hold all state for a given session type (Live or Replay) ---
-    private static class SessionContext {
-        BigDecimal accountBalance = BigDecimal.ZERO;
-        BigDecimal leverage = BigDecimal.ONE;
-        final Map<String, Map<UUID, Position>> openPositionsBySymbol = new ConcurrentHashMap<>();
-        final Map<String, Map<UUID, Order>> pendingOrdersBySymbol = new ConcurrentHashMap<>();
-        final Map<String, List<Trade>> tradeHistoryBySymbol = new ConcurrentHashMap<>();
-        // This is a UI helper. It mirrors the trade history of the active symbol.
-        final List<Trade> sessionTradeHistory = Collections.synchronizedList(new ArrayList<>());
-        String activeSymbol;
-    }
-
-    private final Map<SessionType, SessionContext> contexts = new EnumMap<>(SessionType.class);
-    private SessionType activeSessionType = SessionType.REPLAY; // Default to REPLAY
+    // --- State is now held per instance, representing a single session context ---
+    private BigDecimal accountBalance = BigDecimal.ZERO;
+    private BigDecimal leverage = BigDecimal.ONE;
+    private final Map<String, Map<UUID, Position>> openPositionsBySymbol = new ConcurrentHashMap<>();
+    private final Map<String, Map<UUID, Order>> pendingOrdersBySymbol = new ConcurrentHashMap<>();
+    private final Map<String, List<Trade>> tradeHistoryBySymbol = new ConcurrentHashMap<>();
+    private String activeSymbol;
 
     private final PropertyChangeSupport pcs = new PropertyChangeSupport(this);
     private final AutomatedTaggingService automatedTaggingService;
+    private final DrawingManager drawingManager;
 
     // [NEW] In-memory cache for K-lines of active trades in the current session.
     private final Map<UUID, List<KLine>> activeTradeCandles = new ConcurrentHashMap<>();
     private static final int CANDLE_BUFFER = 10; // Number of candles to save before a trade
 
-    private PaperTradingService() {
-        contexts.put(SessionType.REPLAY, new SessionContext());
-        contexts.put(SessionType.LIVE, new SessionContext());
+    public PaperTradingService(DrawingManager drawingManager) {
+        this.drawingManager = drawingManager;
         this.automatedTaggingService = new AutomatedTaggingService();
-    }
-
-    public static PaperTradingService getInstance() {
-        if (instance == null) {
-            synchronized (PaperTradingService.class) {
-                if (instance == null) {
-                    instance = new PaperTradingService();
-                }
-            }
-        }
-        return instance;
-    }
-
-    private SessionContext getActiveContext() {
-        return contexts.get(activeSessionType);
-    }
-
-    /**
-     * [NEW] Switches the active session type (LIVE or REPLAY).
-     * This determines which set of account data and trade history is used.
-     * @param type The session type to activate.
-     */
-    public void setActiveSessionType(SessionType type) {
-        if (type != null && this.activeSessionType != type) {
-            logger.info("PaperTradingService active session type switched to: {}", type);
-            this.activeSessionType = type;
-            // Fire property changes to force UI to refresh with new context data
-            pcs.firePropertyChange("openPositionsUpdated", null, getOpenPositions());
-            pcs.firePropertyChange("pendingOrdersUpdated", null, getPendingOrders());
-            pcs.firePropertyChange("tradeHistoryUpdated", null, getTradeHistory());
-        }
     }
     
     /**
@@ -112,18 +73,13 @@ public class PaperTradingService implements TradingService {
      * @param newSymbol The symbol identifier to switch to (e.g., "btcusdt").
      */
     public void switchActiveSymbol(String newSymbol) {
-        SessionContext context = getActiveContext();
-        if (newSymbol != null && !newSymbol.equals(context.activeSymbol)) {
-            logger.debug("PaperTradingService switching active symbol to: {} for session type {}", newSymbol, activeSessionType);
-            context.activeSymbol = newSymbol;
+        if (newSymbol != null && !newSymbol.equals(this.activeSymbol)) {
+            logger.debug("PaperTradingService switching active symbol to: {}", newSymbol);
+            this.activeSymbol = newSymbol;
             // Ensure data structures are initialized for the new symbol
-            context.openPositionsBySymbol.computeIfAbsent(newSymbol, k -> new ConcurrentHashMap<>());
-            context.pendingOrdersBySymbol.computeIfAbsent(newSymbol, k -> new ConcurrentHashMap<>());
-            context.tradeHistoryBySymbol.computeIfAbsent(newSymbol, k -> Collections.synchronizedList(new ArrayList<>()));
-
-            // Clear the live session tracker and notify UI components to update
-            context.sessionTradeHistory.clear();
-            context.sessionTradeHistory.addAll(getTradeHistory()); // Populate with history of new symbol
+            this.openPositionsBySymbol.computeIfAbsent(newSymbol, k -> new ConcurrentHashMap<>());
+            this.pendingOrdersBySymbol.computeIfAbsent(newSymbol, k -> new ConcurrentHashMap<>());
+            this.tradeHistoryBySymbol.computeIfAbsent(newSymbol, k -> Collections.synchronizedList(new ArrayList<>()));
             
             pcs.firePropertyChange("openPositionsUpdated", null, getOpenPositions());
             pcs.firePropertyChange("pendingOrdersUpdated", null, getPendingOrders());
@@ -141,48 +97,46 @@ public class PaperTradingService implements TradingService {
 
     @Override
     public ReplaySessionState getCurrentSessionState() {
-        SessionContext context = getActiveContext();
         ReplaySessionManager rsm = ReplaySessionManager.getInstance();
-        DrawingManager dm = DrawingManager.getInstance();
 
         Map<String, SymbolSessionState> allSymbolStates = new HashMap<>();
 
         // Create a set of all symbols that have any state associated with them
         Set<String> allSymbols = new HashSet<>();
-        allSymbols.addAll(context.openPositionsBySymbol.keySet());
-        allSymbols.addAll(context.pendingOrdersBySymbol.keySet());
-        allSymbols.addAll(context.tradeHistoryBySymbol.keySet());
-        allSymbols.addAll(dm.getAllKnownSymbols());
+        allSymbols.addAll(this.openPositionsBySymbol.keySet());
+        allSymbols.addAll(this.pendingOrdersBySymbol.keySet());
+        allSymbols.addAll(this.tradeHistoryBySymbol.keySet());
+        allSymbols.addAll(drawingManager.getAllKnownSymbols());
         allSymbols.addAll(rsm.getAllKnownSymbols());
 
         for (String symbol : allSymbols) {
             SymbolSessionState symbolState = new SymbolSessionState(
                 rsm.getReplayHeadIndex(symbol),
-                new ArrayList<>(context.openPositionsBySymbol.getOrDefault(symbol, Collections.emptyMap()).values()),
-                new ArrayList<>(context.pendingOrdersBySymbol.getOrDefault(symbol, Collections.emptyMap()).values()),
-                new ArrayList<>(context.tradeHistoryBySymbol.getOrDefault(symbol, Collections.emptyList())),
-                dm.getAllDrawingsForSymbol(symbol),
+                new ArrayList<>(this.openPositionsBySymbol.getOrDefault(symbol, Collections.emptyMap()).values()),
+                new ArrayList<>(this.pendingOrdersBySymbol.getOrDefault(symbol, Collections.emptyMap()).values()),
+                new ArrayList<>(this.tradeHistoryBySymbol.getOrDefault(symbol, Collections.emptyList())),
+                drawingManager.getAllDrawingsForSymbol(symbol),
                 rsm.getLastTimestamp(symbol)
             );
             allSymbolStates.put(symbol, symbolState);
         }
         
         String lastActiveSymbol;
-        if (activeSessionType == SessionType.REPLAY) {
+        // This is a bit of a hack since the service doesn't know if it's in Replay or Live mode.
+        // ReplaySessionManager's active symbol is the source of truth for replay.
+        if (rsm.getActiveSymbol() != null) {
             lastActiveSymbol = rsm.getActiveSymbol();
         } else { // LIVE
-            // [FIX] Prioritize LiveWindowManager's symbol as the source of truth.
-            // Fall back to the context's symbol only if the manager is not active.
             LiveWindowManager lwm = LiveWindowManager.getInstance();
             if (lwm.isActive() && lwm.getActiveDataSource() != null) {
                 lastActiveSymbol = lwm.getActiveDataSource().symbol();
             } else {
-                lastActiveSymbol = context.activeSymbol;
+                lastActiveSymbol = this.activeSymbol;
             }
         }
 
         return new ReplaySessionState(
-            context.accountBalance,
+            this.accountBalance,
             lastActiveSymbol,
             allSymbolStates
         );
@@ -190,9 +144,7 @@ public class PaperTradingService implements TradingService {
 
 
     public void restoreState(ReplaySessionState state) {
-        // [MODIFIED] Restore state to the currently active context (LIVE or REPLAY)
-        resetSession(this.activeSessionType, state.accountBalance(), BigDecimal.ONE); 
-        SessionContext context = getActiveContext(); // Use the active context
+        resetSession(state.accountBalance(), BigDecimal.ONE); 
 
         if (state.symbolStates() != null) {
             for (Map.Entry<String, SymbolSessionState> entry : state.symbolStates().entrySet()) {
@@ -200,45 +152,42 @@ public class PaperTradingService implements TradingService {
                 SymbolSessionState symbolState = entry.getValue();
 
                 if (symbolState.tradeHistory() != null) {
-                    context.tradeHistoryBySymbol.computeIfAbsent(symbol, k -> Collections.synchronizedList(new ArrayList<>())).addAll(symbolState.tradeHistory());
+                    this.tradeHistoryBySymbol.computeIfAbsent(symbol, k -> Collections.synchronizedList(new ArrayList<>())).addAll(symbolState.tradeHistory());
                 }
                 if (symbolState.pendingOrders() != null) {
-                    context.pendingOrdersBySymbol.computeIfAbsent(symbol, k -> new ConcurrentHashMap<>()).putAll(
+                    this.pendingOrdersBySymbol.computeIfAbsent(symbol, k -> new ConcurrentHashMap<>()).putAll(
                         symbolState.pendingOrders().stream().collect(Collectors.toMap(Order::id, Function.identity()))
                     );
                 }
                 if (symbolState.openPositions() != null) {
-                    context.openPositionsBySymbol.computeIfAbsent(symbol, k -> new ConcurrentHashMap<>()).putAll(
+                    this.openPositionsBySymbol.computeIfAbsent(symbol, k -> new ConcurrentHashMap<>()).putAll(
                         symbolState.openPositions().stream().collect(Collectors.toMap(Position::id, Function.identity()))
                     );
                 }
             }
         }
         
-        // Set the active symbol from the loaded state
         switchActiveSymbol(state.lastActiveSymbol());
 
-        logger.info("Paper trading multi-symbol state restored for {} session. Active Symbol: {}. Balance: {}", this.activeSessionType, context.activeSymbol, context.accountBalance);
+        logger.info("Paper trading multi-symbol state restored. Active Symbol: {}. Balance: {}", this.activeSymbol, this.accountBalance);
     }
 
     @Override
     public void onBarUpdate(KLine newBar) {
-        // All updates happen for the currently active symbol.
-        if (getActiveContext().activeSymbol == null) return;
+        if (this.activeSymbol == null) return;
         
-        // [NEW] Append the new bar to any active trade caches for the current symbol in live mode.
-        if (activeSessionType == SessionType.LIVE) {
-            for (Position position : getOpenPositions()) { // getOpenPositions is already filtered by active symbol
-                List<KLine> candles = activeTradeCandles.get(position.id());
-                if (candles != null) {
-                    candles.add(newBar);
-                }
+        // In a non-singleton world, we assume this service is only used for one mode (live or replay)
+        // so we don't need to check the active session type.
+        for (Position position : getOpenPositions()) {
+            List<KLine> candles = activeTradeCandles.get(position.id());
+            if (candles != null) {
+                candles.add(newBar);
             }
         }
         
-        checkPendingOrders(newBar, getActiveContext().activeSymbol);
-        updateTrailingStops(newBar, getActiveContext().activeSymbol);
-        checkOpenPositions(newBar, getActiveContext().activeSymbol);
+        checkPendingOrders(newBar, this.activeSymbol);
+        updateTrailingStops(newBar, this.activeSymbol);
+        checkOpenPositions(newBar, this.activeSymbol);
         
         if (!getOpenPositions().isEmpty()) {
             Map<UUID, BigDecimal> pnlMap = PnlCalculationService.getInstance()
@@ -247,13 +196,8 @@ public class PaperTradingService implements TradingService {
         }
     }
 
-    /**
-     * [NEW] Specifically for live mode to update P&L on every tick without triggering order checks.
-     * @param currentBar The currently forming bar with the latest price.
-     */
     public void updateLivePnl(KLine currentBar) {
-        // This is only for the active symbol in the current session type.
-        if (getActiveContext().activeSymbol == null || currentBar == null) return;
+        if (this.activeSymbol == null || currentBar == null) return;
 
         List<Position> openPositions = getOpenPositions();
         if (!openPositions.isEmpty()) {
@@ -264,7 +208,7 @@ public class PaperTradingService implements TradingService {
     }
 
     private void checkPendingOrders(KLine bar, String symbol) {
-        Map<UUID, Order> symbolOrders = getActiveContext().pendingOrdersBySymbol.get(symbol);
+        Map<UUID, Order> symbolOrders = this.pendingOrdersBySymbol.get(symbol);
         if (symbolOrders == null || symbolOrders.isEmpty()) return;
 
         boolean ordersChanged = false;
@@ -296,7 +240,7 @@ public class PaperTradingService implements TradingService {
     }
 
     private void updateTrailingStops(KLine bar, String symbol) {
-        Map<UUID, Position> symbolPositions = getActiveContext().openPositionsBySymbol.get(symbol);
+        Map<UUID, Position> symbolPositions = this.openPositionsBySymbol.get(symbol);
         if (symbolPositions == null || symbolPositions.isEmpty()) return;
 
         symbolPositions.values().forEach(position -> {
@@ -325,7 +269,7 @@ public class PaperTradingService implements TradingService {
     }
 
     private void checkOpenPositions(KLine bar, String symbol) {
-        Map<UUID, Position> symbolPositions = getActiveContext().openPositionsBySymbol.get(symbol);
+        Map<UUID, Position> symbolPositions = this.openPositionsBySymbol.get(symbol);
         if (symbolPositions == null || symbolPositions.isEmpty()) return;
         
         new ArrayList<>(symbolPositions.values()).forEach(position -> {
@@ -376,7 +320,7 @@ public class PaperTradingService implements TradingService {
             openPosition(order, currentBar.close(), currentBar.timestamp());
             logger.info("Filled market order {} for {} at {}", order.id(), symbol, currentBar.close());
         } else {
-            getActiveContext().pendingOrdersBySymbol.computeIfAbsent(symbol, k -> new ConcurrentHashMap<>()).put(order.id(), order);
+            this.pendingOrdersBySymbol.computeIfAbsent(symbol, k -> new ConcurrentHashMap<>()).put(order.id(), order);
             pcs.firePropertyChange("pendingOrdersUpdated", null, getPendingOrders());
             logger.info("Placed pending order for {}: {}", symbol, order);
         }
@@ -384,17 +328,17 @@ public class PaperTradingService implements TradingService {
 
     private void openPosition(Order fromOrder, BigDecimal entryPrice, Instant timestamp) {
         String symbol = fromOrder.symbol().name();
-        SessionContext context = getActiveContext();
         Position newPosition = new Position(
             fromOrder.id(), fromOrder.symbol(), fromOrder.direction(),
             fromOrder.size(), entryPrice, fromOrder.stopLoss(),
             fromOrder.takeProfit(), fromOrder.trailingStopDistance(),
             timestamp, fromOrder.checklistId()
         );
-        context.openPositionsBySymbol.computeIfAbsent(symbol, k -> new ConcurrentHashMap<>()).put(newPosition.id(), newPosition);
+        this.openPositionsBySymbol.computeIfAbsent(symbol, k -> new ConcurrentHashMap<>()).put(newPosition.id(), newPosition);
 
-        // [NEW] Pre-fetch buffer candles and initialize the cache for this new position.
-        if (activeSessionType == SessionType.LIVE) {
+        // We assume Live mode if ReplaySessionManager is not active on this symbol
+        boolean isLiveMode = ReplaySessionManager.getInstance().getActiveSymbol() == null;
+        if (isLiveMode) {
             List<KLine> entryBuffer = fetchCandleBuffer(symbol, timestamp, CANDLE_BUFFER);
             activeTradeCandles.put(newPosition.id(), Collections.synchronizedList(new ArrayList<>(entryBuffer)));
             logger.info("Initialized candle cache for new position {} with {} buffer candles.", newPosition.id(), entryBuffer.size());
@@ -402,9 +346,9 @@ public class PaperTradingService implements TradingService {
 
         BigDecimal commission = SettingsService.getInstance().getCommissionPerTrade();
         if (commission != null && commission.compareTo(BigDecimal.ZERO) > 0) {
-            context.accountBalance = context.accountBalance.subtract(commission);
+            this.accountBalance = this.accountBalance.subtract(commission);
             logger.info("Applied entry commission of {} for trade {}. New balance: {}",
-                commission, newPosition.id(), context.accountBalance);
+                commission, newPosition.id(), this.accountBalance);
         }
 
         pcs.firePropertyChange("openPositionsUpdated", null, getOpenPositions());
@@ -412,7 +356,6 @@ public class PaperTradingService implements TradingService {
 
     private Trade finalizeTrade(Position position, BigDecimal exitPrice, Instant exitTime, boolean planFollowed) {
         String symbol = position.symbol().name();
-        SessionContext context = getActiveContext();
         BigDecimal pnl;
         if (position.direction() == TradeDirection.LONG) {
             pnl = exitPrice.subtract(position.entryPrice()).multiply(position.size());
@@ -429,13 +372,15 @@ public class PaperTradingService implements TradingService {
         }
 
         List<String> autoTags = new ArrayList<>();
-        if (activeSessionType == SessionType.LIVE) {
+        ReplaySessionManager rsm = ReplaySessionManager.getInstance();
+        boolean isLiveMode = rsm.getActiveSymbol() == null;
+
+        if (isLiveMode) {
             List<KLine> cachedCandles = activeTradeCandles.get(position.id());
             if (cachedCandles != null && !cachedCandles.isEmpty()) {
                 Trade tempTrade = new Trade(position.id(), position.symbol(), position.direction(), position.openTimestamp(), position.entryPrice(), exitTime, exitPrice, position.size(), pnl, planFollowed);
                 autoTags = automatedTaggingService.generateTags(tempTrade, cachedCandles);
             }
-            // Now remove and save the candles to the database
             List<KLine> candlesToSave = activeTradeCandles.remove(position.id());
             if (candlesToSave != null && !candlesToSave.isEmpty()) {
                 DatabaseManager.getInstance().saveTradeCandles(position.id(), symbol, "1m", candlesToSave);
@@ -443,13 +388,11 @@ public class PaperTradingService implements TradingService {
                 logger.warn("No cached candles found for closing trade {}. Data will not be saved.", position.id());
             }
         } else { // REPLAY mode
-            ReplaySessionManager rsm = ReplaySessionManager.getInstance();
             if (rsm.getCurrentSource() != null && rsm.getCurrentSource().symbol().equals(symbol)) {
                 try (DatabaseManager db = new DatabaseManager("jdbc:sqlite:" + rsm.getCurrentSource().dbPath().toAbsolutePath())) {
                     List<KLine> tradeKlines = db.getKLinesBetween(new Symbol(symbol), "1m", position.openTimestamp(), exitTime);
                     Trade tempTrade = new Trade(position.id(), position.symbol(), position.direction(), position.openTimestamp(), position.entryPrice(), exitTime, exitPrice, position.size(), pnl, planFollowed);
                     autoTags = automatedTaggingService.generateTags(tempTrade, tradeKlines);
-                    // [FIX] Save the retrieved candles to the central database for future analysis.
                     if (tradeKlines != null && !tradeKlines.isEmpty()) {
                         DatabaseManager.getInstance().saveTradeCandles(position.id(), symbol, "1m", tradeKlines);
                     }
@@ -464,37 +407,29 @@ public class PaperTradingService implements TradingService {
             position.entryPrice(), exitTime, exitPrice, position.size(), pnl, planFollowed,
             null, autoTags, position.checklistId()
         );
-        context.tradeHistoryBySymbol.computeIfAbsent(symbol, k -> Collections.synchronizedList(new ArrayList<>())).add(completedTrade);
-        context.sessionTradeHistory.add(completedTrade);
-        context.accountBalance = context.accountBalance.add(pnl);
-        context.openPositionsBySymbol.get(symbol).remove(position.id());
+        this.tradeHistoryBySymbol.computeIfAbsent(symbol, k -> Collections.synchronizedList(new ArrayList<>())).add(completedTrade);
+        this.accountBalance = this.accountBalance.add(pnl);
+        this.openPositionsBySymbol.get(symbol).remove(position.id());
         
         pcs.firePropertyChange("tradeHistoryUpdated", null, getTradeHistory());
         pcs.firePropertyChange("openPositionsUpdated", null, getOpenPositions());
         
-        logger.info("Trade finalized for {}. Position: {}. PnL: {}. Plan Followed: {}. New Balance: {}. Auto-tags: {}", symbol, position.id(), pnl, planFollowed, context.accountBalance, autoTags);
+        logger.info("Trade finalized for {}. Position: {}. PnL: {}. Plan Followed: {}. New Balance: {}. Auto-tags: {}", symbol, position.id(), pnl, planFollowed, this.accountBalance, autoTags);
         return completedTrade;
     }
     
-    /**
-     * [NEW] Fetches a buffer of candles leading up to a specific timestamp.
-     * This is used to capture the market context before a trade was entered.
-     */
     private List<KLine> fetchCandleBuffer(String symbol, Instant beforeTime, int limit) {
         DataProvider provider = null;
-        // Determine the correct provider (this could be improved with a provider registry)
-        if (symbol.contains("-")) { // Heuristic for OKX
+        if (symbol.contains("-")) {
             provider = new OkxProvider();
-        } else { // Default to Binance
+        } else {
             provider = new BinanceProvider();
         }
 
         try {
             if (provider instanceof BinanceProvider bp) {
-                // Binance endTime is inclusive, so we fetch up to the millisecond before entry
                 return bp.getHistoricalData(symbol, "1m", limit, null, beforeTime.toEpochMilli() - 1);
             } else if (provider instanceof OkxProvider op) {
-                // OKX 'before' is exclusive, so using the exact timestamp is correct
                 return op.getHistoricalData(symbol, "1m", limit, null, beforeTime.toEpochMilli());
             }
         } catch (IOException e) {
@@ -509,16 +444,14 @@ public class PaperTradingService implements TradingService {
     }
 
     private synchronized void modifyOrderInternal(UUID orderId, BigDecimal newPrice, BigDecimal newStopLoss, BigDecimal newTakeProfit, BigDecimal newTrailingStopDistance) {
-        // Find which symbol the order/position belongs to
         Optional<String> symbolOpt = findSymbolForTradable(orderId);
         if (symbolOpt.isEmpty()) {
             logger.warn("Could not find order/position with ID {} to modify.", orderId);
             return;
         }
         String symbol = symbolOpt.get();
-        SessionContext context = getActiveContext();
 
-        Order existingOrder = context.pendingOrdersBySymbol.get(symbol).get(orderId);
+        Order existingOrder = this.pendingOrdersBySymbol.get(symbol).get(orderId);
         if (existingOrder != null) {
             Order updatedOrder = new Order(
                 existingOrder.id(), existingOrder.symbol(), existingOrder.type(),
@@ -526,12 +459,12 @@ public class PaperTradingService implements TradingService {
                 newPrice, newStopLoss, newTakeProfit, newTrailingStopDistance,
                 existingOrder.creationTime(), existingOrder.checklistId()
             );
-            context.pendingOrdersBySymbol.get(symbol).put(orderId, updatedOrder);
+            this.pendingOrdersBySymbol.get(symbol).put(orderId, updatedOrder);
             pcs.firePropertyChange("pendingOrdersUpdated", null, getPendingOrders());
             logger.info("Modified pending order {} for symbol {}", orderId, symbol);
             return;
         }
-        Position existingPosition = context.openPositionsBySymbol.get(symbol).get(orderId);
+        Position existingPosition = this.openPositionsBySymbol.get(symbol).get(orderId);
         if (existingPosition != null) {
              Position updatedPosition = new Position(
                 existingPosition.id(), existingPosition.symbol(), existingPosition.direction(),
@@ -539,7 +472,7 @@ public class PaperTradingService implements TradingService {
                 newStopLoss, newTakeProfit, newTrailingStopDistance,
                 existingPosition.openTimestamp(), existingPosition.checklistId()
              );
-             context.openPositionsBySymbol.get(symbol).put(orderId, updatedPosition);
+             this.openPositionsBySymbol.get(symbol).put(orderId, updatedPosition);
              pcs.firePropertyChange("openPositionsUpdated", null, getOpenPositions());
              logger.info("Modified open position SL/TP for {} on symbol {}", orderId, symbol);
         }
@@ -562,8 +495,7 @@ public class PaperTradingService implements TradingService {
             return;
         }
         String symbol = updatedTrade.symbol().name();
-        SessionContext context = getActiveContext();
-        List<Trade> history = context.tradeHistoryBySymbol.get(symbol);
+        List<Trade> history = this.tradeHistoryBySymbol.get(symbol);
         if (history == null) {
             logger.warn("Attempted to update journal for trade {} in a symbol ({}) with no history.", updatedTrade.id(), symbol);
             return;
@@ -579,10 +511,6 @@ public class PaperTradingService implements TradingService {
         }
         
         if (wasUpdated) {
-            // Update session history as well if present
-            context.sessionTradeHistory.removeIf(t -> t.id().equals(updatedTrade.id()));
-            context.sessionTradeHistory.add(updatedTrade);
-
             logger.info("Updated detailed journal reflection for trade ID: {}", updatedTrade.id());
             if (updatedTrade.identifiedMistakes() != null && !updatedTrade.identifiedMistakes().isEmpty()
                 && !(updatedTrade.identifiedMistakes().size() == 1 && "No Mistakes Made".equals(updatedTrade.identifiedMistakes().get(0)))) {
@@ -601,7 +529,7 @@ public class PaperTradingService implements TradingService {
 
     private synchronized void cancelOrderInternal(UUID orderId) {
         findSymbolForTradable(orderId).ifPresent(symbol -> {
-            if (getActiveContext().pendingOrdersBySymbol.get(symbol).remove(orderId) != null) {
+            if (this.pendingOrdersBySymbol.get(symbol).remove(orderId) != null) {
                 logger.info("Cancelled pending order {} for symbol {}", orderId, symbol);
                 pcs.firePropertyChange("pendingOrdersUpdated", null, getPendingOrders());
             }
@@ -633,100 +561,78 @@ public class PaperTradingService implements TradingService {
 
     @Override
     public void resetSession(BigDecimal startingBalance, BigDecimal leverage) {
-        resetSession(this.activeSessionType, startingBalance, leverage);
-    }
+        this.accountBalance = startingBalance;
+        this.leverage = (leverage != null && leverage.compareTo(BigDecimal.ZERO) > 0) ? leverage : BigDecimal.ONE;
+        this.openPositionsBySymbol.clear();
+        this.pendingOrdersBySymbol.clear();
+        this.tradeHistoryBySymbol.clear();
+        this.activeSymbol = null;
+        activeTradeCandles.clear();
 
-    public void resetSession(SessionType type, BigDecimal startingBalance, BigDecimal leverage) {
-        SessionContext contextToReset = contexts.get(type);
-        if (contextToReset == null) return;
+        pcs.firePropertyChange("openPositionsUpdated", null, Collections.emptyList());
+        pcs.firePropertyChange("tradeHistoryUpdated", null, Collections.emptyList());
+        pcs.firePropertyChange("pendingOrdersUpdated", null, Collections.emptyList());
         
-        contextToReset.accountBalance = startingBalance;
-        contextToReset.leverage = (leverage != null && leverage.compareTo(BigDecimal.ZERO) > 0) ? leverage : BigDecimal.ONE;
-        contextToReset.openPositionsBySymbol.clear();
-        contextToReset.pendingOrdersBySymbol.clear();
-        contextToReset.tradeHistoryBySymbol.clear();
-        contextToReset.sessionTradeHistory.clear();
-        contextToReset.activeSymbol = null;
-        activeTradeCandles.clear(); // [NEW] Clear the candle cache on session reset
-
-        // If the reset context is the active one, notify UI
-        if (type == this.activeSessionType) {
-            pcs.firePropertyChange("openPositionsUpdated", null, Collections.emptyList());
-            pcs.firePropertyChange("tradeHistoryUpdated", null, Collections.emptyList());
-            pcs.firePropertyChange("pendingOrdersUpdated", null, Collections.emptyList());
-        }
-        logger.info("Paper Trading Service session reset for {}. Starting Balance: {}. Leverage: {}x", type, startingBalance, contextToReset.leverage);
+        logger.info("Paper Trading Service session reset. Starting Balance: {}. Leverage: {}x", startingBalance, this.leverage);
     }
 
     public void importTradeHistory(List<Trade> newHistory, BigDecimal startingBalance) {
         resetSession(startingBalance, BigDecimal.ONE);
-        SessionContext context = getActiveContext();
         if (newHistory != null && !newHistory.isEmpty()) {
-            // Group imported trades by symbol
             Map<String, List<Trade>> groupedTrades = newHistory.stream().collect(Collectors.groupingBy(t -> t.symbol().name()));
-            context.tradeHistoryBySymbol.putAll(groupedTrades);
+            this.tradeHistoryBySymbol.putAll(groupedTrades);
             
             BigDecimal totalPnl = newHistory.stream()
                 .map(Trade::profitAndLoss)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
-            context.accountBalance = context.accountBalance.add(totalPnl);
+            this.accountBalance = this.accountBalance.add(totalPnl);
         }
-        pcs.firePropertyChange("tradeHistoryUpdated", null, new ArrayList<>(context.tradeHistoryBySymbol.values().stream().flatMap(List::stream).collect(Collectors.toList())));
-        logger.info("Trade history imported. {} total trades across {} symbols. New balance: {}", newHistory.size(), context.tradeHistoryBySymbol.size(), context.accountBalance);
+        pcs.firePropertyChange("tradeHistoryUpdated", null, new ArrayList<>(this.tradeHistoryBySymbol.values().stream().flatMap(List::stream).collect(Collectors.toList())));
+        logger.info("Trade history imported. {} total trades across {} symbols. New balance: {}", newHistory.size(), this.tradeHistoryBySymbol.size(), this.accountBalance);
     }
 
     @Override
     public List<Position> getOpenPositions() {
-        SessionContext context = getActiveContext();
-        if (context.activeSymbol == null) return Collections.emptyList();
-        return new ArrayList<>(context.openPositionsBySymbol.getOrDefault(context.activeSymbol, Collections.emptyMap()).values());
+        if (this.activeSymbol == null) return Collections.emptyList();
+        return new ArrayList<>(this.openPositionsBySymbol.getOrDefault(this.activeSymbol, Collections.emptyMap()).values());
     }
 
     @Override
     public List<Order> getPendingOrders() {
-        SessionContext context = getActiveContext();
-        if (context.activeSymbol == null) return Collections.emptyList();
-        return new ArrayList<>(context.pendingOrdersBySymbol.getOrDefault(context.activeSymbol, Collections.emptyMap()).values());
+        if (this.activeSymbol == null) return Collections.emptyList();
+        return new ArrayList<>(this.pendingOrdersBySymbol.getOrDefault(this.activeSymbol, Collections.emptyMap()).values());
     }
 
     @Override
     public List<Trade> getTradeHistory() {
-        SessionContext context = getActiveContext();
-        if (context.activeSymbol == null) return Collections.emptyList();
-        return new ArrayList<>(context.tradeHistoryBySymbol.getOrDefault(context.activeSymbol, Collections.emptyList()));
+        if (this.activeSymbol == null) return Collections.emptyList();
+        return new ArrayList<>(this.tradeHistoryBySymbol.getOrDefault(this.activeSymbol, Collections.emptyList()));
     }
 
-    /**
-     * [NEW] Checks if any trades have been made or positions are open across ALL symbols for the active session type.
-     * @return true if there is any trading activity in the session.
-     */
     public boolean hasAnyTradesOrPositions() {
-        SessionContext context = getActiveContext();
-        if (!context.tradeHistoryBySymbol.isEmpty() && context.tradeHistoryBySymbol.values().stream().anyMatch(list -> !list.isEmpty())) {
+        if (!this.tradeHistoryBySymbol.isEmpty() && this.tradeHistoryBySymbol.values().stream().anyMatch(list -> !list.isEmpty())) {
             return true;
         }
-        if (!context.openPositionsBySymbol.isEmpty() && context.openPositionsBySymbol.values().stream().anyMatch(map -> !map.isEmpty())) {
+        if (!this.openPositionsBySymbol.isEmpty() && this.openPositionsBySymbol.values().stream().anyMatch(map -> !map.isEmpty())) {
             return true;
         }
         return false;
     }
 
     @Override
-    public BigDecimal getAccountBalance() { return getActiveContext().accountBalance; }
+    public BigDecimal getAccountBalance() { return this.accountBalance; }
 
     @Override
-    public BigDecimal getLeverage() { return getActiveContext().leverage; }
+    public BigDecimal getLeverage() { return this.leverage; }
     
-    // --- Helper methods to find tradable objects by ID across all symbols ---
     private Optional<String> findSymbolForTradable(UUID id) {
-        SessionContext context = getActiveContext();
-        for (String symbol : context.pendingOrdersBySymbol.keySet()) {
-            if (context.pendingOrdersBySymbol.get(symbol).containsKey(id)) {
+        for (String symbol : this.pendingOrdersBySymbol.keySet()) {
+            if (this.pendingOrdersBySymbol.get(symbol).containsKey(id)) {
                 return Optional.of(symbol);
             }
         }
-        for (String symbol : context.openPositionsBySymbol.keySet()) {
-            if (context.openPositionsBySymbol.get(symbol).containsKey(id)) {
+        for (String symbol : this.openPositionsBySymbol.keySet()) {
+            if (this.openPositionsBySymbol.get(symbol).containsKey(id)) {
                 return Optional.of(symbol);
             }
         }
@@ -734,18 +640,18 @@ public class PaperTradingService implements TradingService {
     }
 
     private Optional<Position> findPositionById(UUID id) {
-        return getActiveContext().openPositionsBySymbol.values().stream()
+        return this.openPositionsBySymbol.values().stream()
             .map(map -> map.get(id))
             .filter(java.util.Objects::nonNull)
             .findFirst();
     }
 
-    private Optional<Trade> findTradeById(UUID id) {
-        return getActiveContext().tradeHistoryBySymbol.values().stream()
-            .flatMap(List::stream)
-            .filter(trade -> trade.id().equals(id))
-            .findFirst();
-    }
+private Optional<Trade> findTradeById(UUID id) {
+    return this.tradeHistoryBySymbol.values().stream()
+        .flatMap(List::stream)
+        .filter(trade -> trade.id().equals(id))
+        .findFirst();
+}
 
     @Override
     @Deprecated

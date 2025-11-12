@@ -183,15 +183,9 @@ public class ComprehensiveReportPanel extends JPanel implements Scrollable, Prop
             }
             InsightsDialog insightsDialog = new InsightsDialog((Frame) owner);
             
-            ReplaySessionState stateToLoad;
-            if (isLiveMode) {
-                stateToLoad = PaperTradingService.getInstance().getCurrentSessionState();
-            } else {
-                stateToLoad = this.currentSessionState;
-            }
-
-            if (stateToLoad != null) {
-                insightsDialog.loadSessionData(stateToLoad);
+            // [FIX] Use the session state already stored in this panel
+            if (this.currentSessionState != null) {
+                insightsDialog.loadSessionData(this.currentSessionState);
             }
             insightsDialog.setVisible(true);
         });

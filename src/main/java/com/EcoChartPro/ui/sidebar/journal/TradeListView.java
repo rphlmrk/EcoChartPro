@@ -1,5 +1,6 @@
 package com.EcoChartPro.ui.sidebar.journal;
 
+import com.EcoChartPro.core.controller.WorkspaceContext;
 import com.EcoChartPro.model.Trade;
 import com.EcoChartPro.model.TradeDirection;
 import com.EcoChartPro.ui.dashboard.theme.UITheme;
@@ -25,9 +26,11 @@ public class TradeListView extends JPanel {
     private final CardLayout cardLayout;
     private final JPanel contentWrapper;
     private PropertyChangeSupport pcs;
+    private final WorkspaceContext context;
 
-    public TradeListView() {
+    public TradeListView(WorkspaceContext context) {
         super(new BorderLayout(0, 10));
+        this.context = context;
         this.pcs = new PropertyChangeSupport(this);
 
         setOpaque(false);
@@ -71,7 +74,7 @@ public class TradeListView extends JPanel {
                 // Check if click is on the Journal button
                 if (e.getPoint().x > journalButtonStartX) {
                     Frame owner = (Frame) SwingUtilities.getWindowAncestor(TradeListView.this);
-                    JournalEntryDialog dialog = new JournalEntryDialog(owner, trade);
+                    JournalEntryDialog dialog = new JournalEntryDialog(owner, trade, context);
                     dialog.setVisible(true);
                 // Check if click is on the Jump button
                 } else if (e.getPoint().x > jumpButtonStartX && e.getPoint().x < journalButtonStartX) {

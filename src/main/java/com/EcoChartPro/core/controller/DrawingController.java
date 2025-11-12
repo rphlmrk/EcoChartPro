@@ -33,6 +33,7 @@ public class DrawingController extends MouseAdapter {
 
     private final ChartPanel chartPanel;
     private final DrawingManager drawingManager;
+    private final UndoManager undoManager;
     private DrawingTool activeTool;
     private DrawingHandle activeHandle;
     private DrawingObject stateBeforeDrag;
@@ -40,9 +41,10 @@ public class DrawingController extends MouseAdapter {
     private DrawingObjectPoint dragStartPoint = null;
     private final Consumer<DrawingTool> onToolStateChange;
 
-    public DrawingController(ChartPanel chartPanel, Consumer<DrawingTool> onToolStateChange) {
+    public DrawingController(ChartPanel chartPanel, Consumer<DrawingTool> onToolStateChange, DrawingManager drawingManager, UndoManager undoManager) { // [MODIFIED]
         this.chartPanel = chartPanel;
-        this.drawingManager = DrawingManager.getInstance();
+        this.drawingManager = drawingManager;
+        this.undoManager = undoManager;
         this.onToolStateChange = onToolStateChange;
         chartPanel.addMouseListener(this);
         chartPanel.addMouseMotionListener(this);
@@ -230,15 +232,15 @@ public class DrawingController extends MouseAdapter {
         if (activeHandle != null && stateBeforeDrag != null) {
             DrawingObject stateAfterDrag = drawingManager.getDrawingById(activeHandle.parentDrawingId());
             if (stateAfterDrag != null && !stateBeforeDrag.equals(stateAfterDrag)) {
-                UpdateDrawingCommand command = new UpdateDrawingCommand(stateBeforeDrag, stateAfterDrag);
-                UndoManager.getInstance().addCommandToHistory(command);
+                UpdateDrawingCommand command = new UpdateDrawingCommand(stateBeforeDrag, stateAfterDrag, drawingManager);
+                undoManager.addCommandToHistory(command);
             }
 
         } else if (isDraggingObject && stateBeforeDrag != null) {
             DrawingObject stateAfterDrag = drawingManager.getDrawingById(stateBeforeDrag.id());
              if (stateAfterDrag != null && !stateBeforeDrag.equals(stateAfterDrag)) {
-                UpdateDrawingCommand command = new UpdateDrawingCommand(stateBeforeDrag, stateAfterDrag);
-                UndoManager.getInstance().addCommandToHistory(command);
+                UpdateDrawingCommand command = new UpdateDrawingCommand(stateBeforeDrag, stateAfterDrag, drawingManager);
+                undoManager.addCommandToHistory(command);
             }
         }
 

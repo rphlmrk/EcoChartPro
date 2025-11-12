@@ -62,8 +62,7 @@ public class TimeAxisPanel extends JPanel implements PropertyChangeListener {
         add(drawer, BorderLayout.CENTER);
         setupControls();
 
-        SettingsService sm = SettingsService.getInstance();
-        sm.addPropertyChangeListener(this); 
+        SettingsService.getInstance().addPropertyChangeListener(this); 
         CrosshairManager.getInstance().addPropertyChangeListener("crosshairMoved", this);
         if (this.interactionManager != null) {
             this.interactionManager.addPropertyChangeListener("axisConfigChanged", this);
@@ -257,7 +256,6 @@ public class TimeAxisPanel extends JPanel implements PropertyChangeListener {
                 Color axisTextColor = settings.getAxisTextColor();
                 Color openingRangeColor = new Color(axisTextColor.getRed(), axisTextColor.getGreen(), axisTextColor.getBlue(), 50);
 
-                // Use the record's accessor method 'duration()'
                 if (tf != null && tf.duration().compareTo(Duration.ofMinutes(15)) <= 0) {
                     double barWidth = chartAxis.getBarWidth();
                     for (int i = 0; i < klines.size(); i++) {

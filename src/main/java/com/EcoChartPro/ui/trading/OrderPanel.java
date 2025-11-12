@@ -1,5 +1,6 @@
 package com.EcoChartPro.ui.trading;
 
+import com.EcoChartPro.core.controller.WorkspaceContext;
 import com.EcoChartPro.core.settings.Checklist;
 import com.EcoChartPro.core.settings.ChecklistManager;
 import com.EcoChartPro.core.trading.PaperTradingService;
@@ -9,7 +10,6 @@ import com.EcoChartPro.model.TradeDirection;
 import com.EcoChartPro.model.trading.Order;
 import com.EcoChartPro.model.trading.OrderStatus;
 import com.EcoChartPro.model.trading.OrderType;
-import com.EcoChartPro.ui.MainWindow;
 import com.EcoChartPro.ui.chart.ChartPanel;
 
 import javax.swing.*;
@@ -34,6 +34,7 @@ import java.util.function.Consumer;
 public class OrderPanel extends JPanel {
 
     private final ChartPanel chartPanel;
+    private final WorkspaceContext context;
     private final JTextField amountUsdField, limitPriceField, stopLossField, takeProfitField, trailingStopDistanceField;
     private final JCheckBox slCheckBox, tpCheckBox, trailingStopCheckBox;
     private final JButton placeOrderButton;
@@ -56,16 +57,16 @@ public class OrderPanel extends JPanel {
 
     private final JButton limitPricePickerButton, slPickerButton, tpPickerButton;
 
-    // components for checklist feature
     private final JComboBox<Object> checklistComboBox;
     private final JPanel checklistItemsPanel;
     private final List<JCheckBox> activeCheckBoxes = new ArrayList<>();
 
     private boolean isInternallyUpdating = false;
 
-    public OrderPanel(ChartPanel chartPanel, TradeDirection tradeDirection, Consumer<Boolean> closeCallback) {
+    public OrderPanel(ChartPanel chartPanel, TradeDirection tradeDirection, WorkspaceContext context, Consumer<Boolean> closeCallback) {
         this.chartPanel = chartPanel;
         this.tradeDirection = tradeDirection;
+        this.context = context;
         this.closeCallback = closeCallback;
         setLayout(new GridBagLayout());
         setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
@@ -236,7 +237,6 @@ public class OrderPanel extends JPanel {
     
     private String formatPrice(BigDecimal price) {
         if (price == null) return "";
-        // Round to a max of 8 decimal places, then remove any trailing zeros for clean display.
         return price.setScale(8, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString();
     }
 
@@ -244,9 +244,7 @@ public class OrderPanel extends JPanel {
         JButton button = new JButton("⌖");
         button.setMargin(new Insets(1, 4, 1, 4));
         button.setToolTipText("Select price from chart");
-        button.addActionListener(e -> {
-            firePropertyChange("priceSelectionRequested", null, fieldName);
-        });
+        button.addActionListener(e -> firePropertyChange("priceSelectionRequested", null, fieldName));
         return button;
     }
 
@@ -315,7 +313,6 @@ public class OrderPanel extends JPanel {
         try {
             BigDecimal entryPrice = new BigDecimal(limitPriceField.getText());
             
-            // If trailing stop is active, calculate the SL price from the distance
             if (trailingStopCheckBox.isSelected()) {
                 BigDecimal trailingDistance = new BigDecimal(trailingStopDistanceField.getText());
                 BigDecimal initialSl = (tradeDirection == TradeDirection.LONG)
@@ -325,8 +322,9 @@ public class OrderPanel extends JPanel {
             }
 
             BigDecimal assetSize;
+            PaperTradingService pts = context.getPaperTradingService();
             if (riskRadioButton.isSelected()) {
-                BigDecimal accountBalance = PaperTradingService.getInstance().getAccountBalance();
+                BigDecimal accountBalance = pts.getAccountBalance();
                 BigDecimal riskPercent = new BigDecimal(riskPercentField.getText()).divide(BigDecimal.valueOf(100));
                 
                 if (slCheckBox.isSelected()) {
@@ -341,8 +339,7 @@ public class OrderPanel extends JPanel {
                     amountUsdField.setText("");
                 }
             } else {
-                // Amount-based sizing
-                BigDecimal leverage = PaperTradingService.getInstance().getLeverage();
+                BigDecimal leverage = pts.getLeverage();
                 BigDecimal amountUsd = new BigDecimal(amountUsdField.getText());
                 BigDecimal leveragedAmount = amountUsd.multiply(leverage);
                 assetSize = (entryPrice.compareTo(BigDecimal.ZERO) > 0) ?
@@ -473,7 +470,6 @@ public class OrderPanel extends JPanel {
             });
         }
 
-        // Resize the dialog to fit the new checklist items
         Window window = SwingUtilities.getWindowAncestor(this);
         if (window != null) {
             window.pack();
@@ -493,14 +489,13 @@ public class OrderPanel extends JPanel {
             return;
         }
         try {
+            PaperTradingService pts = context.getPaperTradingService();
             BigDecimal entryPrice = new BigDecimal(limitPriceField.getText());
-            BigDecimal leverage = PaperTradingService.getInstance().getLeverage();
+            BigDecimal leverage = pts.getLeverage();
             BigDecimal size;
             
             if (riskRadioButton.isSelected()) {
-                // Risk-based sizing is NOT affected by leverage directly in the size calculation.
-                // The risk is on the account balance, and the size is derived from that risk and the stop distance.
-                BigDecimal accountBalance = PaperTradingService.getInstance().getAccountBalance();
+                BigDecimal accountBalance = pts.getAccountBalance();
                 BigDecimal riskPercent = new BigDecimal(riskPercentField.getText()).divide(BigDecimal.valueOf(100));
                 BigDecimal stopLossPrice = new BigDecimal(stopLossField.getText());
                 BigDecimal riskAmountUsd = accountBalance.multiply(riskPercent);
@@ -508,7 +503,6 @@ public class OrderPanel extends JPanel {
                 if (priceDifference.compareTo(BigDecimal.ZERO) == 0) throw new ArithmeticException("Entry price cannot equal Stop Loss price.");
                 size = riskAmountUsd.divide(priceDifference, 8, RoundingMode.HALF_UP);
             } else {
-                // Amount-based sizing IS affected by leverage. The amount field represents margin used.
                 BigDecimal amountUsd = new BigDecimal(amountUsdField.getText());
                 BigDecimal leveragedAmount = amountUsd.multiply(leverage);
                 if (entryPrice.compareTo(BigDecimal.ZERO) == 0) throw new ArithmeticException("Entry price cannot be zero for amount-based sizing.");
@@ -547,7 +541,7 @@ public class OrderPanel extends JPanel {
                 checklistId
             );
 
-            PaperTradingService.getInstance().placeOrder(order, null);
+            pts.placeOrder(order, null);
             
             closeCallback.accept(true);
 

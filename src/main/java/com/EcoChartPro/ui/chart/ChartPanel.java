@@ -6,6 +6,7 @@ import com.EcoChartPro.core.controller.ChartInteractionManager;
 import com.EcoChartPro.core.controller.DrawingController;
 import com.EcoChartPro.core.controller.ReplaySessionManager;
 import com.EcoChartPro.core.controller.ReplayStateListener;
+import com.EcoChartPro.core.controller.WorkspaceContext;
 import com.EcoChartPro.core.gamification.GamificationService;
 import com.EcoChartPro.core.indicator.Indicator;
 import com.EcoChartPro.core.manager.CrosshairManager;
@@ -27,7 +28,6 @@ import com.EcoChartPro.model.drawing.DrawingObject;
 import com.EcoChartPro.model.drawing.DrawingObjectPoint;
 import com.EcoChartPro.model.trading.Order;
 import com.EcoChartPro.model.trading.Position;
-import com.EcoChartPro.ui.MainWindow;
 import com.EcoChartPro.ui.chart.axis.ChartAxis;
 import com.EcoChartPro.ui.chart.render.AxisRenderer;
 import com.EcoChartPro.ui.chart.render.ChartRenderer;
@@ -86,7 +86,8 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
     private final TimeAxisPanel timeAxisPanel;
     private final FloatingPropertiesToolbar propertiesToolbar;
     private final InfoPanel infoPanel;
-    private ChartType chartType; // [NEW]
+    private final WorkspaceContext context;
+    private ChartType chartType;
     private static final Font SYMBOL_FONT = new Font("SansSerif", Font.BOLD, 16);
     private static final Border INACTIVE_BORDER = BorderFactory.createEmptyBorder(2, 2, 2, 2);
     private OrderRenderer.InteractiveZone dragPreview = null;
@@ -108,13 +109,14 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
     private boolean showIndicators = true;
     private boolean showPositionsAndOrders = true;
 
-    public ChartPanel(ChartDataModel dataModel, ChartInteractionManager interactionManager, ChartAxis chartAxis, PriceAxisPanel priceAxisPanel, TimeAxisPanel timeAxisPanel, Consumer<DrawingTool> onToolStateChange, FloatingPropertiesToolbar propertiesToolbar) {
+    public ChartPanel(ChartDataModel dataModel, ChartInteractionManager interactionManager, ChartAxis chartAxis, PriceAxisPanel priceAxisPanel, TimeAxisPanel timeAxisPanel, Consumer<DrawingTool> onToolStateChange, FloatingPropertiesToolbar propertiesToolbar, WorkspaceContext context) {
         this.dataModel = dataModel;
         this.interactionManager = interactionManager;
         this.chartAxis = chartAxis;
         this.priceAxisPanel = priceAxisPanel;
         this.timeAxisPanel = timeAxisPanel;
         this.propertiesToolbar = propertiesToolbar;
+        this.context = context;
         this.chartRenderer = new ChartRenderer();
         this.axisRenderer = new AxisRenderer();
         this.drawingRenderer = new DrawingRenderer();
@@ -125,11 +127,10 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
         this.peakHoursRenderer = new PeakHoursRenderer();
         this.vrvpRenderer = new VisibleRangeVolumeProfileRenderer();
         this.svpRenderer = new SessionVolumeProfileRenderer();
-        this.drawingController = new DrawingController(this, onToolStateChange);
+        this.drawingController = new DrawingController(this, onToolStateChange, context.getDrawingManager(), context.getUndoManager());
         this.infoPanel = new InfoPanel();
-        this.chartType = SettingsService.getInstance().getCurrentChartType(); // [NEW] Initialize with default
+        this.chartType = SettingsService.getInstance().getCurrentChartType();
 
-        // Ensure double buffering is enabled for smooth rendering performance
         setDoubleBuffered(true);
 
         SettingsService settings = SettingsService.getInstance();
@@ -151,14 +152,14 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
         this.dataModel.addPropertyChangeListener(this);
         this.interactionManager.addPropertyChangeListener(this);
         this.dataModel.setView(this);
-        DrawingManager.getInstance().addListener(this);
-        DrawingManager.getInstance().addPropertyChangeListener("selectedDrawingChanged", this);
+        context.getDrawingManager().addListener(this);
+        context.getDrawingManager().addPropertyChangeListener("selectedDrawingChanged", this);
         settings.addPropertyChangeListener(this);
         CrosshairManager.getInstance().addPropertyChangeListener("crosshairMoved", this);
         if (dataModel.isInReplayMode()) {
             ReplaySessionManager.getInstance().addListener(this);
         }
-        PaperTradingService.getInstance().addPropertyChangeListener(this);
+        context.getPaperTradingService().addPropertyChangeListener(this);
 
         addComponentListener(new ComponentAdapter() {
             @Override
@@ -168,12 +169,10 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
         });
     }
 
-    // [NEW] Getter for the panel-specific chart type
     public ChartType getChartType() {
         return this.chartType;
     }
 
-    // [NEW] Setter for the panel-specific chart type. Notifies the data model for special cases like Footprint.
     public void setChartType(ChartType newChartType) {
         if (this.chartType != newChartType) {
             ChartType oldChartType = this.chartType;
@@ -194,7 +193,6 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
             return rawPoint;
         }
 
-        // Snap to OHLC of the nearest candle
         KLine targetKline = null;
         for (KLine kline : getDataModel().getVisibleKLines()) {
             if (kline.timestamp().equals(rawPoint.timestamp())) {
@@ -326,8 +324,8 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
     }
 
     public void cleanup() {
-        DrawingManager.getInstance().removeListener(this);
-        DrawingManager.getInstance().removePropertyChangeListener("selectedDrawingChanged", this);
+        context.getDrawingManager().removeListener(this);
+        context.getDrawingManager().removePropertyChangeListener("selectedDrawingChanged", this);
         CrosshairManager.getInstance().removePropertyChangeListener("crosshairMoved", this);
         dataModel.removePropertyChangeListener(this);
         interactionManager.removePropertyChangeListener(this);
@@ -338,14 +336,13 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
         if (dataModel.isInReplayMode()) {
             ReplaySessionManager.getInstance().removeListener(this);
         }
-        PaperTradingService.getInstance().removePropertyChangeListener(this);
+        context.getPaperTradingService().removePropertyChangeListener(this);
     }
 
     @Override
     public void propertyChange(PropertyChangeEvent evt) {
         String propName = evt.getPropertyName();
 
-        // [MODIFIED] Removed "chartTypeChanged" from this condition to decouple state.
         if ("chartColorsChanged".equals(propName) || "volumeProfileVisibilityChanged".equals(propName) || "peakHoursLinesVisibilityChanged".equals(propName) || "peakHoursOverrideChanged".equals(propName) || "peakHoursSettingsChanged".equals(propName)) {
             SettingsService settings = SettingsService.getInstance();
             setBackground(settings.getChartBackground());
@@ -477,16 +474,12 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
              return;
         }
 
-        // --- Data Transformation Step ---
-        // [MODIFIED] Use the panel's local chartType field
         List<KLine> klinesToRender = rawVisibleKLines;
         if (this.chartType == ChartType.HEIKIN_ASHI) {
             klinesToRender = DataTransformer.transformToHeikinAshi(rawVisibleKLines);
         }
 
-        // --- Grid and Main Chart Rendering ---
         axisRenderer.draw(g2d, chartAxis, klinesToRender, currentTimeframe);
-        // [MODIFIED] Use the panel's local chartType field
         chartRenderer.draw(g2d, this.chartType, chartAxis, klinesToRender, interactionManager.getStartIndex(), this.dataModel);
 
 
@@ -526,17 +519,18 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
             }
 
             if (showDrawings) {
-                List<DrawingObject> visibleDrawings = DrawingManager.getInstance().getVisibleDrawings(timeRange, priceRange);
-                drawingRenderer.draw(g2d, visibleDrawings, chartAxis, klinesToRender, currentTimeframe);
+                DrawingManager drawingManager = context.getDrawingManager();
+                List<DrawingObject> visibleDrawings = drawingManager.getVisibleDrawings(timeRange, priceRange);
+                drawingRenderer.draw(g2d, visibleDrawings, chartAxis, klinesToRender, currentTimeframe, drawingManager);
 
                 DrawingTool activeTool = drawingController.getActiveTool();
                 if (activeTool != null && activeTool.getPreviewObject() != null) {
-                    drawingRenderer.draw(g2d, List.of(activeTool.getPreviewObject()), chartAxis, klinesToRender, currentTimeframe);
+                    drawingRenderer.draw(g2d, List.of(activeTool.getPreviewObject()), chartAxis, klinesToRender, currentTimeframe, drawingManager);
                 }
             }
 
             if (showPositionsAndOrders) {
-                PaperTradingService service = PaperTradingService.getInstance();
+                PaperTradingService service = context.getPaperTradingService();
                 List<Trade> allTrades = service.getTradeHistory();
                 List<Trade> visibleTrades = filterVisibleTrades(allTrades, timeRange);
                 tradeSignalRenderer.draw(g2d, chartAxis, visibleTrades, klinesToRender, currentTimeframe);
@@ -552,15 +546,12 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
 
         drawCrosshair(g2d, klinesToRender);
 
-        drawInfoPanel(g2d, rawVisibleKLines); // Info panel should always show raw data
+        drawInfoPanel(g2d, rawVisibleKLines);
 
-        // [FIX] Draw the line in LIVE mode OR in REPLAY mode if viewing the live edge.
-        // This logic is restored from the old, working ChartPanel.
         if (!dataModel.isInReplayMode() || (dataModel.isInReplayMode() && interactionManager.isViewingLiveEdge())) {
             
             KLine lastKline = dataModel.getCurrentReplayKLine();
             if (lastKline != null) {
-                // Raw price line
                 BigDecimal lastClose = lastKline.close();
                 int y = chartAxis.priceToY(lastClose);
                 boolean isBullish = lastKline.close().compareTo(lastKline.open()) >= 0;
@@ -580,7 +571,6 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
                 g2d.setColor(priceLineColor);
                 g2d.drawLine(startX, y, getWidth(), y);
 
-                // Heikin Ashi price line
                 if (this.chartType == ChartType.HEIKIN_ASHI) {
                     List<KLine> haCandles = dataModel.getHeikinAshiCandles();
                     if (haCandles != null && !haCandles.isEmpty()) {

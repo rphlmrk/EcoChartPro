@@ -58,13 +58,12 @@ public record VerticalLineObject(
     }
 
     @Override
-    public void render(Graphics2D g, ChartAxis axis, List<KLine> klines, Timeframe tf) {
+    public void render(Graphics2D g, ChartAxis axis, List<KLine> klines, Timeframe tf, boolean isSelected) {
         if (!axis.isConfigured()) return;
         
         int x = axis.timeToX(anchor.timestamp(), klines, tf);
         int chartHeight = g.getClipBounds().height;
 
-        boolean isSelected = id.equals(DrawingManager.getInstance().getSelectedDrawingId());
         Stroke originalStroke = g.getStroke();
         
         g.setColor(this.color);

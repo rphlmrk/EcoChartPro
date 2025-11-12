@@ -26,7 +26,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Collectors;
 
 /**
- * A singleton manager that serves as the "source of truth" for all drawing objects.
+ * A manager that serves as the "source of truth" for all drawing objects for a single workspace.
  * It holds a master list of drawings for each symbol and notifies listeners of any changes.
  * All modification operations are routed through the UndoManager.
  * This class is thread-safe.
@@ -34,30 +34,16 @@ import java.util.stream.Collectors;
 public final class DrawingManager {
 
     private static final Logger logger = LoggerFactory.getLogger(DrawingManager.class);
-    private static volatile DrawingManager instance;
 
-    // MODIFICATION: Changed from a single map to a map of maps, keyed by symbol.
     private final Map<String, Map<UUID, DrawingObject>> drawingsBySymbol = new ConcurrentHashMap<>();
     private volatile String activeSymbol;
-
     private final CopyOnWriteArrayList<DrawingListener> listeners = new CopyOnWriteArrayList<>();
-
     private volatile UUID selectedDrawingId;
     private final PropertyChangeSupport pcs = new PropertyChangeSupport(this);
+    private final UndoManager undoManager;
 
-    private DrawingManager() {
-        // Private constructor to enforce singleton pattern.
-    }
-
-    public static DrawingManager getInstance() {
-        if (instance == null) {
-            synchronized (DrawingManager.class) {
-                if (instance == null) {
-                    instance = new DrawingManager();
-                }
-            }
-        }
-        return instance;
+    public DrawingManager(UndoManager undoManager) {
+        this.undoManager = undoManager;
     }
 
     /**
@@ -173,9 +159,8 @@ public final class DrawingManager {
             logger.warn("Attempted to add a null drawing object or no active symbol is set.");
             return;
         }
-        // NOTE: Assumes command objects are updated to handle the symbol context implicitly via performAdd.
-        UndoableCommand command = new AddDrawingCommand(drawingObject);
-        UndoManager.getInstance().executeCommand(command);
+        UndoableCommand command = new AddDrawingCommand(drawingObject, this);
+        undoManager.executeCommand(command);
     }
 
     public void updateDrawing(DrawingObject drawingObject) {
@@ -194,8 +179,8 @@ public final class DrawingManager {
         if (stateBefore.equals(drawingObject)) {
             return;
         }
-        UndoableCommand command = new UpdateDrawingCommand(stateBefore, drawingObject);
-        UndoManager.getInstance().executeCommand(command);
+        UndoableCommand command = new UpdateDrawingCommand(stateBefore, drawingObject, this);
+        undoManager.executeCommand(command);
     }
 
     public void updateDrawingPreview(DrawingObject drawingObject) {
@@ -213,8 +198,8 @@ public final class DrawingManager {
 
         DrawingObject objectToRemove = activeDrawings.get(drawingObjectId);
         if (objectToRemove != null) {
-            UndoableCommand command = new RemoveDrawingCommand(objectToRemove);
-            UndoManager.getInstance().executeCommand(command);
+            UndoableCommand command = new RemoveDrawingCommand(objectToRemove, this);
+            undoManager.executeCommand(command);
         } else {
             logger.warn("Attempted to remove a non-existent drawing with ID: {}", drawingObjectId);
         }

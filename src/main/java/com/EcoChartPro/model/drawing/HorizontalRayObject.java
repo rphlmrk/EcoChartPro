@@ -58,13 +58,12 @@ public record HorizontalRayObject(
     }
 
     @Override
-    public void render(Graphics2D g, ChartAxis axis, List<KLine> klines, Timeframe tf) {
+    public void render(Graphics2D g, ChartAxis axis, List<KLine> klines, Timeframe tf, boolean isSelected) {
         if (!axis.isConfigured()) return;
         
         Point p1 = new Point(axis.timeToX(anchor.timestamp(), klines, tf), axis.priceToY(anchor.price()));
         int chartWidth = g.getClipBounds().width;
 
-        boolean isSelected = id.equals(DrawingManager.getInstance().getSelectedDrawingId());
         Stroke originalStroke = g.getStroke();
         
         g.setColor(this.color);

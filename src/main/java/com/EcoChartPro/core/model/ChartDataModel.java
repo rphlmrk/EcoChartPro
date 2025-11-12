@@ -51,7 +51,8 @@ public class ChartDataModel implements PropertyChangeListener {
     private ChartInteractionManager interactionManager;
     private ChartPanel chartPanel;
     private final IndicatorManager indicatorManager;
-    
+    private final DrawingManager drawingManager; // [NEW]
+
     // --- Provider and Calculator Abstractions ---
     private IHistoryProvider historyProvider;
     private final FootprintCalculator footprintCalculator;
@@ -61,12 +62,13 @@ public class ChartDataModel implements PropertyChangeListener {
     private List<KLine> heikinAshiCandlesCache;
     private boolean isHaCacheDirty = true;
 
-    public ChartDataModel() {
+    public ChartDataModel(DrawingManager drawingManager) { // [MODIFIED] Constructor now accepts DrawingManager
         this.visibleKLines = new ArrayList<>();
         this.currentDisplayTimeframe = Timeframe.M1;
         this.indicatorManager = new IndicatorManager();
         this.footprintCalculator = new FootprintCalculator();
-        DrawingManager.getInstance().addPropertyChangeListener("activeSymbolChanged", this);
+        this.drawingManager = drawingManager;
+        this.drawingManager.addPropertyChangeListener("activeSymbolChanged", this); // [FIX] Use the injected instance
     }
 
     @Override
@@ -84,7 +86,9 @@ public class ChartDataModel implements PropertyChangeListener {
     }
 
     public void cleanup() {
-        DrawingManager.getInstance().removePropertyChangeListener("activeSymbolChanged", this);
+        if (this.drawingManager != null) {
+            this.drawingManager.removePropertyChangeListener("activeSymbolChanged", this); // [FIX] Use the injected instance
+        }
         if (this.interactionManager != null) this.interactionManager.removePropertyChangeListener(this);
         if (this.historyProvider != null) {
             this.historyProvider.cleanup();
@@ -177,7 +181,6 @@ public class ChartDataModel implements PropertyChangeListener {
     
     // --- Getters and Setters ---
 
-    // [FIX] Restored this method to allow MainWindow to set the DB manager for auxiliary functions.
     public void setDatabaseManager(DatabaseManager dbManager, DataSourceManager.ChartDataSource source) {
         this.dbManager = dbManager;
     }

@@ -14,9 +14,10 @@ public class RemoveDrawingCommand implements UndoableCommand {
     /**
      * Constructs a command to remove a drawing.
      * @param drawingObject The DrawingObject to be removed.
+     * @param drawingManager The specific DrawingManager instance to operate on.
      */
-    public RemoveDrawingCommand(DrawingObject drawingObject) {
-        this.drawingManager = DrawingManager.getInstance();
+    public RemoveDrawingCommand(DrawingObject drawingObject, DrawingManager drawingManager) {
+        this.drawingManager = drawingManager;
         this.drawingObject = drawingObject;
     }
 

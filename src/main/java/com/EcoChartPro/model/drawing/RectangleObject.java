@@ -76,13 +76,11 @@ public record RectangleObject(
     }
 
     @Override
-    public void render(Graphics2D g, ChartAxis axis, List<KLine> klines, Timeframe tf) {
+    public void render(Graphics2D g, ChartAxis axis, List<KLine> klines, Timeframe tf, boolean isSelected) {
         Point p1 = getScreenPoint(corner1, axis, klines, tf);
         Point p2 = getScreenPoint(corner2, axis, klines, tf);
         Rectangle r = getScreenBounds(p1, p2);
 
-        UUID selectedId = DrawingManager.getInstance().getSelectedDrawingId();
-        boolean isSelected = this.id().equals(selectedId);
         Stroke originalStroke = g.getStroke();
 
         Color fillColor = new Color(color.getRed(), color.getGreen(), color.getBlue(), 30);

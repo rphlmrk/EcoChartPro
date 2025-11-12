@@ -16,9 +16,10 @@ public class UpdateDrawingCommand implements UndoableCommand {
      * Constructs a command to update a drawing.
      * @param stateBefore The state of the DrawingObject before the modification.
      * @param stateAfter The state of the DrawingObject after the modification.
+     * @param drawingManager The specific DrawingManager instance to operate on.
      */
-    public UpdateDrawingCommand(DrawingObject stateBefore, DrawingObject stateAfter) {
-        this.drawingManager = DrawingManager.getInstance();
+    public UpdateDrawingCommand(DrawingObject stateBefore, DrawingObject stateAfter, DrawingManager drawingManager) {
+        this.drawingManager = drawingManager;
         this.stateBefore = stateBefore;
         this.stateAfter = stateAfter;
     }

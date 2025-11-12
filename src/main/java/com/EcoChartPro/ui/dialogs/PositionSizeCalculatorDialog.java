@@ -1,6 +1,6 @@
 package com.EcoChartPro.ui.dialogs;
 
-import com.EcoChartPro.ui.MainWindow;
+import com.EcoChartPro.ui.ChartWorkspacePanel;
 import com.EcoChartPro.ui.chart.ChartPanel;
 
 import javax.swing.*;
@@ -37,9 +37,8 @@ public class PositionSizeCalculatorDialog extends JDialog {
     private final NumberFormat quantityResultFormat = NumberFormat.getNumberInstance();
 
 
-    public PositionSizeCalculatorDialog(Frame owner) {
+    public PositionSizeCalculatorDialog(Frame owner, ChartWorkspacePanel workspacePanel) {
         super(owner, "Position Size Calculator", true); // Modal dialog
-        final MainWindow mainWindow = (owner instanceof MainWindow) ? (MainWindow) owner : null;
 
         // --- UI Setup ---
         JPanel mainPanel = new JPanel(new GridBagLayout());
@@ -63,7 +62,6 @@ public class PositionSizeCalculatorDialog extends JDialog {
         riskPercentageField = new JFormattedTextField(numberFormat);
         leverageField = new JFormattedTextField(numberFormat);
 
-        // MODIFICATION: Set columns to suggest a wider preferred size
         accountBalanceField.setColumns(12);
         riskPercentageField.setColumns(12);
         leverageField.setColumns(12);
@@ -105,9 +103,9 @@ public class PositionSizeCalculatorDialog extends JDialog {
         stopLossPanel.add(stopLossPriceField, BorderLayout.CENTER);
         stopLossPanel.add(selectStopButton, BorderLayout.EAST);
         
-        if (mainWindow != null) {
-            selectEntryButton.addActionListener(e -> selectPriceFromChart(mainWindow, entryPriceField));
-            selectStopButton.addActionListener(e -> selectPriceFromChart(mainWindow, stopLossPriceField));
+        if (workspacePanel != null) {
+            selectEntryButton.addActionListener(e -> selectPriceFromChart(workspacePanel, entryPriceField));
+            selectStopButton.addActionListener(e -> selectPriceFromChart(workspacePanel, stopLossPriceField));
         } else {
             selectEntryButton.setEnabled(false);
             selectStopButton.setEnabled(false);
@@ -180,17 +178,19 @@ public class PositionSizeCalculatorDialog extends JDialog {
     /**
      * Hides the dialog, enters price selection mode on the chart, and sets up a callback
      * to populate the target field with the selected price.
-     * @param mainWindow The main application window to find the active chart.
+     * @param workspacePanel The main application workspace to find the active chart.
      * @param targetField The text field to update with the selected price.
      */
-    private void selectPriceFromChart(MainWindow mainWindow, JFormattedTextField targetField) {
+    private void selectPriceFromChart(ChartWorkspacePanel workspacePanel, JFormattedTextField targetField) {
         setVisible(false);
-        ChartPanel chartPanel = mainWindow.getActiveChartPanel();
+        ChartPanel chartPanel = workspacePanel.getActiveChartPanel();
         if (chartPanel != null) {
             chartPanel.enterPriceSelectionMode(price -> {
                 // This callback runs when a price is selected from the chart
                 SwingUtilities.invokeLater(() -> {
-                    targetField.setValue(price);
+                    if (price != null) {
+                        targetField.setValue(price);
+                    }
                     setVisible(true);
                     toFront();
                     requestFocusInWindow();
@@ -264,7 +264,7 @@ public class PositionSizeCalculatorDialog extends JDialog {
      */
     private void addLabelAndComponent(JPanel panel, JComponent label, JComponent component, int yPos) {
         GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = new Insets(4, 5, 4, 10); // MODIFICATION: Increased padding
+        gbc.insets = new Insets(4, 5, 4, 10);
         
         gbc.gridx = 0;
         gbc.gridy = yPos;

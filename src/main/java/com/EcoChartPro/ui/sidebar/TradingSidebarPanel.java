@@ -1,5 +1,6 @@
 package com.EcoChartPro.ui.sidebar;
 
+import com.EcoChartPro.core.controller.WorkspaceContext;
 import com.EcoChartPro.core.journal.JournalAnalysisService;
 import com.EcoChartPro.core.trading.PaperTradingService;
 import com.EcoChartPro.model.KLine;
@@ -34,12 +35,14 @@ public class TradingSidebarPanel extends JPanel implements PropertyChangeListene
     private final PositionsViewPanel positionsView;
     private final SidebarJournalModePanel journalModeView;
     private final ChecklistsViewPanel checklistsView;
+    private final WorkspaceContext context;
     private ChartPanel activeChartPanel;
 
     private boolean isCollapsed = false;
 
-    public TradingSidebarPanel() {
+    public TradingSidebarPanel(WorkspaceContext context) {
         super(new BorderLayout());
+        this.context = context;
         setPreferredSize(new Dimension(SIDEBAR_EXPANDED_WIDTH, 0));
         setBackground(UIManager.getColor("Panel.background"));
         setBorder(BorderFactory.createMatteBorder(0, 0, 0, 1, UIManager.getColor("Component.borderColor")));
@@ -51,8 +54,8 @@ public class TradingSidebarPanel extends JPanel implements PropertyChangeListene
         contentPanel = new JPanel(cardLayout);
         contentPanel.setOpaque(false);
 
-        this.positionsView = new PositionsViewPanel();
-        this.journalModeView = new SidebarJournalModePanel();
+        this.positionsView = new PositionsViewPanel(context);
+        this.journalModeView = new SidebarJournalModePanel(context);
         this.checklistsView = new ChecklistsViewPanel();
 
         contentPanel.add(this.positionsView, "VIEW_POSITIONS");
@@ -69,7 +72,7 @@ public class TradingSidebarPanel extends JPanel implements PropertyChangeListene
 
         navPanel.addActionListener(e -> cardLayout.show(contentPanel, e.getActionCommand()));
         journalModeView.addJumpToTradeListener(evt -> this.firePropertyChange(evt.getPropertyName(), null, evt.getNewValue()));
-        PaperTradingService.getInstance().addPropertyChangeListener(this);
+        context.getPaperTradingService().addPropertyChangeListener(this);
     }
 
     public void addJumpToTradeListener(PropertyChangeListener listener) {
@@ -129,7 +132,7 @@ public class TradingSidebarPanel extends JPanel implements PropertyChangeListene
     }
 
     public void cleanup() {
-        PaperTradingService.getInstance().removePropertyChangeListener(this);
+        context.getPaperTradingService().removePropertyChangeListener(this);
         System.out.println("TradingSidebarPanel cleaned up and listener removed.");
     }
 }
