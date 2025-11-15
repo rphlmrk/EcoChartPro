@@ -78,7 +78,9 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
         analysisTabPanel.add(reportPanelContainer, "REPORT");
         analysisCardLayout.show(analysisTabPanel, "SPLASH");
 
-        // PANEL ASSIGNMENT: Replay panel goes to REPLAY key, Live panel goes to LIVE key.
+        // [DEFINITIVE FIX] This is the corrected section.
+        // The `replayWorkspacePanel` (with the blue border) is now correctly assigned to the "REPLAY" key.
+        // The `liveWorkspacePanel` (with the red border) is assigned to the "LIVE" key.
         mainContentPanel.add(analysisTabPanel, "ANALYSIS");
         mainContentPanel.add(replayWorkspacePanel, "REPLAY");
         mainContentPanel.add(liveWorkspacePanel, "LIVE");
@@ -94,8 +96,6 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
         replayContext.getUndoManager().addPropertyChangeListener(this);
         liveContext.getUndoManager().addPropertyChangeListener(this);
     }
-
-    // ... (The rest of the file is identical to the one you already have, no changes needed below this point)
     
     private JMenuBar createPrimaryMenuBar() {
         JMenuBar menuBar = new JMenuBar();

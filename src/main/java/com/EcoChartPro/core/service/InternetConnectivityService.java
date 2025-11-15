@@ -6,8 +6,8 @@ import org.slf4j.LoggerFactory;
 import java.beans.PropertyChangeListener;
 import java.beans.PropertyChangeSupport;
 import java.io.IOException;
-import java.net.InetSocketAddress;
-import java.net.Socket;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -21,10 +21,10 @@ public final class InternetConnectivityService {
     private static final Logger logger = LoggerFactory.getLogger(InternetConnectivityService.class);
     private static volatile InternetConnectivityService instance;
 
-    private static final String TEST_HOST = "1.1.1.1"; // Cloudflare DNS
-    private static final int TEST_PORT = 53; // DNS port
-    private static final int TIMEOUT_MS = 2000;
-    private static final int CHECK_INTERVAL_SECONDS = 5;
+    // [MODIFIED] Use a reliable HTTPS endpoint for the check.
+    private static final String TEST_URL = "https://www.google.com";
+    private static final int TIMEOUT_MS = 2500;
+    private static final int CHECK_INTERVAL_SECONDS = 10; // Increased interval as HTTP is slightly heavier
 
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(r -> new Thread(r, "Internet-Connectivity-Check"));
     private final PropertyChangeSupport pcs = new PropertyChangeSupport(this);
@@ -60,19 +60,41 @@ public final class InternetConnectivityService {
     }
 
     private void checkConnectivity() {
-        boolean currentlyConnected;
-        try (Socket socket = new Socket()) {
-            socket.connect(new InetSocketAddress(TEST_HOST, TEST_PORT), TIMEOUT_MS);
-            currentlyConnected = true;
+        // [MODIFIED] Use an HTTP HEAD request, which is more robust against firewalls.
+        boolean currentlyConnected = false;
+        HttpURLConnection connection = null;
+        try {
+            URL url = new URL(TEST_URL);
+            connection = (HttpURLConnection) url.openConnection();
+            connection.setRequestMethod("HEAD");
+            connection.setConnectTimeout(TIMEOUT_MS);
+            connection.setReadTimeout(TIMEOUT_MS);
+            connection.connect();
+            
+            int responseCode = connection.getResponseCode();
+            // We consider any 2xx or 3xx response as success.
+            if (responseCode >= HttpURLConnection.HTTP_OK && responseCode < HttpURLConnection.HTTP_BAD_REQUEST) {
+                currentlyConnected = true;
+                logger.trace("Connectivity check successful to {}", TEST_URL);
+            } else {
+                 logger.trace("Connectivity check to {} failed with response code: {}", TEST_URL, responseCode);
+            }
         } catch (IOException e) {
-            // This is expected if there's no internet, so we don't log an error, just a debug message.
-            logger.trace("Connectivity check failed: {}", e.getMessage());
+            logger.trace("Connectivity check to {} failed with exception: {}", TEST_URL, e.getMessage());
             currentlyConnected = false;
+        } finally {
+            if (connection != null) {
+                connection.disconnect();
+            }
         }
 
         // Only fire an event if the state has changed
         if (isConnected.getAndSet(currentlyConnected) != currentlyConnected) {
-            logger.warn("Internet connectivity status changed to: {}", currentlyConnected ? "CONNECTED" : "DISCONNECTED");
+            if (currentlyConnected) {
+                logger.info("Internet connectivity status changed to: CONNECTED");
+            } else {
+                logger.warn("Internet connectivity status changed to: DISCONNECTED");
+            }
             pcs.firePropertyChange("connectivityChanged", !currentlyConnected, currentlyConnected);
         }
     }

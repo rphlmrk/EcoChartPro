@@ -1,14 +1,8 @@
 package com.EcoChartPro.core.controller;
 
 import com.EcoChartPro.core.state.ReplaySessionState;
-import com.EcoChartPro.core.state.SymbolSessionState;
-import com.EcoChartPro.core.trading.PaperTradingService;
-import com.EcoChartPro.core.trading.SessionType;
-import com.EcoChartPro.model.Symbol;
-import com.EcoChartPro.model.Trade;
-import com.EcoChartPro.model.TradeDirection;
 import com.EcoChartPro.ui.ChartWorkspacePanel;
-import com.EcoChartPro.ui.PrimaryFrame; // [NEW] Import PrimaryFrame
+import com.EcoChartPro.ui.PrimaryFrame;
 import com.EcoChartPro.ui.toolbar.components.SymbolProgressCache;
 import com.EcoChartPro.utils.DataSourceManager;
 import com.EcoChartPro.utils.SessionManager;
@@ -22,14 +16,9 @@ import java.io.File;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
 import java.util.Optional;
 
-/**
- * Manages the lifecycle of sessions, including starting, loading,
- * and handling window closing logic for the PrimaryFrame.
- */
+
 public class SessionController {
 
     private static final Logger logger = LoggerFactory.getLogger(SessionController.class);
@@ -47,18 +36,26 @@ public class SessionController {
         }
         return instance;
     }
+    
+    // [MODIFIED] Helper to find the correct workspace panel instance
+    private Optional<ChartWorkspacePanel> getWorkspacePanel(PrimaryFrame frame, boolean isReplay) {
+        return Arrays.stream(frame.getMainContentPanel().getComponents())
+                .filter(c -> c instanceof ChartWorkspacePanel)
+                .map(c -> (ChartWorkspacePanel) c)
+                .filter(p -> p.isReplayMode() == isReplay)
+                .findFirst();
+    }
 
-    // [MODIFIED] New method for starting a replay session in the PrimaryFrame
+
     public void startNewReplaySession(PrimaryFrame primaryFrame, DataSourceManager.ChartDataSource source, int startIndex, BigDecimal startingBalance, BigDecimal leverage) {
         SwingUtilities.invokeLater(() -> {
-            WorkspaceContext replayContext = primaryFrame.getReplayContext();
-            ChartWorkspacePanel replayPanel = (ChartWorkspacePanel) Arrays.stream(primaryFrame.getMainContentPanel().getComponents())
-                    .filter(c -> c instanceof ChartWorkspacePanel && ((ChartWorkspacePanel) c).isReplayMode())
-                    .findFirst().orElse(null);
+            Optional<ChartWorkspacePanel> replayPanelOpt = getWorkspacePanel(primaryFrame, true);
 
-            if (replayPanel != null) {
-                replayContext.getPaperTradingService().resetSession(startingBalance, leverage);
+            if (replayPanelOpt.isPresent()) {
+                ChartWorkspacePanel replayPanel = replayPanelOpt.get();
+                primaryFrame.getReplayContext().getPaperTradingService().resetSession(startingBalance, leverage);
                 replayPanel.startReplaySession(source, startIndex);
+                
                 primaryFrame.getNavGroup().setSelected(primaryFrame.getReplayNavButton().getModel(), true);
                 primaryFrame.getMainCardLayout().show(primaryFrame.getMainContentPanel(), "REPLAY");
                 logger.info("New replay session started for symbol '{}'", source.symbol());
@@ -68,20 +65,18 @@ public class SessionController {
         });
     }
 
-    // [MODIFIED] New method for starting a live session in the PrimaryFrame
     public void startNewLiveSession(PrimaryFrame primaryFrame, DataSourceManager.ChartDataSource source, BigDecimal startingBalance, BigDecimal leverage) {
         SwingUtilities.invokeLater(() -> {
             SessionManager.getInstance().deleteLiveAutoSaveFile();
             LiveWindowManager.getInstance().startSession(source);
             
-            WorkspaceContext liveContext = primaryFrame.getLiveContext();
-            ChartWorkspacePanel livePanel = (ChartWorkspacePanel) Arrays.stream(primaryFrame.getMainContentPanel().getComponents())
-                    .filter(c -> c instanceof ChartWorkspacePanel && !((ChartWorkspacePanel) c).isReplayMode())
-                    .findFirst().orElse(null);
+            Optional<ChartWorkspacePanel> livePanelOpt = getWorkspacePanel(primaryFrame, false);
 
-            if (livePanel != null) {
-                liveContext.getPaperTradingService().resetSession(startingBalance, leverage);
+            if (livePanelOpt.isPresent()) {
+                ChartWorkspacePanel livePanel = livePanelOpt.get();
+                primaryFrame.getLiveContext().getPaperTradingService().resetSession(startingBalance, leverage);
                 livePanel.startLiveSession(source);
+
                 primaryFrame.getNavGroup().setSelected(primaryFrame.getLiveNavButton().getModel(), true);
                 primaryFrame.getMainCardLayout().show(primaryFrame.getMainContentPanel(), "LIVE");
                 logger.info("New live session started for symbol '{}'", source.symbol());
@@ -91,7 +86,6 @@ public class SessionController {
         });
     }
 
-    // [MODIFIED] New method for loading a replay session state
     public void loadReplaySession(PrimaryFrame primaryFrame, ReplaySessionState state) {
         if (state.symbolStates() != null) {
             state.symbolStates().forEach((symbol, symbolState) -> 
@@ -100,12 +94,10 @@ public class SessionController {
         }
 
         SwingUtilities.invokeLater(() -> {
-            ChartWorkspacePanel replayPanel = (ChartWorkspacePanel) Arrays.stream(primaryFrame.getMainContentPanel().getComponents())
-                    .filter(c -> c instanceof ChartWorkspacePanel && ((ChartWorkspacePanel) c).isReplayMode())
-                    .findFirst().orElse(null);
+            Optional<ChartWorkspacePanel> replayPanelOpt = getWorkspacePanel(primaryFrame, true);
             
-            if (replayPanel != null) {
-                replayPanel.loadSessionState(state);
+            if (replayPanelOpt.isPresent()) {
+                replayPanelOpt.get().loadSessionState(state);
                 primaryFrame.getNavGroup().setSelected(primaryFrame.getReplayNavButton().getModel(), true);
                 primaryFrame.getMainCardLayout().show(primaryFrame.getMainContentPanel(), "REPLAY");
                 logger.info("Loaded replay session state.");
@@ -115,7 +107,6 @@ public class SessionController {
         });
     }
 
-    // [MODIFIED] New method for loading a live session state
     public void loadLiveSession(PrimaryFrame primaryFrame, ReplaySessionState state) {
         SwingUtilities.invokeLater(() -> {
             Optional<DataSourceManager.ChartDataSource> sourceOpt = DataSourceManager.getInstance().getAvailableSources().stream()
@@ -130,12 +121,10 @@ public class SessionController {
                 return;
             }
             
-            ChartWorkspacePanel livePanel = (ChartWorkspacePanel) Arrays.stream(primaryFrame.getMainContentPanel().getComponents())
-                    .filter(c -> c instanceof ChartWorkspacePanel && !((ChartWorkspacePanel) c).isReplayMode())
-                    .findFirst().orElse(null);
+            Optional<ChartWorkspacePanel> livePanelOpt = getWorkspacePanel(primaryFrame, false);
 
-            if (livePanel != null) {
-                livePanel.loadSessionState(state);
+            if (livePanelOpt.isPresent()) {
+                livePanelOpt.get().loadSessionState(state);
                 primaryFrame.getNavGroup().setSelected(primaryFrame.getLiveNavButton().getModel(), true);
                 primaryFrame.getMainCardLayout().show(primaryFrame.getMainContentPanel(), "LIVE");
                 logger.info("Loaded live session state.");

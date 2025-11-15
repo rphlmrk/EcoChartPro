@@ -44,6 +44,7 @@ import com.EcoChartPro.utils.DataSourceManager;
 import com.EcoChartPro.utils.DataSourceManager.ChartDataSource;
 
 import javax.swing.*;
+import javax.swing.border.LineBorder;
 import java.awt.*;
 import java.awt.event.*;
 import java.beans.PropertyChangeEvent;
@@ -87,6 +88,14 @@ public class ChartWorkspacePanel extends JPanel implements PropertyChangeListene
         this.isReplayMode = isReplayMode;
         this.workspaceContext = context;
 
+        // [VISUAL DEBUGGER] Add a border to visually identify the panel type.
+        // You can comment this out after confirming the fix.
+        if (isReplayMode) {
+            setBorder(new LineBorder(Color.BLUE, 2)); // Replay Panel gets a BLUE border
+        } else {
+            setBorder(new LineBorder(Color.RED, 2)); // Live Panel gets a RED border
+        }
+
         this.sessionController = SessionController.getInstance();
         this.uiManager = new UIManager(this);
         this.workspaceManager = new WorkspaceManager(this, this.workspaceContext);
@@ -102,6 +111,11 @@ public class ChartWorkspacePanel extends JPanel implements PropertyChangeListene
         
         this.offlineOverlayPanel = createOfflineOverlay();
         rootPanel.add(offlineOverlayPanel, JLayeredPane.MODAL_LAYER);
+        
+        // [DEFINITIVE FIX] Set the overlay to be invisible by default.
+        // The live panel will have its visibility updated by logic in PrimaryFrame.
+        // The replay panel will now correctly start with it hidden.
+        offlineOverlayPanel.setVisible(false);
 
         JPanel northPanel = new JPanel(new BorderLayout());
         northPanel.add(this.topToolbarPanel, BorderLayout.CENTER);
@@ -322,10 +336,9 @@ public class ChartWorkspacePanel extends JPanel implements PropertyChangeListene
                         launchJournalDialogForTrade(closedTrade);
                     }
                     break;
-                // [DEFINITIVE FIX] This logic ensures only the LIVE panel reacts to internet changes.
                 case "connectivityChanged":
                     boolean isConnected = (boolean) evt.getNewValue();
-                    if (!isReplayMode) { // Only the live panel should show the offline overlay.
+                    if (!isReplayMode) {
                         setOfflineMode(!isConnected);
                     }
                     break;
