@@ -44,6 +44,8 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
     private final JPanel analysisTabPanel;
     private final CardLayout analysisCardLayout;
     private boolean isReportViewActive = false;
+    private ReplaySessionState lastReplayState;
+    private ReplaySessionState lastLiveState;
     
     // --- Menu Items ---
     private JMenuItem undoMenuItem;
@@ -78,9 +80,6 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
         analysisTabPanel.add(reportPanelContainer, "REPORT");
         analysisCardLayout.show(analysisTabPanel, "SPLASH");
 
-        // [DEFINITIVE FIX] This is the corrected section.
-        // The `replayWorkspacePanel` (with the blue border) is now correctly assigned to the "REPLAY" key.
-        // The `liveWorkspacePanel` (with the red border) is assigned to the "LIVE" key.
         mainContentPanel.add(analysisTabPanel, "ANALYSIS");
         mainContentPanel.add(replayWorkspacePanel, "REPLAY");
         mainContentPanel.add(liveWorkspacePanel, "LIVE");
@@ -304,7 +303,7 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
         group.add(liveReportButton);
         topPanel.add(replayReportButton);
         topPanel.add(liveReportButton);
-        ActionListener reportSwitcher = e -> updateAnalysisReport(null);
+        ActionListener reportSwitcher = e -> updateAnalysisReport();
         replayReportButton.addActionListener(reportSwitcher);
         liveReportButton.addActionListener(reportSwitcher);
         replayReportButton.setSelected(true);
@@ -319,24 +318,28 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
     @Override
     public void propertyChange(PropertyChangeEvent evt) {
         if ("sessionStatsUpdated".equals(evt.getPropertyName())) {
-            updateAnalysisReport(evt);
+            Object source = evt.getSource();
+            if (source == replayContext.getSessionTracker()) {
+                lastReplayState = replayContext.getPaperTradingService().getCurrentSessionState();
+            } else if (source == liveContext.getSessionTracker()) {
+                lastLiveState = liveContext.getPaperTradingService().getCurrentSessionState();
+            }
+            updateAnalysisReport();
         } else if ("stateChanged".equals(evt.getPropertyName())) {
             updateUndoRedoState();
         }
     }
 
-    private void updateAnalysisReport(PropertyChangeEvent evt) {
+    private void updateAnalysisReport() {
         SwingUtilities.invokeLater(() -> {
             if (!isReportViewActive) {
                 analysisCardLayout.show(analysisTabPanel, "REPORT");
                 isReportViewActive = true;
             }
             if (replayReportButton.isSelected()) {
-                ReplaySessionState state = replayContext.getPaperTradingService().getCurrentSessionState();
-                analysisReportPanel.updateData(state);
+                analysisReportPanel.updateData(lastReplayState);
             } else if (liveReportButton.isSelected()) {
-                ReplaySessionState state = liveContext.getPaperTradingService().getCurrentSessionState();
-                analysisReportPanel.updateData(state);
+                analysisReportPanel.updateData(lastLiveState);
             }
         });
     }

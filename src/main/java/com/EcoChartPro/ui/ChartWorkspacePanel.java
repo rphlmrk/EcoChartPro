@@ -66,7 +66,6 @@ public class ChartWorkspacePanel extends JPanel implements PropertyChangeListene
     private final OnFireStreakWidget onFireWidget;
     private final StopTradingNudgeWidget stopTradingNudgeWidget;
     private final ConnectionStatusWidget connectionStatusWidget;
-    private final JPanel offlineOverlayPanel;
 
     // --- Controllers & Managers ---
     private ReplayController replayController;
@@ -88,14 +87,6 @@ public class ChartWorkspacePanel extends JPanel implements PropertyChangeListene
         this.isReplayMode = isReplayMode;
         this.workspaceContext = context;
 
-        // [VISUAL DEBUGGER] Add a border to visually identify the panel type.
-        // You can comment this out after confirming the fix.
-        if (isReplayMode) {
-            setBorder(new LineBorder(Color.BLUE, 2)); // Replay Panel gets a BLUE border
-        } else {
-            setBorder(new LineBorder(Color.RED, 2)); // Live Panel gets a RED border
-        }
-
         this.sessionController = SessionController.getInstance();
         this.uiManager = new UIManager(this);
         this.workspaceManager = new WorkspaceManager(this, this.workspaceContext);
@@ -109,14 +100,6 @@ public class ChartWorkspacePanel extends JPanel implements PropertyChangeListene
         this.stopTradingNudgeWidget = new StopTradingNudgeWidget();
         this.connectionStatusWidget = new ConnectionStatusWidget();
         
-        this.offlineOverlayPanel = createOfflineOverlay();
-        rootPanel.add(offlineOverlayPanel, JLayeredPane.MODAL_LAYER);
-        
-        // [DEFINITIVE FIX] Set the overlay to be invisible by default.
-        // The live panel will have its visibility updated by logic in PrimaryFrame.
-        // The replay panel will now correctly start with it hidden.
-        offlineOverlayPanel.setVisible(false);
-
         JPanel northPanel = new JPanel(new BorderLayout());
         northPanel.add(this.topToolbarPanel, BorderLayout.CENTER);
 
@@ -178,35 +161,6 @@ public class ChartWorkspacePanel extends JPanel implements PropertyChangeListene
         updateComponentLayouts();
     }
 
-    private JPanel createOfflineOverlay() {
-        JPanel panel = new JPanel(new GridBagLayout()) {
-            @Override
-            protected void paintComponent(Graphics g) {
-                Graphics2D g2d = (Graphics2D) g.create();
-                g2d.setColor(new Color(0, 0, 0, 180));
-                g2d.fillRect(0, 0, getWidth(), getHeight());
-                g2d.dispose();
-                super.paintComponent(g);
-            }
-        };
-        panel.setOpaque(false);
-        JLabel iconLabel = new JLabel(UITheme.getIcon(UITheme.Icons.WIFI_OFF, 64, 64, Color.WHITE));
-        JLabel messageLabel = new JLabel("<html><center>Live Features Disabled<br>No Internet Connection</center></html>");
-        messageLabel.setFont(new Font("SansSerif", Font.BOLD, 24));
-        messageLabel.setForeground(Color.WHITE);
-        messageLabel.setHorizontalAlignment(SwingConstants.CENTER);
-        JPanel content = new JPanel();
-        content.setOpaque(false);
-        content.setLayout(new BoxLayout(content, BoxLayout.Y_AXIS));
-        content.add(iconLabel);
-        content.add(Box.createVerticalStrut(20));
-        content.add(messageLabel);
-        iconLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
-        messageLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
-        panel.add(content);
-        return panel;
-    }
-
     private void repositionOverlayWidgets() {
         if (onFireWidget.isVisible()) {
             Dimension fireSize = onFireWidget.getPreferredSize();
@@ -231,7 +185,6 @@ public class ChartWorkspacePanel extends JPanel implements PropertyChangeListene
     private void updateComponentLayouts() {
         if (rootPanel != null && mainContainerPanel != null) {
             mainContainerPanel.setBounds(0, 0, rootPanel.getWidth(), rootPanel.getHeight());
-            offlineOverlayPanel.setBounds(0, 0, rootPanel.getWidth(), rootPanel.getHeight());
             if (drawingToolbar.isVisible()) {
                 drawingToolbar.updatePosition(SettingsService.getInstance().getDrawingToolbarPosition() == DrawingConfig.ToolbarPosition.LEFT
                         ? FloatingDrawingToolbar.DockSide.LEFT
@@ -242,9 +195,23 @@ public class ChartWorkspacePanel extends JPanel implements PropertyChangeListene
     }
     
     public void setOfflineMode(boolean isOffline) {
-        if (isReplayMode) return;
-        offlineOverlayPanel.setVisible(isOffline);
-        mainContainerPanel.setVisible(!isOffline);
+        if (isReplayMode) {
+            return;
+        }
+
+        if (isOffline) {
+            // "No Internet" is the highest priority message.
+            connectionStatusWidget.showStatus(
+                "No Internet Connection. Live features disabled.",
+                UITheme.Icons.WIFI_OFF,
+                javax.swing.UIManager.getColor("app.color.negative")
+            );
+        } else {
+            // When internet returns, hide the banner. The LiveDataManager will
+            // shortly fire an event to update the status to CONNECTING/SYNCING/CONNECTED.
+            connectionStatusWidget.hideStatus();
+        }
+        repositionOverlayWidgets();
     }
     
     public void handleCloseRequest() {
