@@ -27,8 +27,6 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
     // --- Main Layout & Navigation ---
     private final CardLayout mainCardLayout = new CardLayout();
     private final JPanel mainContentPanel = new JPanel(mainCardLayout);
-    private JToggleButton analysisNavButton, replayNavButton, liveNavButton;
-    private ButtonGroup navGroup;
 
     // --- Workspaces & Contexts ---
     private final ChartWorkspacePanel replayWorkspacePanel;
@@ -53,19 +51,21 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
 
 
     public PrimaryFrame() {
+        setUndecorated(true);
+        
         setTitle("Eco Chart Pro");
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setSize(1600, 900);
         setLocationRelativeTo(null);
         setIconImage(new ImageIcon(getClass().getResource(UITheme.Icons.APP_LOGO)).getImage());
 
-        this.titleBarManager = new TitleBarManager(this);
-        this.titleBarManager.start();
-
+        // Initialize contexts first, as they are needed by menu setup
         replayContext = new WorkspaceContext();
         liveContext = new WorkspaceContext();
 
-        // CONSTRUCTOR CALLS: Replay is TRUE, Live is FALSE
+        this.titleBarManager = new TitleBarManager(this);
+        this.titleBarManager.setMenuBar(createPrimaryMenuBar());
+
         replayWorkspacePanel = new ChartWorkspacePanel(this, true, replayContext);
         liveWorkspacePanel = new ChartWorkspacePanel(this, false, liveContext);
         
@@ -80,17 +80,11 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
         analysisTabPanel.add(reportPanelContainer, "REPORT");
         analysisCardLayout.show(analysisTabPanel, "SPLASH");
 
-        // [DEFINITIVE FIX] This is the corrected section.
-        // The `replayWorkspacePanel` (with the blue border) is now correctly assigned to the "REPLAY" key.
-        // The `liveWorkspacePanel` (with the red border) is assigned to the "LIVE" key.
         mainContentPanel.add(analysisTabPanel, "ANALYSIS");
         mainContentPanel.add(replayWorkspacePanel, "REPLAY");
         mainContentPanel.add(liveWorkspacePanel, "LIVE");
-
-        JPanel navigationBar = createNavigationBar();
-        setJMenuBar(createPrimaryMenuBar());
         
-        add(navigationBar, BorderLayout.NORTH);
+        add(titleBarManager, BorderLayout.NORTH);
         add(mainContentPanel, BorderLayout.CENTER);
         
         replayContext.getSessionTracker().addPropertyChangeListener(this);
@@ -108,92 +102,6 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
         return menuBar;
     }
 
-    private JPanel createNavigationBar() {
-        JPanel navigationBar = new JPanel(new BorderLayout());
-        navigationBar.setBorder(BorderFactory.createEmptyBorder(2, 5, 2, 10));
-
-        JPanel navButtonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        navGroup = new ButtonGroup();
-        analysisNavButton = createNavButton("Analysis", "ANALYSIS", true);
-        replayNavButton = createNavButton("Replay", "REPLAY", false);
-        liveNavButton = createNavButton("Live", "LIVE", false);
-        
-        navGroup.add(analysisNavButton);
-        navGroup.add(replayNavButton);
-        navGroup.add(liveNavButton);
-        
-        navButtonPanel.add(analysisNavButton);
-        navButtonPanel.add(replayNavButton);
-        navButtonPanel.add(liveNavButton);
-
-        JPanel statusPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
-        
-        JLabel shortcutsLabel = new JLabel("", JLabel.CENTER);
-        shortcutsLabel.setForeground(javax.swing.UIManager.getColor("Label.disabledForeground"));
-        startShortcutRotation(shortcutsLabel);
-        
-        statusPanel.add(shortcutsLabel);
-
-        navigationBar.add(navButtonPanel, BorderLayout.WEST);
-        navigationBar.add(statusPanel, BorderLayout.EAST);
-        
-        return navigationBar;
-    }
-
-    private JToggleButton createNavButton(String text, String actionCommand, boolean selected) {
-        JToggleButton button = new JToggleButton(text, selected);
-        button.setActionCommand(actionCommand);
-        button.setFocusPainted(false);
-        button.setBorderPainted(false);
-        button.setFont(button.getFont().deriveFont(Font.BOLD));
-        button.addActionListener(e -> {
-            mainCardLayout.show(mainContentPanel, actionCommand);
-            if (!"REPLAY".equals(actionCommand)) {
-                ReplaySessionManager.getInstance().pause();
-            }
-            updateUndoRedoState();
-        
-            // Explicitly manage toolbar visibility on tab switch to prevent bleed-through
-            if ("LIVE".equals(actionCommand)) {
-                replayWorkspacePanel.getDrawingToolbar().setVisible(false);
-                replayWorkspacePanel.getPropertiesToolbar().setVisible(false);
-                // If there's an active chart in the live panel, its toolbar should be visible.
-                if (liveWorkspacePanel.getActiveChartPanel() != null) {
-                    liveWorkspacePanel.getDrawingToolbar().setVisible(true);
-                }
-            } else if ("REPLAY".equals(actionCommand)) {
-                liveWorkspacePanel.getDrawingToolbar().setVisible(false);
-                liveWorkspacePanel.getPropertiesToolbar().setVisible(false);
-                // If there's an active chart in the replay panel, its toolbar should be visible.
-                if (replayWorkspacePanel.getActiveChartPanel() != null) {
-                    replayWorkspacePanel.getDrawingToolbar().setVisible(true);
-                }
-            } else { // ANALYSIS tab
-                liveWorkspacePanel.getDrawingToolbar().setVisible(false);
-                liveWorkspacePanel.getPropertiesToolbar().setVisible(false);
-                replayWorkspacePanel.getDrawingToolbar().setVisible(false);
-                replayWorkspacePanel.getPropertiesToolbar().setVisible(false);
-            }
-        });
-        return button;
-    }
-
-    private void startShortcutRotation(JLabel shortcutsLabel) {
-        boolean isMac = System.getProperty("os.name").toLowerCase().contains("mac");
-        String undoShortcut = isMac ? "Cmd+Z: Undo" : "Ctrl+Z: Undo";
-        String redoShortcut = isMac ? "Cmd+Shift+Z: Redo" : "Ctrl+Y: Redo";
-        final List<String> idleShortcuts = List.of(
-            "Alt+T: Trendline", "Alt+R: Rectangle",
-            "On Chart: Type Timeframe (e.g., 5m) + Enter", undoShortcut, redoShortcut
-        );
-        final int[] currentIndex = {0};
-        shortcutsLabel.setText(idleShortcuts.get(0));
-        new Timer(3000, e -> {
-            currentIndex[0] = (currentIndex[0] + 1) % idleShortcuts.size();
-            shortcutsLabel.setText(idleShortcuts.get(currentIndex[0]));
-        }).start();
-    }
-    
     private JMenu createFileMenu() {
         JMenu fileMenu = new JMenu("File");
         SessionController sc = SessionController.getInstance();
@@ -303,14 +211,25 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
     }
 
     private WorkspaceContext getActiveContext() {
-        if (replayNavButton != null && replayNavButton.isSelected()) {
+        // [FIX] Add null checks to prevent NullPointerException during initialization.
+        // If the title bar or its buttons haven't been created yet, default to the live context.
+        if (titleBarManager == null || titleBarManager.getReplayNavButton() == null) {
+            return liveContext;
+        }
+        
+        if (titleBarManager.getReplayNavButton().isSelected()) {
             return replayContext;
         }
         return liveContext;
     }
 
     private ChartWorkspacePanel getActiveWorkspacePanel() {
-        if (replayNavButton != null && replayNavButton.isSelected()) {
+        // [FIX] Add a similar null check here for robustness.
+        if (titleBarManager == null || titleBarManager.getReplayNavButton() == null) {
+            return liveWorkspacePanel;
+        }
+
+        if (titleBarManager.getReplayNavButton().isSelected()) {
             return replayWorkspacePanel;
         }
         return liveWorkspacePanel;
@@ -351,7 +270,10 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
             }
             updateAnalysisReport();
         } else if ("stateChanged".equals(evt.getPropertyName())) {
-            updateUndoRedoState();
+            // Check source to ensure we're updating for the correct context
+            if (evt.getSource() == getActiveContext().getUndoManager()) {
+                updateUndoRedoState();
+            }
         }
     }
 
@@ -373,8 +295,8 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
     public WorkspaceContext getLiveContext() { return liveContext; }
     public JPanel getMainContentPanel() { return mainContentPanel; }
     public CardLayout getMainCardLayout() { return mainCardLayout; }
-    public ButtonGroup getNavGroup() { return navGroup; }
-    public JToggleButton getReplayNavButton() { return replayNavButton; }
-    public JToggleButton getLiveNavButton() { return liveNavButton; }
     public TitleBarManager getTitleBarManager() { return this.titleBarManager; }
+
+    public ChartWorkspacePanel getReplayWorkspacePanel() { return replayWorkspacePanel; }
+    public ChartWorkspacePanel getLiveWorkspacePanel() { return liveWorkspacePanel; }
 }

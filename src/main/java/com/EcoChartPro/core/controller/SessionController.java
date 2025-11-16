@@ -56,7 +56,8 @@ public class SessionController {
                 primaryFrame.getReplayContext().getPaperTradingService().resetSession(startingBalance, leverage);
                 replayPanel.startReplaySession(source, startIndex);
                 
-                primaryFrame.getNavGroup().setSelected(primaryFrame.getReplayNavButton().getModel(), true);
+                // [FIX] Access navigation buttons through the TitleBarManager
+                primaryFrame.getTitleBarManager().getNavGroup().setSelected(primaryFrame.getTitleBarManager().getReplayNavButton().getModel(), true);
                 primaryFrame.getMainCardLayout().show(primaryFrame.getMainContentPanel(), "REPLAY");
                 logger.info("New replay session started for symbol '{}'", source.symbol());
             } else {
@@ -77,7 +78,8 @@ public class SessionController {
                 primaryFrame.getLiveContext().getPaperTradingService().resetSession(startingBalance, leverage);
                 livePanel.startLiveSession(source);
 
-                primaryFrame.getNavGroup().setSelected(primaryFrame.getLiveNavButton().getModel(), true);
+                // [FIX] Access navigation buttons through the TitleBarManager
+                primaryFrame.getTitleBarManager().getNavGroup().setSelected(primaryFrame.getTitleBarManager().getLiveNavButton().getModel(), true);
                 primaryFrame.getMainCardLayout().show(primaryFrame.getMainContentPanel(), "LIVE");
                 logger.info("New live session started for symbol '{}'", source.symbol());
             } else {
@@ -98,7 +100,8 @@ public class SessionController {
             
             if (replayPanelOpt.isPresent()) {
                 replayPanelOpt.get().loadSessionState(state);
-                primaryFrame.getNavGroup().setSelected(primaryFrame.getReplayNavButton().getModel(), true);
+                // [FIX] Access navigation buttons through the TitleBarManager
+                primaryFrame.getTitleBarManager().getNavGroup().setSelected(primaryFrame.getTitleBarManager().getReplayNavButton().getModel(), true);
                 primaryFrame.getMainCardLayout().show(primaryFrame.getMainContentPanel(), "REPLAY");
                 logger.info("Loaded replay session state.");
             } else {
@@ -125,7 +128,8 @@ public class SessionController {
 
             if (livePanelOpt.isPresent()) {
                 livePanelOpt.get().loadSessionState(state);
-                primaryFrame.getNavGroup().setSelected(primaryFrame.getLiveNavButton().getModel(), true);
+                // [FIX] Access navigation buttons through the TitleBarManager
+                primaryFrame.getTitleBarManager().getNavGroup().setSelected(primaryFrame.getTitleBarManager().getLiveNavButton().getModel(), true);
                 primaryFrame.getMainCardLayout().show(primaryFrame.getMainContentPanel(), "LIVE");
                 logger.info("Loaded live session state.");
             } else {
