@@ -490,6 +490,7 @@ public class ChartWorkspacePanel extends JPanel implements PropertyChangeListene
     public void startReplaySession(DataSourceManager.ChartDataSource source, int startIndex) {
         ensureReplayUIInitialized();
         ReplaySessionManager.getInstance().startSession(source, startIndex);
+        workspaceContext.getDrawingManager().setActiveSymbol(source.symbol());
         setDbManagerForSource(source); 
         workspaceManager.applyLayout(WorkspaceManager.LayoutType.ONE);
         workspaceManager.getChartPanels().get(0).getDataModel().setDisplayTimeframe(Timeframe.M5);
@@ -509,6 +510,7 @@ public class ChartWorkspacePanel extends JPanel implements PropertyChangeListene
             return;
         }
         setDbManagerForSource(sourceOpt.get());
+        workspaceContext.getDrawingManager().setActiveSymbol(state.lastActiveSymbol());
         if (state.symbolStates() != null) {
             state.symbolStates().forEach((symbol, symbolState) -> 
                 workspaceContext.getDrawingManager().restoreDrawingsForSymbol(symbol, symbolState.drawings())
