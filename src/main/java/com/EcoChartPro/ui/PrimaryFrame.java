@@ -80,6 +80,9 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
         analysisTabPanel.add(reportPanelContainer, "REPORT");
         analysisCardLayout.show(analysisTabPanel, "SPLASH");
 
+        // [DEFINITIVE FIX] This is the corrected section.
+        // The `replayWorkspacePanel` (with the blue border) is now correctly assigned to the "REPLAY" key.
+        // The `liveWorkspacePanel` (with the red border) is assigned to the "LIVE" key.
         mainContentPanel.add(analysisTabPanel, "ANALYSIS");
         mainContentPanel.add(replayWorkspacePanel, "REPLAY");
         mainContentPanel.add(liveWorkspacePanel, "LIVE");
@@ -149,6 +152,28 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
                 ReplaySessionManager.getInstance().pause();
             }
             updateUndoRedoState();
+        
+            // Explicitly manage toolbar visibility on tab switch to prevent bleed-through
+            if ("LIVE".equals(actionCommand)) {
+                replayWorkspacePanel.getDrawingToolbar().setVisible(false);
+                replayWorkspacePanel.getPropertiesToolbar().setVisible(false);
+                // If there's an active chart in the live panel, its toolbar should be visible.
+                if (liveWorkspacePanel.getActiveChartPanel() != null) {
+                    liveWorkspacePanel.getDrawingToolbar().setVisible(true);
+                }
+            } else if ("REPLAY".equals(actionCommand)) {
+                liveWorkspacePanel.getDrawingToolbar().setVisible(false);
+                liveWorkspacePanel.getPropertiesToolbar().setVisible(false);
+                // If there's an active chart in the replay panel, its toolbar should be visible.
+                if (replayWorkspacePanel.getActiveChartPanel() != null) {
+                    replayWorkspacePanel.getDrawingToolbar().setVisible(true);
+                }
+            } else { // ANALYSIS tab
+                liveWorkspacePanel.getDrawingToolbar().setVisible(false);
+                liveWorkspacePanel.getPropertiesToolbar().setVisible(false);
+                replayWorkspacePanel.getDrawingToolbar().setVisible(false);
+                replayWorkspacePanel.getPropertiesToolbar().setVisible(false);
+            }
         });
         return button;
     }
