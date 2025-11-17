@@ -35,13 +35,11 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
     private final WorkspaceContext liveContext;
     private final TitleBarManager titleBarManager;
 
-    // --- Analysis Tab Components ---
+    // --- Home Tab Components ---
     private final ComprehensiveReportPanel analysisReportPanel;
     private JRadioButton replayReportButton;
     private JRadioButton liveReportButton;
-    private final JPanel analysisTabPanel;
-    private final CardLayout analysisCardLayout;
-    private boolean isReportViewActive = false;
+    private final JPanel reportPanelContainer;
     private ReplaySessionState lastReplayState;
     private ReplaySessionState lastLiveState;
     
@@ -72,15 +70,21 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
         boolean isConnected = InternetConnectivityService.getInstance().isConnected();
         liveWorkspacePanel.setOfflineMode(!isConnected);
 
-        analysisTabPanel = new JPanel(analysisCardLayout = new CardLayout());
+        // --- Rearchitect the Home Tab ---
         analysisReportPanel = new ComprehensiveReportPanel();
         DashboardViewPanel splashPanel = new DashboardViewPanel();
-        JPanel reportPanelContainer = createAnalysisReportPanel();
-        analysisTabPanel.add(splashPanel, "SPLASH");
-        analysisTabPanel.add(reportPanelContainer, "REPORT");
-        analysisCardLayout.show(analysisTabPanel, "SPLASH");
+        this.reportPanelContainer = createAnalysisReportPanel();
+        this.reportPanelContainer.setVisible(false); // Hide until data is loaded
 
-        mainContentPanel.add(analysisTabPanel, "ANALYSIS");
+        JPanel homeContainerPanel = new JPanel(new BorderLayout());
+        homeContainerPanel.add(splashPanel, BorderLayout.NORTH);
+        homeContainerPanel.add(this.reportPanelContainer, BorderLayout.CENTER);
+        
+        JScrollPane homeScrollPane = new JScrollPane(homeContainerPanel);
+        homeScrollPane.setBorder(null);
+        homeScrollPane.getVerticalScrollBar().setUnitIncrement(16);
+
+        mainContentPanel.add(homeScrollPane, "HOME");
         mainContentPanel.add(replayWorkspacePanel, "REPLAY");
         mainContentPanel.add(liveWorkspacePanel, "LIVE");
         
@@ -251,11 +255,10 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
         replayReportButton.addActionListener(reportSwitcher);
         liveReportButton.addActionListener(reportSwitcher);
         replayReportButton.setSelected(true);
-        JScrollPane scrollPane = new JScrollPane(analysisReportPanel);
-        scrollPane.setBorder(null);
-        scrollPane.getVerticalScrollBar().setUnitIncrement(16);
+        
+        // [MODIFIED] Remove the JScrollPane from here
         panel.add(topPanel, BorderLayout.NORTH);
-        panel.add(scrollPane, BorderLayout.CENTER);
+        panel.add(analysisReportPanel, BorderLayout.CENTER);
         return panel;
     }
 
@@ -279,9 +282,8 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
 
     private void updateAnalysisReport() {
         SwingUtilities.invokeLater(() -> {
-            if (!isReportViewActive) {
-                analysisCardLayout.show(analysisTabPanel, "REPORT");
-                isReportViewActive = true;
+            if (!reportPanelContainer.isVisible()) {
+                reportPanelContainer.setVisible(true);
             }
             if (replayReportButton.isSelected()) {
                 analysisReportPanel.updateData(lastReplayState);

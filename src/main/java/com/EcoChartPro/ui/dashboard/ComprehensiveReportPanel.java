@@ -52,7 +52,7 @@ import java.util.stream.Collectors;
 
 public class ComprehensiveReportPanel extends JPanel implements Scrollable, PropertyChangeListener {
     private static final Logger logger = LoggerFactory.getLogger(ComprehensiveReportPanel.class);
-    private static final int WIDGET_VIEW_ROTATION_MS = 8000; // Time to show each view (live/overall)
+    private static final int WIDGET_VIEW_ROTATION_MS = 8000;
 
     // --- UI Components ---
     private final StatWidget realizedPnlWidget, winRateWidget, avgRrWidget, tradeEfficiencyWidget;
@@ -64,6 +64,10 @@ public class ComprehensiveReportPanel extends JPanel implements Scrollable, Prop
     private ReplaySessionState currentSessionState;
     private final Timer cosmeticRotationTimer;
     private final Timer liveViewRotationTimer;
+
+    // [NEW] Labels for the external chart footer
+    private final JLabel maxDrawdownValue;
+    private final JLabel maxRunupValue;
 
     // --- View Model "Playlists" for Rotation ---
     private final List<ProgressCardViewModel> coachingViewModels = new ArrayList<>();
@@ -98,6 +102,10 @@ public class ComprehensiveReportPanel extends JPanel implements Scrollable, Prop
         streakProgressCard = new ProgressCardPanel();
         dailyDisciplineWidget = new DailyDisciplineWidget();
 
+        // [NEW] Instantiate the external footer labels
+        maxDrawdownValue = new JLabel("-");
+        maxRunupValue = new JLabel("-");
+
         JPanel headerPanel = new JPanel(new BorderLayout());
         headerPanel.setOpaque(false);
         
@@ -126,7 +134,6 @@ public class ComprehensiveReportPanel extends JPanel implements Scrollable, Prop
         exportMenu.add(exportPdfItem);
         
         exportButton.addActionListener(e -> exportMenu.show(exportButton, 0, exportButton.getHeight()));
-
 
         JPanel buttonBar = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
         buttonBar.setOpaque(false);
@@ -159,20 +166,39 @@ public class ComprehensiveReportPanel extends JPanel implements Scrollable, Prop
         headerPanel.add(statsContainer, BorderLayout.CENTER);
 
 
-        JPanel chartsContainer = new JPanel(new GridBagLayout());
-        chartsContainer.setOpaque(false);
+        // --- [MODIFIED] Rebuild the bottom section of the panel ---
+        JPanel bottomContainer = new JPanel(new GridBagLayout());
+        bottomContainer.setOpaque(false);
+
+        // -- Left Column (Chart and Footer) --
+        JPanel leftColumn = new JPanel(new BorderLayout());
+        leftColumn.setOpaque(false);
+        leftColumn.add(finishedTradesPnlWidget, BorderLayout.CENTER);
+        leftColumn.add(createChartFooterPanel(), BorderLayout.SOUTH);
+
+        // -- Right Column (Stacked Widgets) --
+        JPanel rightColumn = new JPanel();
+        rightColumn.setOpaque(false);
+        rightColumn.setLayout(new BoxLayout(rightColumn, BoxLayout.Y_AXIS));
+        rightColumn.add(coachingCardPanel);
+        rightColumn.add(Box.createVerticalStrut(15));
+        rightColumn.add(streakProgressCard);
+        rightColumn.add(Box.createVerticalStrut(15));
+        rightColumn.add(dailyDisciplineWidget);
+
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.fill = GridBagConstraints.BOTH;
-        gbc.insets = new Insets(0, 8, 0, 8);
         gbc.weighty = 1.0;
+        gbc.insets = new Insets(0, 8, 0, 8);
+        
+        gbc.gridx = 0; gbc.weightx = 0.5;
+        bottomContainer.add(leftColumn, gbc);
 
-        gbc.gridx = 0; gbc.weightx = 0.40; chartsContainer.add(finishedTradesPnlWidget, gbc);
-        gbc.gridx = 1; gbc.weightx = 0.20; chartsContainer.add(coachingCardPanel, gbc);
-        gbc.gridx = 2; gbc.weightx = 0.20; chartsContainer.add(streakProgressCard, gbc);
-        gbc.gridx = 3; gbc.weightx = 0.20; chartsContainer.add(dailyDisciplineWidget, gbc);
-
+        gbc.gridx = 1; gbc.weightx = 0.5;
+        bottomContainer.add(rightColumn, gbc);
+        
         add(headerPanel, BorderLayout.NORTH);
-        add(chartsContainer, BorderLayout.CENTER);
+        add(bottomContainer, BorderLayout.CENTER);
 
 
         coachingCardPanel.addInsightsButtonListener(e -> {
@@ -183,7 +209,6 @@ public class ComprehensiveReportPanel extends JPanel implements Scrollable, Prop
             }
             InsightsDialog insightsDialog = new InsightsDialog((Frame) owner);
             
-            // [FIX] Use the session state already stored in this panel
             if (this.currentSessionState != null) {
                 insightsDialog.loadSessionData(this.currentSessionState);
             }
@@ -201,6 +226,29 @@ public class ComprehensiveReportPanel extends JPanel implements Scrollable, Prop
         this.liveViewRotationTimer = new Timer(WIDGET_VIEW_ROTATION_MS, e -> rotateLiveDisplay());
 
         ReviewReminderService.getInstance().addPropertyChangeListener(this);
+    }
+
+    // [NEW] Helper method to create the chart's external footer
+    private JPanel createChartFooterPanel() {
+        JPanel footer = new JPanel(new GridLayout(1, 2, 20, 0));
+        footer.setOpaque(false);
+        footer.setBorder(BorderFactory.createEmptyBorder(10, 15, 0, 15)); // Match chart's horizontal padding
+        footer.add(createFooterStat("Max Drawdown", maxDrawdownValue));
+        footer.add(createFooterStat("Max Runup", maxRunupValue));
+        return footer;
+    }
+
+    // [NEW] Helper method to create a single stat for the chart footer
+    private JPanel createFooterStat(String title, JLabel valueLabel) {
+        JPanel panel = new JPanel(new BorderLayout());
+        panel.setOpaque(false);
+        JLabel titleLabel = new JLabel(title);
+        titleLabel.setFont(UIManager.getFont("app.font.widget_content").deriveFont(12f));
+        titleLabel.setForeground(UIManager.getColor("Label.disabledForeground"));
+        valueLabel.setFont(UIManager.getFont("app.font.widget_title").deriveFont(Font.BOLD, 14f));
+        panel.add(titleLabel, BorderLayout.NORTH);
+        panel.add(valueLabel, BorderLayout.SOUTH);
+        return panel;
     }
     
     private void exportReportToHtml() {
@@ -306,7 +354,7 @@ public class ComprehensiveReportPanel extends JPanel implements Scrollable, Prop
         realizedPnlWidget.toggleView(isShowingLiveView);
         winRateWidget.toggleView(isShowingLiveView);
         avgRrWidget.toggleView(isShowingLiveView);
-        finishedTradesPnlWidget.toggleView(isShowingLiveView);
+        finishedTradesPnlWidget.setTitle(isShowingLiveView ? "Session Equity Curve" : "Finished Trades PNL");
         dailyDisciplineWidget.toggleView(isShowingLiveView);
     }
 
@@ -365,8 +413,12 @@ public class ComprehensiveReportPanel extends JPanel implements Scrollable, Prop
         expectedValueValueLabel.setText(pnlFormat.format(stats.expectancy()));
         avgTradeTimeValueLabel.setText(formatDuration(stats.avgTradeDuration()));
         
-        finishedTradesPnlWidget.setOverallData(stats.equityCurve(), stats.maxDrawdown(), stats.maxRunup());
-        
+        finishedTradesPnlWidget.updateData(stats.equityCurve());
+        maxDrawdownValue.setText(pnlFormat.format(stats.maxDrawdown()));
+        maxDrawdownValue.setForeground(UIManager.getColor("app.color.negative"));
+        maxRunupValue.setText(pnlFormat.format(stats.maxRunup()));
+        maxRunupValue.setForeground(UIManager.getColor("app.color.accent"));
+
         Optional<DataSourceManager.ChartDataSource> sourceOpt = DataSourceManager.getInstance().getAvailableSources().stream()
                 .filter(s -> s.symbol().equalsIgnoreCase(state.lastActiveSymbol()))
                 .findFirst();
@@ -461,7 +513,7 @@ public class ComprehensiveReportPanel extends JPanel implements Scrollable, Prop
         winRateWidget.toggleView(false);
         avgRrWidget.toggleView(false);
         tradeEfficiencyWidget.toggleView(false);
-        finishedTradesPnlWidget.toggleView(false);
+        finishedTradesPnlWidget.setTitle("Finished Trades PNL");
         dailyDisciplineWidget.toggleView(false);
     }
     
@@ -505,7 +557,9 @@ public class ComprehensiveReportPanel extends JPanel implements Scrollable, Prop
 
         avgRrWidget.setLiveValue(decimalFormat.format(stats.avgRiskReward()), stats.avgRiskReward().compareTo(BigDecimal.ONE) >= 0 ? UIManager.getColor("app.color.positive") : UIManager.getColor("app.color.negative"));
         
-        finishedTradesPnlWidget.setLiveData(stats.equityCurve());
+        finishedTradesPnlWidget.updateData(stats.equityCurve());
+        maxDrawdownValue.setText("-");
+        maxRunupValue.setText("-");
     }
     
     private void clearAllWidgetsForLiveMode() {
@@ -517,7 +571,10 @@ public class ComprehensiveReportPanel extends JPanel implements Scrollable, Prop
         tradeEfficiencyWidget.setLiveValue("N/A", UIManager.getColor("Label.foreground"));
         tradeEfficiencyWidget.setLiveGraphic(null);
         
-        finishedTradesPnlWidget.setLiveData(Collections.emptyList());
+        finishedTradesPnlWidget.updateData(Collections.emptyList());
+        maxDrawdownValue.setText("-");
+        maxRunupValue.setText("-");
+
         dailyDisciplineWidget.setLiveData(100, 100); 
 
         // Make sure all widgets are showing the live view initially
@@ -652,7 +709,7 @@ public class ComprehensiveReportPanel extends JPanel implements Scrollable, Prop
                 absSeconds % 60);
         return seconds < 0 ? "-" + positive : positive;
     }
-
+    
     @Override
     public Dimension getPreferredScrollableViewportSize() {
         return getPreferredSize();

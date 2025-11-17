@@ -140,7 +140,7 @@ public class TitleBarManager extends JPanel {
         navButtonPanel.setBorder(BorderFactory.createEmptyBorder(0, 5, 0, 5));
         
         navGroup = new ButtonGroup();
-        analysisNavButton = createNavButton("Analysis", "ANALYSIS", true);
+        analysisNavButton = createNavButton("Home", "HOME", true); // [MODIFIED]
         replayNavButton = createNavButton("Replay", "REPLAY", false);
         liveNavButton = createNavButton("Live", "LIVE", false);
 

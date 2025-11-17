@@ -68,9 +68,17 @@ public class CoachingCardPanel extends JPanel {
         gbc.gridx = 0; gbc.gridy = 0; gbc.gridwidth = 2; gbc.weightx = 1.0;
         contentPanel.add(titleLabel, gbc);
 
+        // [MODIFIED] Wrap the JTextArea in a configured JScrollPane to constrain its height
+        JScrollPane textScroller = new JScrollPane(descriptionArea);
+        textScroller.setOpaque(false);
+        textScroller.getViewport().setOpaque(false);
+        textScroller.setBorder(null);
+        textScroller.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_NEVER);
+        textScroller.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+
         gbc.gridy = 1; gbc.weighty = 1.0; gbc.fill = GridBagConstraints.BOTH;
         gbc.insets = new Insets(8, 4, 8, 4);
-        contentPanel.add(descriptionArea, gbc);
+        contentPanel.add(textScroller, gbc); // Add the scroller instead of the text area directly
         
         gbc.gridy = 2; gbc.weighty = 0; gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.anchor = GridBagConstraints.SOUTH;

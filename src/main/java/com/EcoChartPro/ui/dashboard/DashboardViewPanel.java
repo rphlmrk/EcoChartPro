@@ -1,5 +1,6 @@
 package com.EcoChartPro.ui.dashboard;
 
+import com.EcoChartPro.ui.dashboard.theme.UITheme;
 import com.EcoChartPro.ui.dashboard.widgets.BtcPerformanceWidget;
 import com.EcoChartPro.ui.dashboard.widgets.PluginMarketplaceWidget;
 import javax.swing.*;
@@ -10,13 +11,14 @@ public class DashboardViewPanel extends JPanel {
     private final JLabel subTitle;
     private final BtcPerformanceWidget btcWidget; // [NEW] Keep a reference for cleanup
     private final PluginMarketplaceWidget marketplaceWidget;
+    private JLabel scrollCueLabel; // [NEW]
 
     public DashboardViewPanel() {
         setOpaque(false);
         setLayout(new GridBagLayout());
         GridBagConstraints gbc = new GridBagConstraints();
 
-        // --- Welcome Panel (Top Center) ---
+        // --- Welcome Panel (Row 0) ---
         JPanel welcomePanel = new JPanel();
         welcomePanel.setLayout(new BoxLayout(welcomePanel, BoxLayout.Y_AXIS));
         welcomePanel.setOpaque(false);
@@ -31,33 +33,43 @@ public class DashboardViewPanel extends JPanel {
         welcomePanel.add(Box.createVerticalStrut(10));
         welcomePanel.add(subTitle);
         
-        // --- Widgets Panel (Bottom Right) ---
-        JPanel rightColumn = new JPanel();
-        rightColumn.setOpaque(false);
-        rightColumn.setLayout(new BoxLayout(rightColumn, BoxLayout.Y_AXIS));
+        // --- Widgets Panel (Row 1) ---
+        JPanel widgetsPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 20, 0));
+        widgetsPanel.setOpaque(false);
 
         btcWidget = new BtcPerformanceWidget();
         marketplaceWidget = new PluginMarketplaceWidget();
 
-        rightColumn.add(btcWidget);
-        rightColumn.add(Box.createVerticalStrut(15));
-        rightColumn.add(marketplaceWidget);
+        widgetsPanel.add(btcWidget);
+        widgetsPanel.add(marketplaceWidget);
 
-        // This single cell will fill the entire panel
+        // --- Scroll Cue Panel (Row 2) ---
+        JPanel scrollCuePanel = new JPanel(new FlowLayout(FlowLayout.CENTER));
+        scrollCuePanel.setOpaque(false);
+        scrollCueLabel = new JLabel("Scroll Down for Analysis");
+        scrollCueLabel.setIcon(UITheme.getIcon(UITheme.Icons.CHEVRON_DOWN, 16, 16));
+        scrollCueLabel.setVerticalTextPosition(SwingConstants.BOTTOM);
+        scrollCueLabel.setHorizontalTextPosition(SwingConstants.CENTER);
+        scrollCuePanel.add(scrollCueLabel);
+
+        // --- Add all components to the main panel ---
         gbc.gridx = 0;
-        gbc.gridy = 0;
         gbc.weightx = 1.0;
-        gbc.weighty = 1.0;
-
-        // Add the welcome panel, anchored to the TOP of the cell
         gbc.anchor = GridBagConstraints.NORTH;
-        gbc.insets = new Insets(80, 0, 0, 0); // Push it down below the navigation bar
+        
+        gbc.gridy = 0;
+        gbc.insets = new Insets(80, 0, 0, 0);
         add(welcomePanel, gbc);
         
-        // Add the widgets panel to the SAME cell, anchored to the BOTTOM-RIGHT
-        gbc.anchor = GridBagConstraints.SOUTHEAST;
-        gbc.insets = new Insets(0, 0, 20, 20); // Padding from bottom and right edges
-        add(rightColumn, gbc);
+        gbc.gridy = 1;
+        gbc.insets = new Insets(40, 0, 0, 0);
+        add(widgetsPanel, gbc);
+        
+        gbc.gridy = 2;
+        gbc.weighty = 1.0; // Pushes everything above it up
+        gbc.anchor = GridBagConstraints.SOUTH;
+        gbc.insets = new Insets(20, 0, 40, 0);
+        add(scrollCuePanel, gbc);
 
         updateUI(); // Apply initial theme
     }
@@ -77,6 +89,10 @@ public class DashboardViewPanel extends JPanel {
             title.setForeground(UIManager.getColor("Label.foreground"));
             subTitle.setFont(UIManager.getFont("app.font.subheading"));
             subTitle.setForeground(UIManager.getColor("Label.disabledForeground"));
+            if (scrollCueLabel != null) {
+                scrollCueLabel.setForeground(UIManager.getColor("Label.disabledForeground"));
+                scrollCueLabel.setIcon(UITheme.getIcon(UITheme.Icons.CHEVRON_DOWN, 16, 16, UIManager.getColor("Label.disabledForeground")));
+            }
         }
     }
 }
