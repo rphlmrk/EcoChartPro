@@ -1,29 +1,15 @@
 package com.EcoChartPro.ui.dashboard;
 
-import com.EcoChartPro.core.controller.SessionController;
 import com.EcoChartPro.core.journal.JournalAnalysisService;
 import com.EcoChartPro.core.state.ReplaySessionState;
 import com.EcoChartPro.model.Trade;
-import com.EcoChartPro.ui.dashboard.components.FloatingToolbarPanel;
-import com.EcoChartPro.ui.dialogs.SessionDialog;
-import com.EcoChartPro.utils.AppDataManager;
-import com.EcoChartPro.utils.SessionManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.swing.*;
-import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.*;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
-import java.io.File;
-import java.io.IOException;
 import java.math.BigDecimal;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 import java.util.stream.Collectors;
 
 public class ReplayViewPanel extends JPanel {
@@ -31,10 +17,6 @@ public class ReplayViewPanel extends JPanel {
     private static final Logger logger = LoggerFactory.getLogger(ReplayViewPanel.class);
 
     private final ComprehensiveReportPanel reportView;
-    // [REMOVED] All buttons and state for them are now obsolete.
-    // private JButton resumeLastSessionButton;
-    // private JButton recoverSessionButton;
-    // private ReplaySessionState lastLoadedState = null;
 
     public ReplayViewPanel() {
         this.reportView = new ComprehensiveReportPanel();
@@ -51,11 +33,6 @@ public class ReplayViewPanel extends JPanel {
         scrollPane.getVerticalScrollBar().setUI(new com.formdev.flatlaf.ui.FlatScrollBarUI());
 
         add(scrollPane, BorderLayout.CENTER);
-        
-        // [REMOVED] The bottom toolbar is no longer needed.
-        // add(createBottomToolbar(), BorderLayout.SOUTH);
-        
-        // [REMOVED] All logic related to the old buttons is now obsolete.
     }
     
     public ComprehensiveReportPanel getReportPanel() {
@@ -103,17 +80,4 @@ public class ReplayViewPanel extends JPanel {
 
         return headerPanel;
     }
-    
-    // [REMOVED] The following methods are all obsolete as they deal with UI components
-    // and logic that have been moved to PrimaryFrame.
-    // createBottomToolbar()
-    // styleToolbarButton()
-    // createToolbarSeparator()
-    // findLastSessionForResume()
-    // updateRecoverButtonState()
-    // checkForAutoSaveOnLaunch()
-    // handleStartNewSession()
-    // handleLoadSession()
-    // handleResumeSession()
-    // handleRecoverSession()
 }

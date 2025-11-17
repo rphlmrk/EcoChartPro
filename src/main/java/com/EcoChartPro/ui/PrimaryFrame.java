@@ -55,7 +55,7 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
         
         setTitle("Eco Chart Pro");
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        setSize(1600, 900);
+        setSize(1220, 720);
         setLocationRelativeTo(null);
         setIconImage(new ImageIcon(getClass().getResource(UITheme.Icons.APP_LOGO)).getImage());
 
