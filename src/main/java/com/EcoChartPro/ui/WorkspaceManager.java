@@ -3,6 +3,7 @@ package com.EcoChartPro.ui;
 import com.EcoChartPro.core.controller.ChartController;
 import com.EcoChartPro.core.controller.ChartInteractionManager;
 import com.EcoChartPro.core.controller.ReplaySessionManager;
+import com.EcoChartPro.core.controller.SessionController;
 import com.EcoChartPro.core.controller.WorkspaceContext;
 import com.EcoChartPro.core.indicator.Indicator;
 import com.EcoChartPro.core.model.ChartDataModel;
@@ -16,12 +17,16 @@ import com.EcoChartPro.ui.chart.IndicatorPanel;
 import com.EcoChartPro.ui.chart.PriceAxisPanel;
 import com.EcoChartPro.ui.chart.TimeAxisPanel;
 import com.EcoChartPro.ui.chart.axis.ChartAxis;
+import com.EcoChartPro.ui.dashboard.theme.UITheme;
+import com.EcoChartPro.ui.dialogs.SessionDialog;
 import com.EcoChartPro.ui.toolbar.FloatingDrawingToolbar;
 import com.EcoChartPro.utils.DataSourceManager;
 import com.EcoChartPro.utils.DatabaseManager;
 
 import javax.swing.*;
 import java.awt.*;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
 import java.awt.event.ComponentListener;
@@ -82,23 +87,53 @@ public class WorkspaceManager {
     }
 
     public void initializeStandardMode() {
-        // [MODIFIED] Show a placeholder until a session is started.
-        JPanel placeholder = new JPanel(new GridBagLayout());
-        JLabel message = new JLabel("No live session active. Go to File > New Live Session to begin.");
-        message.setFont(new Font("SansSerif", Font.PLAIN, 16));
-        message.setForeground(Color.GRAY);
-        placeholder.add(message);
-        chartAreaPanel.add(placeholder);
+        // [MODIFIED] Show an interactive widget until a session is started.
+        chartAreaPanel.removeAll();
+        chartAreaPanel.setLayout(new BorderLayout()); // Use BorderLayout for proper centering
+
+        NewSessionWidget widget = new NewSessionWidget(SessionDialog.SessionMode.LIVE_PAPER_TRADING);
+        widget.addActionListener(e -> {
+            SessionController sc = SessionController.getInstance();
+            PrimaryFrame frame = (PrimaryFrame) owner.getFrameOwner();
+
+            switch (e.getActionCommand()) {
+                case "newLiveSession":
+                    sc.showNewLiveSessionDialog(frame);
+                    break;
+                case "loadLiveSession":
+                    sc.loadLiveSessionFromFile(frame);
+                    break;
+            }
+        });
+
+        chartAreaPanel.add(widget, BorderLayout.CENTER);
+        chartAreaPanel.revalidate();
+        chartAreaPanel.repaint();
     }
 
     public void initializeReplayMode() {
-        // [MODIFIED] Show a placeholder message until a session is loaded.
-        JPanel placeholder = new JPanel(new GridBagLayout());
-        JLabel message = new JLabel("No replay loaded. Go to File > New Replay Session or Load Replay to begin.");
-        message.setFont(new Font("SansSerif", Font.PLAIN, 16));
-        message.setForeground(Color.GRAY);
-        placeholder.add(message);
-        chartAreaPanel.add(placeholder);
+        // [MODIFIED] Show an interactive widget until a session is started.
+        chartAreaPanel.removeAll();
+        chartAreaPanel.setLayout(new BorderLayout()); // Use BorderLayout for proper centering
+
+        NewSessionWidget widget = new NewSessionWidget(SessionDialog.SessionMode.REPLAY);
+        widget.addActionListener(e -> {
+            SessionController sc = SessionController.getInstance();
+            PrimaryFrame frame = (PrimaryFrame) owner.getFrameOwner();
+
+            switch (e.getActionCommand()) {
+                case "newReplaySession":
+                    sc.showNewReplaySessionDialog(frame);
+                    break;
+                case "loadReplaySession":
+                    sc.loadReplaySessionFromFile(frame);
+                    break;
+            }
+        });
+
+        chartAreaPanel.add(widget, BorderLayout.CENTER);
+        chartAreaPanel.revalidate();
+        chartAreaPanel.repaint();
     }
 
     public JPanel getChartAreaPanel() {
@@ -234,6 +269,10 @@ public class WorkspaceManager {
 
     public void applyLayout(LayoutType layoutType) {
         chartAreaPanel.removeAll();
+        // The original layout manager was BoxLayout. After removing everything,
+        // we can add a new single component which can be a JSplitPane or a JPanel
+        // with its own layout. The BoxLayout will respect this.
+        chartAreaPanel.setLayout(new BoxLayout(chartAreaPanel, BoxLayout.Y_AXIS));
         indicatorPaneMap.clear();
 
         int requiredPanels = 1;
@@ -373,5 +412,137 @@ public class WorkspaceManager {
 
     public void removePropertyChangeListener(String propertyName, PropertyChangeListener listener) {
         pcs.removePropertyChangeListener(propertyName, listener);
+    }
+
+    /**
+     * A reusable widget for prompting the user to start a new session.
+     */
+    private static class NewSessionWidget extends JPanel {
+        
+        public NewSessionWidget(SessionDialog.SessionMode mode) {
+            super(new GridBagLayout());
+            setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
+
+            // Determine action commands based on mode
+            String newSessionCommand, loadSessionCommand;
+            if (mode == SessionDialog.SessionMode.REPLAY) {
+                newSessionCommand = "newReplaySession";
+                loadSessionCommand = "loadReplaySession";
+            } else {
+                newSessionCommand = "newLiveSession";
+                loadSessionCommand = "loadLiveSession";
+            }
+
+            // Create cards
+            ActionCard newCard = new ActionCard(UITheme.Icons.NEW_FILE, "New Session", "Configure and start a new session", newSessionCommand);
+            ActionCard loadCard = new ActionCard(UITheme.Icons.FOLDER, "Load from File", "Load a previously saved session", loadSessionCommand);
+
+            // Forward actions from cards to this widget's listeners
+            ActionListener forwarder = this::fireActionPerformed;
+            newCard.addActionListener(forwarder);
+            loadCard.addActionListener(forwarder);
+
+            // Layout
+            GridBagConstraints gbc = new GridBagConstraints();
+            gbc.gridwidth = GridBagConstraints.REMAINDER;
+            gbc.anchor = GridBagConstraints.CENTER;
+
+            JLabel titleLabel = new JLabel("Start a New " + (mode == SessionDialog.SessionMode.REPLAY ? "Replay" : "Live") + " Session");
+            Font titleFont = javax.swing.UIManager.getFont("h2.font");
+            if (titleFont == null) titleFont = new Font("SansSerif", Font.BOLD, 24);
+            titleLabel.setFont(titleFont);
+
+            JPanel cardPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 20, 0));
+            cardPanel.setOpaque(false);
+            cardPanel.add(newCard);
+            cardPanel.add(loadCard);
+
+            gbc.insets = new Insets(0, 0, 30, 0);
+            add(titleLabel, gbc);
+            
+            gbc.insets = new Insets(10, 0, 10, 0);
+            add(cardPanel, gbc);
+        }
+
+        public void addActionListener(ActionListener listener) {
+            listenerList.add(ActionListener.class, listener);
+        }
+
+        protected void fireActionPerformed(ActionEvent event) {
+            Object[] listeners = listenerList.getListenerList();
+            for (int i = listeners.length - 2; i >= 0; i -= 2) {
+                if (listeners[i] == ActionListener.class) {
+                    ((ActionListener) listeners[i + 1]).actionPerformed(event);
+                }
+            }
+        }
+        
+        private static class ActionCard extends JPanel {
+            private final Color defaultBg;
+            private final Color hoverBg;
+            
+            public ActionCard(String iconPath, String title, String subtitle, String actionCommand) {
+                this.defaultBg = javax.swing.UIManager.getColor("app.titlebar.tab.selected.background");
+                this.hoverBg = defaultBg.brighter();
+                
+                setOpaque(false);
+                setBackground(defaultBg);
+                setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+                setPreferredSize(new Dimension(220, 150));
+                
+                setLayout(new GridBagLayout());
+                GridBagConstraints gbc = new GridBagConstraints();
+                gbc.gridwidth = GridBagConstraints.REMAINDER;
+                gbc.insets = new Insets(4, 8, 4, 8);
+                gbc.anchor = GridBagConstraints.CENTER;
+                
+                JLabel iconLabel = new JLabel(UITheme.getIcon(iconPath, 48, 48));
+                gbc.insets = new Insets(10, 8, 10, 8);
+                add(iconLabel, gbc);
+
+                JLabel titleLabel = new JLabel(title);
+                titleLabel.setFont(javax.swing.UIManager.getFont("app.font.widget_title"));
+                titleLabel.setForeground(javax.swing.UIManager.getColor("Label.foreground"));
+                add(titleLabel, gbc);
+                
+                JLabel subtitleLabel = new JLabel("<html><div style='text-align: center;'>" + subtitle + "</div></html>");
+                subtitleLabel.setFont(javax.swing.UIManager.getFont("app.font.widget_content").deriveFont(12f));
+                subtitleLabel.setForeground(javax.swing.UIManager.getColor("Label.disabledForeground"));
+                add(subtitleLabel, gbc);
+                
+                addMouseListener(new MouseAdapter() {
+                    @Override public void mouseEntered(MouseEvent e) { setBackground(hoverBg); }
+                    @Override public void mouseExited(MouseEvent e) { setBackground(defaultBg); }
+                    @Override public void mouseClicked(MouseEvent e) { fireActionPerformed(actionCommand); }
+                });
+            }
+            
+            public void addActionListener(ActionListener listener) {
+                listenerList.add(ActionListener.class, listener);
+            }
+            
+            protected void fireActionPerformed(String command) {
+                Object[] listeners = listenerList.getListenerList();
+                ActionEvent e = null;
+                for (int i = listeners.length - 2; i >= 0; i -= 2) {
+                    if (listeners[i] == ActionListener.class) {
+                        if (e == null) {
+                            e = new ActionEvent(this, ActionEvent.ACTION_PERFORMED, command);
+                        }
+                        ((ActionListener) listeners[i + 1]).actionPerformed(e);
+                    }
+                }
+            }
+            
+            @Override
+            protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(getBackground());
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 15, 15);
+                g2.dispose();
+                super.paintComponent(g);
+            }
+        }
     }
 }

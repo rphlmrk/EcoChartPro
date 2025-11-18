@@ -3,6 +3,7 @@ package com.EcoChartPro.core.controller;
 import com.EcoChartPro.core.state.ReplaySessionState;
 import com.EcoChartPro.ui.ChartWorkspacePanel;
 import com.EcoChartPro.ui.PrimaryFrame;
+import com.EcoChartPro.ui.dialogs.SessionDialog;
 import com.EcoChartPro.ui.toolbar.components.SymbolProgressCache;
 import com.EcoChartPro.utils.DataSourceManager;
 import com.EcoChartPro.utils.SessionManager;
@@ -44,6 +45,32 @@ public class SessionController {
                 .map(c -> (ChartWorkspacePanel) c)
                 .filter(p -> p.isReplayMode() == isReplay)
                 .findFirst();
+    }
+
+    /**
+     * [NEW] Encapsulates the logic for showing the new replay session dialog.
+     * @param parent The parent frame for the dialog.
+     */
+    public void showNewReplaySessionDialog(PrimaryFrame parent) {
+        SessionDialog dialog = new SessionDialog(parent, SessionDialog.SessionMode.REPLAY);
+        dialog.setVisible(true);
+        if (dialog.isLaunched()) {
+            startNewReplaySession(parent, dialog.getSelectedDataSource(), dialog.getReplayStartIndex(),
+                    dialog.getStartingBalance(), dialog.getLeverage());
+        }
+    }
+
+    /**
+     * [NEW] Encapsulates the logic for showing the new live session dialog.
+     * @param parent The parent frame for the dialog.
+     */
+    public void showNewLiveSessionDialog(PrimaryFrame parent) {
+        SessionDialog dialog = new SessionDialog(parent, SessionDialog.SessionMode.LIVE_PAPER_TRADING);
+        dialog.setVisible(true);
+        if (dialog.isLaunched()) {
+            startNewLiveSession(parent, dialog.getSelectedDataSource(),
+                    dialog.getStartingBalance(), dialog.getLeverage());
+        }
     }
 
 
@@ -214,13 +241,31 @@ public class SessionController {
         
         if (fileChooser.showOpenDialog(primaryFrame) == JFileChooser.APPROVE_OPTION) {
             File file = fileChooser.getSelectedFile();
-            try {
-                ReplaySessionState state = SessionManager.getInstance().loadStateFromLiveFile(file);
-                loadLiveSession(primaryFrame, state);
-            } catch (IOException e) {
-                logger.error("Failed to load live session from file: {}", file.getAbsolutePath(), e);
-                JOptionPane.showMessageDialog(primaryFrame, "Failed to load session: " + e.getMessage(), "Load Error", JOptionPane.ERROR_MESSAGE);
-            }
+            primaryFrame.setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
+            primaryFrame.setEnabled(false);
+
+            SwingWorker<ReplaySessionState, Void> worker = new SwingWorker<>() {
+                @Override
+                protected ReplaySessionState doInBackground() throws Exception {
+                    return SessionManager.getInstance().loadStateFromLiveFile(file);
+                }
+
+                @Override
+                protected void done() {
+                    try {
+                        ReplaySessionState state = get();
+                        loadLiveSession(primaryFrame, state);
+                    } catch (Exception ex) {
+                        Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+                        logger.error("Failed to load live session from file: {}", file.getAbsolutePath(), cause);
+                        JOptionPane.showMessageDialog(primaryFrame, "Failed to load session: " + cause.getMessage(), "Load Error", JOptionPane.ERROR_MESSAGE);
+                    } finally {
+                        primaryFrame.setEnabled(true);
+                        primaryFrame.setCursor(Cursor.getDefaultCursor());
+                    }
+                }
+            };
+            worker.execute();
         }
     }
     
@@ -235,12 +280,32 @@ public class SessionController {
         fileChooser.setFileFilter(new FileNameExtensionFilter("Replay Session (*.json)", "json"));
     
         if (fileChooser.showOpenDialog(primaryFrame) == JFileChooser.APPROVE_OPTION) {
-            try {
-                ReplaySessionState state = SessionManager.getInstance().loadSession(fileChooser.getSelectedFile());
-                loadReplaySession(primaryFrame, state);
-            } catch (IOException ex) {
-                JOptionPane.showMessageDialog(primaryFrame, "Failed to load session: " + ex.getMessage(), "Load Error", JOptionPane.ERROR_MESSAGE);
-            }
+            File file = fileChooser.getSelectedFile();
+            primaryFrame.setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
+            primaryFrame.setEnabled(false);
+
+            SwingWorker<ReplaySessionState, Void> worker = new SwingWorker<>() {
+                @Override
+                protected ReplaySessionState doInBackground() throws Exception {
+                    return SessionManager.getInstance().loadSession(file);
+                }
+
+                @Override
+                protected void done() {
+                    try {
+                        ReplaySessionState state = get();
+                        loadReplaySession(primaryFrame, state);
+                    } catch (Exception ex) {
+                        Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+                        logger.error("Failed to load replay session from file: {}", file.getAbsolutePath(), cause);
+                        JOptionPane.showMessageDialog(primaryFrame, "Failed to load session: " + cause.getMessage(), "Load Error", JOptionPane.ERROR_MESSAGE);
+                    } finally {
+                        primaryFrame.setEnabled(true);
+                        primaryFrame.setCursor(Cursor.getDefaultCursor());
+                    }
+                }
+            };
+            worker.execute();
         }
     }
 }

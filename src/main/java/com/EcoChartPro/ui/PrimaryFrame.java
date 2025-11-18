@@ -129,14 +129,7 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
         SessionController sc = SessionController.getInstance();
     
         JMenuItem newReplayItem = new JMenuItem("New Replay Session...");
-        newReplayItem.addActionListener(e -> {
-            SessionDialog dialog = new SessionDialog(this, SessionDialog.SessionMode.REPLAY);
-            dialog.setVisible(true);
-            if (dialog.isLaunched()) {
-                sc.startNewReplaySession(this, dialog.getSelectedDataSource(), dialog.getReplayStartIndex(),
-                                          dialog.getStartingBalance(), dialog.getLeverage());
-            }
-        });
+        newReplayItem.addActionListener(e -> sc.showNewReplaySessionDialog(this));
         fileMenu.add(newReplayItem);
     
         JMenuItem loadReplayItem = new JMenuItem("Load Replay Session...");
@@ -155,14 +148,7 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
         SessionController sc = SessionController.getInstance();
 
         JMenuItem newLiveItem = new JMenuItem("New Live Session...");
-        newLiveItem.addActionListener(e -> {
-            SessionDialog dialog = new SessionDialog(this, SessionDialog.SessionMode.LIVE_PAPER_TRADING);
-            dialog.setVisible(true);
-            if (dialog.isLaunched()) {
-                sc.startNewLiveSession(this, dialog.getSelectedDataSource(),
-                                       dialog.getStartingBalance(), dialog.getLeverage());
-            }
-        });
+        newLiveItem.addActionListener(e -> sc.showNewLiveSessionDialog(this));
         fileMenu.add(newLiveItem);
     
         JMenuItem loadLiveItem = new JMenuItem("Load Live Session...");

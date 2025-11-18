@@ -28,12 +28,14 @@ public final class ThemeManager {
         "app.journal.profit", "app.journal.loss", "app.journal.breakeven",
         "app.journal.plan.good", "app.journal.plan.ok", "app.journal.plan.bad",
         "app.chart.separator", "app.chart.separatorLabel",
-        // [NEW] Title bar and navigation tab colors
+        // Title bar and navigation tab colors
         "app.titlebar.background", "app.titlebar.tab.selected.background", "app.titlebar.tab.selected.foreground",
         // Custom font keys
         "app.font.heading", "app.font.subheading", "app.font.widget_title", "app.font.widget_content", "app.font.value_large",
         // Standard component keys that we might override
-        "ProgressBar.trackColor", "ProgressBar.foreground"
+        "ProgressBar.trackColor", "ProgressBar.foreground",
+        // [FIX] Add missing keys for network icons to prevent potential nulls
+        "app.color.wifi.on", "app.color.wifi.off"
     };
 
     public enum Theme {
@@ -69,7 +71,7 @@ public final class ThemeManager {
             UIManager.put("app.font.value_large", new Font("SansSerif", Font.BOLD, 24));
             
             if (theme == Theme.LIGHT) {
-                // [NEW] Light Theme Title Bar
+                // Light Theme Title Bar
                 UIManager.put("app.titlebar.background", UIManager.getColor("MenuBar.background"));
                 UIManager.put("app.titlebar.tab.selected.background", new Color(220, 220, 220));
                 UIManager.put("app.titlebar.tab.selected.foreground", new Color(30, 30, 30));
@@ -101,7 +103,7 @@ public final class ThemeManager {
                 UIManager.put("Component.borderColor", new Color(0x35383C));
                 UIManager.put("Component.focusedBorderColor", new Color(0x2A65B1));
                 
-                // [NEW] Dark Theme Title Bar
+                // Dark Theme Title Bar
                 UIManager.put("app.titlebar.background", new Color(0x212325));
                 UIManager.put("app.titlebar.tab.selected.background", new Color(60, 63, 65));
                 UIManager.put("app.titlebar.tab.selected.foreground", new Color(220, 220, 220));
