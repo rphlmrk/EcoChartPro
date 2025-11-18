@@ -402,6 +402,10 @@ public class FloatingDrawingToolbar extends JDialog implements PropertyChangeLis
         });
         c.addMouseMotionListener(new MouseMotionAdapter() {
             public void mouseDragged(MouseEvent e) {
+                // [FIX] Check if the owning panel is visible before proceeding.
+                if (!workspacePanel.isShowing()) {
+                    return;
+                }
                 Rectangle parentBounds = workspacePanel.getBounds();
                 Point parentLocationOnScreen = workspacePanel.getLocationOnScreen();
                 Point currentMouseOnScreen = e.getLocationOnScreen();

@@ -148,6 +148,13 @@ public class ChartWorkspacePanel extends JPanel implements PropertyChangeListene
             public void componentResized(ComponentEvent e) {
                 updateComponentLayouts();
             }
+
+            @Override
+            public void componentHidden(ComponentEvent e) {
+                // [FIX] When this workspace is hidden by CardLayout, hide its floating toolbars.
+                drawingToolbar.setVisible(false);
+                propertiesToolbar.setVisible(false);
+            }
         });
 
         if (!isReplayMode) {

@@ -6,11 +6,13 @@ import com.EcoChartPro.ui.PrimaryFrame;
 import javax.swing.*;
 import javax.swing.border.MatteBorder;
 import java.awt.*;
+import java.awt.event.ActionListener;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseMotionAdapter;
 import java.awt.geom.RoundRectangle2D;
 import java.awt.image.BufferedImage;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -30,12 +32,19 @@ public class TitleBarManager extends JPanel {
     private JToggleButton analysisNavButton, replayNavButton, liveNavButton;
     private ButtonGroup navGroup;
     private final JPanel leftPanel;
-    private ShortcutDisplayPanel shortcutDisplayPanel; // [NEW] Custom panel for shortcuts
+    private ShortcutDisplayPanel shortcutDisplayPanel;
 
     // --- Window Dragging Fields ---
     private Point initialClick;
 
-    // [NEW] Data structure for icon-based shortcuts
+    // --- Context-Aware Fields ---
+    private String currentContext = "HOME";
+    private Timer shortcutTimer;
+    private final List<Shortcut> homeShortcuts = Collections.emptyList();
+    private final List<Shortcut> replayShortcuts;
+    private final List<Shortcut> liveShortcuts;
+
+
     private record Shortcut(List<String> keys, String description) {}
 
     public TitleBarManager(PrimaryFrame owner) {
@@ -43,8 +52,29 @@ public class TitleBarManager extends JPanel {
         this.owner = owner;
         this.leftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 4));
         this.leftPanel.setOpaque(false);
+
+        // Define shortcuts before initializing UI
+        boolean isMac = System.getProperty("os.name").toLowerCase().contains("mac");
+        String modKey = isMac ? "Cmd" : "Ctrl";
+        String redoShift = isMac ? "Shift" : "";
+        String redoKey = isMac ? "Z" : "Y";
+
+        replayShortcuts = List.of(
+            new Shortcut(List.of("→"), "Next Bar"),
+            new Shortcut(List.of("Space"), "Play/Pause"),
+            new Shortcut(List.of(modKey, "Z"), "Undo"),
+            new Shortcut(List.of(modKey, redoShift, redoKey), "Redo")
+        );
+        liveShortcuts = List.of(
+            new Shortcut(List.of("B"), "Buy"),
+            new Shortcut(List.of("S"), "Sell"),
+            new Shortcut(List.of(modKey, "Z"), "Undo"),
+            new Shortcut(List.of(modKey, redoShift, redoKey), "Redo")
+        );
+
         initializeUI();
         addDragListeners();
+        updateContext("HOME"); // Set initial state
     }
 
     private void initializeUI() {
@@ -67,8 +97,6 @@ public class TitleBarManager extends JPanel {
         rightPanel.setOpaque(false);
         
         shortcutDisplayPanel = new ShortcutDisplayPanel();
-        startShortcutRotation(); // Start the rotation timer
-        
         rightPanel.add(shortcutDisplayPanel);
         rightPanel.add(createWindowControls());
         add(rightPanel, BorderLayout.EAST);
@@ -140,7 +168,7 @@ public class TitleBarManager extends JPanel {
         navButtonPanel.setBorder(BorderFactory.createEmptyBorder(0, 5, 0, 5));
         
         navGroup = new ButtonGroup();
-        analysisNavButton = createNavButton("Home", "HOME", true); // [MODIFIED]
+        analysisNavButton = createNavButton("Home", "HOME", true);
         replayNavButton = createNavButton("Replay", "REPLAY", false);
         liveNavButton = createNavButton("Live", "LIVE", false);
 
@@ -160,53 +188,96 @@ public class TitleBarManager extends JPanel {
         button.setActionCommand(actionCommand);
         button.addActionListener(e -> {
             owner.getMainCardLayout().show(owner.getMainContentPanel(), actionCommand);
-            if (!"REPLAY".equals(actionCommand)) {
-                ReplaySessionManager.getInstance().pause();
-            }
+            updateContext(actionCommand); // [NEW] Update UI based on context
             owner.revalidate();
+            
+            // This logic can be simplified as the context update handles visibility
             if ("LIVE".equals(actionCommand)) {
-                owner.getReplayWorkspacePanel().getDrawingToolbar().setVisible(false);
-                owner.getReplayWorkspacePanel().getPropertiesToolbar().setVisible(false);
                 if (owner.getLiveWorkspacePanel().getActiveChartPanel() != null) {
                     owner.getLiveWorkspacePanel().getDrawingToolbar().setVisible(true);
                 }
             } else if ("REPLAY".equals(actionCommand)) {
-                owner.getLiveWorkspacePanel().getDrawingToolbar().setVisible(false);
-                owner.getLiveWorkspacePanel().getPropertiesToolbar().setVisible(false);
                 if (owner.getReplayWorkspacePanel().getActiveChartPanel() != null) {
                     owner.getReplayWorkspacePanel().getDrawingToolbar().setVisible(true);
                 }
-            } else {
-                owner.getLiveWorkspacePanel().getDrawingToolbar().setVisible(false);
-                owner.getLiveWorkspacePanel().getPropertiesToolbar().setVisible(false);
-                owner.getReplayWorkspacePanel().getDrawingToolbar().setVisible(false);
-                owner.getReplayWorkspacePanel().getPropertiesToolbar().setVisible(false);
             }
         });
         return button;
     }
     
-    private void startShortcutRotation() {
-        boolean isMac = System.getProperty("os.name").toLowerCase().contains("mac");
-        String modKey = isMac ? "Cmd" : "Ctrl";
+    private void updateContext(String newContext) {
+        if (newContext.equals(this.currentContext)) {
+            return;
+        }
+        this.currentContext = newContext;
+
+        // Pause replay if navigating away from the replay tab
+        if (!"REPLAY".equals(newContext)) {
+            ReplaySessionManager.getInstance().pause();
+        }
         
-        final List<Shortcut> idleShortcuts = List.of(
-            new Shortcut(List.of("Alt", "T"), "Trendline"),
-            new Shortcut(List.of("Alt", "R"), "Rectangle"),
-            new Shortcut(List.of(modKey, "Z"), "Undo"),
-            new Shortcut(List.of(isMac ? "Cmd" : "Ctrl", isMac ? "Shift" : "", isMac ? "Z" : "Y"), "Redo")
-        );
+        // Hide all floating toolbars when context changes
+        owner.getLiveWorkspacePanel().getDrawingToolbar().setVisible(false);
+        owner.getLiveWorkspacePanel().getPropertiesToolbar().setVisible(false);
+        owner.getReplayWorkspacePanel().getDrawingToolbar().setVisible(false);
+        owner.getReplayWorkspacePanel().getPropertiesToolbar().setVisible(false);
+
+        updateMenuBar(newContext);
+        updateShortcutRotation(newContext);
+    }
+    
+    private void updateMenuBar(String context) {
+        if (this.menuBar != null) {
+            leftPanel.remove(this.menuBar);
+        }
+        
+        JMenuBar newMenuBar = switch(context) {
+            case "REPLAY" -> owner.createReplayMenuBar();
+            case "LIVE" -> owner.createLiveMenuBar();
+            default -> owner.createHomeMenuBar(); // HOME and others
+        };
+
+        this.menuBar = newMenuBar;
+        this.menuBar.setBorder(null);
+        this.leftPanel.add(this.menuBar);
+        
+        leftPanel.revalidate();
+        leftPanel.repaint();
+    }
+    
+    private void updateShortcutRotation(String context) {
+        if (shortcutTimer != null && shortcutTimer.isRunning()) {
+            shortcutTimer.stop();
+        }
+
+        List<Shortcut> shortcuts = switch(context) {
+            case "REPLAY" -> replayShortcuts;
+            case "LIVE" -> liveShortcuts;
+            default -> homeShortcuts;
+        };
+        
+        if (shortcuts.isEmpty()) {
+            shortcutDisplayPanel.setVisible(false);
+            return;
+        }
+
+        shortcutDisplayPanel.setVisible(true);
         final int[] currentIndex = {0};
-        shortcutDisplayPanel.setShortcut(idleShortcuts.get(0));
+        shortcutDisplayPanel.setShortcut(shortcuts.get(0));
         
-        new Timer(4000, e -> {
-            currentIndex[0] = (currentIndex[0] + 1) % idleShortcuts.size();
-            shortcutDisplayPanel.setShortcut(idleShortcuts.get(currentIndex[0]));
-        }).start();
+        shortcutTimer = new Timer(4000, e -> {
+            currentIndex[0] = (currentIndex[0] + 1) % shortcuts.size();
+            shortcutDisplayPanel.setShortcut(shortcuts.get(currentIndex[0]));
+        });
+        shortcutTimer.start();
     }
 
 
     public void setMenuBar(JMenuBar menuBar) {
+        // This method is now only called once at initialization
+        if (this.menuBar != null) {
+            leftPanel.remove(this.menuBar);
+        }
         this.menuBar = menuBar;
         this.menuBar.setBorder(null);
         this.leftPanel.add(this.menuBar);
@@ -215,7 +286,11 @@ public class TitleBarManager extends JPanel {
     public void setStaticTitle(String text) { this.titleStatusLabel.setText(text); }
     public void setToolActiveTitle(String toolName) { this.titleStatusLabel.setText(String.format("%s Active", toolName)); }
     public void restoreIdleTitle() { this.titleStatusLabel.setText(""); }
-    public void dispose() {}
+    public void dispose() {
+        if (shortcutTimer != null) {
+            shortcutTimer.stop();
+        }
+    }
     
     public ButtonGroup getNavGroup() { return navGroup; }
     public JToggleButton getReplayNavButton() { return replayNavButton; }
@@ -250,10 +325,7 @@ public class TitleBarManager extends JPanel {
             super.paintComponent(g);
         }
     }
-
-    /**
-     * [NEW] A panel dedicated to displaying a shortcut with key icons.
-     */
+    
     private static class ShortcutDisplayPanel extends JPanel {
         ShortcutDisplayPanel() {
             super(new FlowLayout(FlowLayout.LEFT, 4, 0));
@@ -273,10 +345,7 @@ public class TitleBarManager extends JPanel {
             repaint();
         }
     }
-
-    /**
-     * [NEW] A utility class to dynamically create and cache icons for keyboard keys.
-     */
+    
     private static class KeyIcon {
         private static final Map<String, ImageIcon> iconCache = new ConcurrentHashMap<>();
         private static final Font KEY_FONT = new Font("SansSerif", Font.PLAIN, 10);
@@ -295,11 +364,9 @@ public class TitleBarManager extends JPanel {
             Graphics2D g2d = image.createGraphics();
             g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
             
-            // Draw key background
             g2d.setColor(UIManager.getColor("Component.borderColor"));
             g2d.fill(new RoundRectangle2D.Float(0, 0, width, height, 5, 5));
 
-            // Draw key text
             g2d.setFont(KEY_FONT);
             g2d.setColor(UIManager.getColor("Label.disabledForeground"));
             int x = (width - textWidth) / 2;

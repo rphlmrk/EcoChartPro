@@ -62,7 +62,8 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
         liveContext = new WorkspaceContext();
 
         this.titleBarManager = new TitleBarManager(this);
-        this.titleBarManager.setMenuBar(createPrimaryMenuBar());
+        // [MODIFIED] TitleBarManager now controls menu creation. We just set the initial one.
+        this.titleBarManager.setMenuBar(createHomeMenuBar());
 
         replayWorkspacePanel = new ChartWorkspacePanel(this, true, replayContext);
         liveWorkspacePanel = new ChartWorkspacePanel(this, false, liveContext);
@@ -97,16 +98,33 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
         liveContext.getUndoManager().addPropertyChangeListener(this);
     }
     
-    private JMenuBar createPrimaryMenuBar() {
+    // [NEW] Public methods for TitleBarManager to build context-aware menus
+
+    public JMenuBar createHomeMenuBar() {
         JMenuBar menuBar = new JMenuBar();
-        menuBar.add(createFileMenu());
+        menuBar.add(createHelpMenu());
+        return menuBar;
+    }
+
+    public JMenuBar createReplayMenuBar() {
+        JMenuBar menuBar = new JMenuBar();
+        menuBar.add(createReplayFileMenu());
         menuBar.add(createEditMenu());
         menuBar.add(createToolsMenu());
         menuBar.add(createHelpMenu());
         return menuBar;
     }
 
-    private JMenu createFileMenu() {
+    public JMenuBar createLiveMenuBar() {
+        JMenuBar menuBar = new JMenuBar();
+        menuBar.add(createLiveFileMenu());
+        menuBar.add(createEditMenu());
+        menuBar.add(createToolsMenu());
+        menuBar.add(createHelpMenu());
+        return menuBar;
+    }
+
+    private JMenu createReplayFileMenu() {
         JMenu fileMenu = new JMenu("File");
         SessionController sc = SessionController.getInstance();
     
@@ -129,8 +147,13 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
         saveReplayItem.addActionListener(e -> sc.saveSessionWithUI(this, true, replayContext));
         fileMenu.add(saveReplayItem);
         
-        fileMenu.addSeparator();
+        return fileMenu;
+    }
     
+    private JMenu createLiveFileMenu() {
+        JMenu fileMenu = new JMenu("File");
+        SessionController sc = SessionController.getInstance();
+
         JMenuItem newLiveItem = new JMenuItem("New Live Session...");
         newLiveItem.addActionListener(e -> {
             SessionDialog dialog = new SessionDialog(this, SessionDialog.SessionMode.LIVE_PAPER_TRADING);
@@ -149,7 +172,7 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
         JMenuItem saveLiveItem = new JMenuItem("Save Live Session As...");
         saveLiveItem.addActionListener(e -> sc.saveSessionWithUI(this, false, liveContext));
         fileMenu.add(saveLiveItem);
-    
+
         return fileMenu;
     }
     
@@ -215,20 +238,20 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
     }
 
     private WorkspaceContext getActiveContext() {
-        // [FIX] Add null checks to prevent NullPointerException during initialization.
-        // If the title bar or its buttons haven't been created yet, default to the live context.
         if (titleBarManager == null || titleBarManager.getReplayNavButton() == null) {
             return liveContext;
         }
         
         if (titleBarManager.getReplayNavButton().isSelected()) {
             return replayContext;
+        } else if (titleBarManager.getLiveNavButton().isSelected()) {
+            return liveContext;
         }
+        // Default to live context if Home is selected but a choice needs to be made
         return liveContext;
     }
 
     private ChartWorkspacePanel getActiveWorkspacePanel() {
-        // [FIX] Add a similar null check here for robustness.
         if (titleBarManager == null || titleBarManager.getReplayNavButton() == null) {
             return liveWorkspacePanel;
         }
@@ -256,7 +279,6 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
         liveReportButton.addActionListener(reportSwitcher);
         replayReportButton.setSelected(true);
         
-        // [MODIFIED] Remove the JScrollPane from here
         panel.add(topPanel, BorderLayout.NORTH);
         panel.add(analysisReportPanel, BorderLayout.CENTER);
         return panel;
