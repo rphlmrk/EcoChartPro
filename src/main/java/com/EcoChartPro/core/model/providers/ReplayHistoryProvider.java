@@ -45,6 +45,7 @@ public class ReplayHistoryProvider implements IHistoryProvider, ReplayStateListe
     private List<KLine> finalizedCandles = new ArrayList<>();
     private KLine currentlyFormingCandle;
     private List<KLine> baseDataWindow = new ArrayList<>(); // M1 data for resampling
+    private List<KLine> m1BufferForResampling = new ArrayList<>();
     private int totalCandleCount = 0;
     private int dataWindowStartIndex = 0;
 
@@ -117,6 +118,7 @@ public class ReplayHistoryProvider implements IHistoryProvider, ReplayStateListe
         this.finalizedCandles.clear();
         this.currentlyFormingCandle = null;
         this.baseDataWindow.clear();
+        this.m1BufferForResampling.clear();
         this.totalCandleCount = 0;
         this.dataWindowStartIndex = 0;
         
@@ -148,17 +150,21 @@ public class ReplayHistoryProvider implements IHistoryProvider, ReplayStateListe
     // --- ReplayStateListener Implementation ---
 
     @Override
-    public void onReplayTick(KLine newBar) {
-        if (baseDataWindow != null) baseDataWindow.add(newBar);
+    public void onReplayTick(KLine newM1Bar) {
+        if (baseDataWindow != null) baseDataWindow.add(newM1Bar);
+
         if (currentDisplayTimeframe == Timeframe.M1) {
             totalCandleCount++;
+            // For M1, every tick is treated as a finalized candle in terms of UI updates.
+            chartPanel.getDataModel().fireLiveCandleAdded(newM1Bar);
         } else {
-            processNewM1Bar(newBar);
+            processNewM1BarForResampling(newM1Bar);
         }
     }
 
     @Override
     public void onReplaySessionStart() {
+        this.m1BufferForResampling.clear();
         // Trigger initial data load when a new session starts
         setTimeframe(this.currentDisplayTimeframe, true);
     }
@@ -339,19 +345,36 @@ public class ReplayHistoryProvider implements IHistoryProvider, ReplayStateListe
         }
     }
     
-    private void processNewM1Bar(KLine m1Bar) {
-        Instant m1Timestamp = m1Bar.timestamp();
-        Instant intervalStart = getIntervalStart(m1Timestamp, currentDisplayTimeframe);
-        if (currentlyFormingCandle == null) {
-            currentlyFormingCandle = new KLine(intervalStart, m1Bar.open(), m1Bar.high(), m1Bar.low(), m1Bar.close(), m1Bar.volume());
-        } else if (!currentlyFormingCandle.timestamp().equals(intervalStart)) {
-            finalizedCandles.add(currentlyFormingCandle);
-            totalCandleCount++;
-            currentlyFormingCandle = new KLine(intervalStart, m1Bar.open(), m1Bar.high(), m1Bar.low(), m1Bar.close(), m1Bar.volume());
-        } else {
-            currentlyFormingCandle = new KLine(currentlyFormingCandle.timestamp(), currentlyFormingCandle.open(), currentlyFormingCandle.high().max(m1Bar.high()), currentlyFormingCandle.low().min(m1Bar.low()), m1Bar.close(), currentlyFormingCandle.volume().add(m1Bar.volume()));
+    private void processNewM1BarForResampling(KLine newM1Bar) {
+        long intervalMillis = currentDisplayTimeframe.duration().toMillis();
+        long newBarIntervalStart = newM1Bar.timestamp().toEpochMilli() / intervalMillis * intervalMillis;
+
+        boolean isNewInterval = true;
+        if (!m1BufferForResampling.isEmpty()) {
+            long currentIntervalStart = getIntervalStart(m1BufferForResampling.get(0).timestamp(), currentDisplayTimeframe).toEpochMilli();
+            isNewInterval = (newBarIntervalStart != currentIntervalStart);
         }
+
+        if (isNewInterval) {
+            if (!m1BufferForResampling.isEmpty()) {
+                List<KLine> resampled = DataResampler.resample(m1BufferForResampling, currentDisplayTimeframe);
+                if (!resampled.isEmpty()) {
+                    KLine finalizedCandle = resampled.get(0);
+                    finalizedCandles.add(finalizedCandle);
+                    totalCandleCount++;
+                    chartPanel.getDataModel().fireLiveCandleAdded(finalizedCandle);
+                }
+            }
+            m1BufferForResampling.clear();
+        }
+
+        m1BufferForResampling.add(newM1Bar);
+        List<KLine> resampledForming = DataResampler.resample(m1BufferForResampling, currentDisplayTimeframe);
+        this.currentlyFormingCandle = resampledForming.isEmpty() ? null : resampledForming.get(0);
+
+        chartPanel.getDataModel().fireLiveTickReceived(this.currentlyFormingCandle);
     }
+
 
     private static Instant getIntervalStart(Instant timestamp, Timeframe timeframe) {
         long durationMillis = timeframe.duration().toMillis();

@@ -5,7 +5,6 @@ import com.EcoChartPro.api.indicator.drawing.DrawableObject;
 import com.EcoChartPro.core.controller.ChartInteractionManager;
 import com.EcoChartPro.core.controller.DrawingController;
 import com.EcoChartPro.core.controller.ReplaySessionManager;
-import com.EcoChartPro.core.controller.ReplayStateListener;
 import com.EcoChartPro.core.controller.WorkspaceContext;
 import com.EcoChartPro.core.gamification.GamificationService;
 import com.EcoChartPro.core.indicator.Indicator;
@@ -66,7 +65,7 @@ import java.util.UUID;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
-public class ChartPanel extends JPanel implements PropertyChangeListener, DrawingListener, ReplayStateListener {
+public class ChartPanel extends JPanel implements PropertyChangeListener, DrawingListener {
 
     private final ChartRenderer chartRenderer;
     private final AxisRenderer axisRenderer;
@@ -156,9 +155,6 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
         context.getDrawingManager().addPropertyChangeListener("selectedDrawingChanged", this);
         settings.addPropertyChangeListener(this);
         CrosshairManager.getInstance().addPropertyChangeListener("crosshairMoved", this);
-        if (dataModel.isInReplayMode()) {
-            ReplaySessionManager.getInstance().addListener(this);
-        }
         context.getPaperTradingService().addPropertyChangeListener(this);
 
         addComponentListener(new ComponentAdapter() {
@@ -285,6 +281,7 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
 
         boolean showMarginControls;
         if (dataModel.isInReplayMode()) {
+            this.isReplayPlaying = ReplaySessionManager.getInstance().isPlaying();
             showMarginControls = isAtLiveEdge && isReplayPlaying;
         } else { // Live mode
             showMarginControls = isAtLiveEdge;
@@ -332,9 +329,6 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
         SettingsService.getInstance().removePropertyChangeListener(this);
         if (timeAxisPanel != null) {
             timeAxisPanel.cleanup();
-        }
-        if (dataModel.isInReplayMode()) {
-            ReplaySessionManager.getInstance().removeListener(this);
         }
         context.getPaperTradingService().removePropertyChangeListener(this);
     }
@@ -703,21 +697,6 @@ public class ChartPanel extends JPanel implements PropertyChangeListener, Drawin
                     return entryVisible || exitVisible || spansAcross;
                 })
                 .collect(Collectors.toList());
-    }
-
-    @Override
-    public void onReplayTick(KLine newM1Bar) { }
-
-    @Override
-    public void onReplaySessionStart() {
-        this.isReplayPlaying = false;
-        SwingUtilities.invokeLater(this::updateOverlayButtonsVisibility);
-    }
-
-    @Override
-    public void onReplayStateChanged() {
-        this.isReplayPlaying = ReplaySessionManager.getInstance().isPlaying();
-        SwingUtilities.invokeLater(this::updateOverlayButtonsVisibility);
     }
 
     public boolean getShowDrawings() {

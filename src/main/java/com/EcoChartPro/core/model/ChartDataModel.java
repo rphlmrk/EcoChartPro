@@ -52,7 +52,7 @@ public class ChartDataModel implements PropertyChangeListener {
     private ChartInteractionManager interactionManager;
     private ChartPanel chartPanel;
     private final IndicatorManager indicatorManager;
-    private final DrawingManager drawingManager; // [NEW]
+    private final DrawingManager drawingManager;
 
     // --- Provider and Calculator Abstractions ---
     private IHistoryProvider historyProvider;
@@ -63,13 +63,13 @@ public class ChartDataModel implements PropertyChangeListener {
     private List<KLine> heikinAshiCandlesCache;
     private boolean isHaCacheDirty = true;
 
-    public ChartDataModel(DrawingManager drawingManager) { // [MODIFIED] Constructor now accepts DrawingManager
+    public ChartDataModel(DrawingManager drawingManager) {
         this.visibleKLines = new ArrayList<>();
         this.currentDisplayTimeframe = Timeframe.M1;
         this.indicatorManager = new IndicatorManager();
         this.footprintCalculator = new FootprintCalculator();
         this.drawingManager = drawingManager;
-        this.drawingManager.addPropertyChangeListener("activeSymbolChanged", this); // [FIX] Use the injected instance
+        this.drawingManager.addPropertyChangeListener("activeSymbolChanged", this);
     }
 
     @Override
@@ -88,7 +88,7 @@ public class ChartDataModel implements PropertyChangeListener {
 
     public void cleanup() {
         if (this.drawingManager != null) {
-            this.drawingManager.removePropertyChangeListener("activeSymbolChanged", this); // [FIX] Use the injected instance
+            this.drawingManager.removePropertyChangeListener("activeSymbolChanged", this);
         }
         if (this.interactionManager != null) this.interactionManager.removePropertyChangeListener(this);
         if (this.historyProvider != null) {
@@ -309,18 +309,10 @@ public class ChartDataModel implements PropertyChangeListener {
 
     public void fireLiveCandleAdded(KLine finalizedCandle) {
         Runnable updateTask = () -> {
-            // This task is now guaranteed to run on the Event Dispatch Thread.
-            // First, notify the interaction manager, which may trigger a scroll (a view change).
             if (interactionManager != null) {
                 interactionManager.onReplayTick(finalizedCandle);
             }
-            // Second, explicitly update the model's view state. This is crucial because
-            // onReplayTick only causes an update if viewing the live edge. This call ensures
-            // the model is updated even if the user has scrolled back in history.
-            // This will re-slice visibleKLines and fire a "dataUpdated" event, which the panel listens to.
             updateView();
-            
-            // Finally, fire the original event for any other specific listeners.
             pcs.firePropertyChange("liveCandleAdded", null, finalizedCandle);
         };
 
@@ -333,7 +325,6 @@ public class ChartDataModel implements PropertyChangeListener {
 
     public void fireLiveTickReceived(KLine formingCandle) {
         Runnable updateTask = () -> {
-            // This task is now guaranteed to run on the Event Dispatch Thread.
             if (interactionManager != null) {
                 interactionManager.onReplayTick(formingCandle);
             }

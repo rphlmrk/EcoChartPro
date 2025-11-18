@@ -62,6 +62,12 @@ public interface IHistoryProvider {
     void cleanup();
 
     /**
+     * [NEW] A hook for providers to react to the start of a new replay session.
+     * Default implementation does nothing.
+     */
+    default void onReplaySessionStart() {}
+
+    /**
      * Adds a property change listener for events like 'historyRebuilt'.
      * Default implementation does nothing, for providers that don't emit such events.
      */

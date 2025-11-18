@@ -55,7 +55,6 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
     private DrawingObjectPoint crosshairPoint;
     private final ChartInteractionManager interactionManager;
     private final WorkspaceContext context;
-    private javax.swing.Timer repaintTimer;
     private boolean isPriceSelectionMode = false;
     private ChartPanel priceSelectionController;
 
@@ -75,14 +74,12 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
         PriceScaleDrawer drawer = new PriceScaleDrawer();
         add(drawer, BorderLayout.CENTER);
 
-        // [FIX] Add dataModel as a listener for robustness.
         if (this.dataModel != null) {
-            this.dataModel.addPropertyChangeListener(this);
+            this.dataModel.addPropertyChangeListener("dataUpdated", this);
+            this.dataModel.addPropertyChangeListener("liveTickReceived", this);
         }
         SettingsService.getInstance().addPropertyChangeListener(this);
         CrosshairManager.getInstance().addPropertyChangeListener("crosshairMoved", this);
-        
-        startRepaintTimer();
     }
 
     public void enterPriceSelectionMode(ChartPanel controller) {
@@ -97,27 +94,13 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
         setCursor(Cursor.getDefaultCursor());
     }
     
-    private void startRepaintTimer() {
-        if (repaintTimer == null) {
-            repaintTimer = new javax.swing.Timer(1000, e -> {
-                if (dataModel != null && dataModel.getCurrentReplayKLine() != null) {
-                    repaint();
-                }
-            });
-            repaintTimer.setRepeats(true);
-            repaintTimer.start();
-        }
-    }
-
     public void cleanup() {
         if (this.dataModel != null) {
-            this.dataModel.removePropertyChangeListener(this);
+            this.dataModel.removePropertyChangeListener("dataUpdated", this);
+            this.dataModel.removePropertyChangeListener("liveTickReceived", this);
         }
         SettingsService.getInstance().removePropertyChangeListener(this);
         CrosshairManager.getInstance().removePropertyChangeListener("crosshairMoved", this);
-        if (repaintTimer != null) {
-            repaintTimer.stop();
-        }
     }
 
     @Override
@@ -289,8 +272,16 @@ public class PriceAxisPanel extends JPanel implements PropertyChangeListener {
             if (dataModel == null) {
                 return;
             }
-        
-            KLine lastKline = dataModel.getCurrentReplayKLine();
+            
+            KLine lastKline;
+            if (dataModel.isInReplayMode()) {
+                // Get raw M1 bar for accurate price label and countdown
+                lastKline = ReplaySessionManager.getInstance().getCurrentBar();
+            } else {
+                // Get forming candle from provider for live mode
+                lastKline = dataModel.getCurrentReplayKLine();
+            }
+
             if (lastKline == null) {
                 return;
             }
