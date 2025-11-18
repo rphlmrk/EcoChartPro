@@ -23,6 +23,7 @@ import com.EcoChartPro.utils.DataSourceManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.swing.SwingUtilities;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 import java.beans.PropertyChangeSupport;
@@ -305,6 +306,45 @@ public class ChartDataModel implements PropertyChangeListener {
     public void removePropertyChangeListener(String propertyName, PropertyChangeListener listener) { pcs.removePropertyChangeListener(propertyName, listener); }
     
     public void fireDataUpdated() { pcs.firePropertyChange("dataUpdated", null, null); }
-    public void fireLiveCandleAdded(KLine finalizedCandle) { pcs.firePropertyChange("liveCandleAdded", null, finalizedCandle); }
-    public void fireLiveTickReceived(KLine formingCandle) { pcs.firePropertyChange("liveTickReceived", null, formingCandle); }
+
+    public void fireLiveCandleAdded(KLine finalizedCandle) {
+        Runnable updateTask = () -> {
+            // This task is now guaranteed to run on the Event Dispatch Thread.
+            // First, notify the interaction manager, which may trigger a scroll (a view change).
+            if (interactionManager != null) {
+                interactionManager.onReplayTick(finalizedCandle);
+            }
+            // Second, explicitly update the model's view state. This is crucial because
+            // onReplayTick only causes an update if viewing the live edge. This call ensures
+            // the model is updated even if the user has scrolled back in history.
+            // This will re-slice visibleKLines and fire a "dataUpdated" event, which the panel listens to.
+            updateView();
+            
+            // Finally, fire the original event for any other specific listeners.
+            pcs.firePropertyChange("liveCandleAdded", null, finalizedCandle);
+        };
+
+        if (SwingUtilities.isEventDispatchThread()) {
+            updateTask.run();
+        } else {
+            SwingUtilities.invokeLater(updateTask);
+        }
+    }
+
+    public void fireLiveTickReceived(KLine formingCandle) {
+        Runnable updateTask = () -> {
+            // This task is now guaranteed to run on the Event Dispatch Thread.
+            if (interactionManager != null) {
+                interactionManager.onReplayTick(formingCandle);
+            }
+            updateView();
+            pcs.firePropertyChange("liveTickReceived", null, formingCandle);
+        };
+
+        if (SwingUtilities.isEventDispatchThread()) {
+            updateTask.run();
+        } else {
+            SwingUtilities.invokeLater(updateTask);
+        }
+    }
 }
