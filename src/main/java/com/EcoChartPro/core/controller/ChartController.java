@@ -71,14 +71,18 @@ public class ChartController {
     }
 
     /**
-     * [NEW] Handles live price tick updates from the model.
-     * This handler is responsible for triggering real-time P&L updates for open positions.
+     * [MODIFIED] Handles live price tick updates from the model.
+     * This handler is responsible for triggering real-time P&L updates AND order execution logic.
      * It only acts if it's controlling the currently active chart panel.
      */
     private void handleLiveTickUpdate(PropertyChangeEvent evt) {
         if (!model.isInReplayMode() && view == chartWorkspacePanel.getActiveChartPanel()) {
             if (evt.getNewValue() instanceof com.EcoChartPro.model.KLine) {
-                workspaceContext.getPaperTradingService().updateLivePnl((com.EcoChartPro.model.KLine) evt.getNewValue());
+                com.EcoChartPro.model.KLine formingBar = (com.EcoChartPro.model.KLine) evt.getNewValue();
+                // [FIX] Call onBarUpdate to check for order fills, SL, and TP on every tick.
+                workspaceContext.getPaperTradingService().onBarUpdate(formingBar);
+                // This call is now redundant as onBarUpdate handles PnL, but leaving it is harmless.
+                workspaceContext.getPaperTradingService().updateLivePnl(formingBar);
             }
         }
     }

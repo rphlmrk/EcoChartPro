@@ -176,9 +176,10 @@ public class PaperTradingService implements TradingService {
     public void onBarUpdate(KLine newBar) {
         if (this.activeSymbol == null) return;
         
-        // In a non-singleton world, we assume this service is only used for one mode (live or replay)
-        // so we don't need to check the active session type.
-        for (Position position : getOpenPositions()) {
+        // [FIX] Make a copy of open positions before checking for fills to prevent opening and closing on the same bar.
+        List<Position> positionsAtBarStart = new ArrayList<>(getOpenPositions());
+
+        for (Position position : positionsAtBarStart) {
             List<KLine> candles = activeTradeCandles.get(position.id());
             if (candles != null) {
                 candles.add(newBar);
@@ -187,7 +188,8 @@ public class PaperTradingService implements TradingService {
         
         checkPendingOrders(newBar, this.activeSymbol);
         updateTrailingStops(newBar, this.activeSymbol);
-        checkOpenPositions(newBar, this.activeSymbol);
+        // [FIX] Pass the copy of positions that existed at the start of the bar.
+        checkOpenPositions(newBar, this.activeSymbol, positionsAtBarStart);
         
         if (!getOpenPositions().isEmpty()) {
             Map<UUID, BigDecimal> pnlMap = PnlCalculationService.getInstance()
@@ -272,11 +274,15 @@ public class PaperTradingService implements TradingService {
         });
     }
 
-    private void checkOpenPositions(KLine bar, String symbol) {
-        Map<UUID, Position> symbolPositions = this.openPositionsBySymbol.get(symbol);
-        if (symbolPositions == null || symbolPositions.isEmpty()) return;
+    private void checkOpenPositions(KLine bar, String symbol, List<Position> positionsToCheck) {
+        if (positionsToCheck == null || positionsToCheck.isEmpty()) return;
         
-        new ArrayList<>(symbolPositions.values()).forEach(position -> {
+        new ArrayList<>(positionsToCheck).forEach(position -> {
+            // Re-check if position still exists, as it might have been closed by another logic path
+            if (!this.openPositionsBySymbol.getOrDefault(symbol, Collections.emptyMap()).containsKey(position.id())) {
+                return;
+            }
+
             BigDecimal closePrice = null;
             String closeReason = "";
             if (position.direction() == TradeDirection.LONG) {
