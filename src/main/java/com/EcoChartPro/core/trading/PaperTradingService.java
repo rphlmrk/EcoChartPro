@@ -278,6 +278,11 @@ public class PaperTradingService implements TradingService {
         if (positionsToCheck == null || positionsToCheck.isEmpty()) return;
         
         new ArrayList<>(positionsToCheck).forEach(position -> {
+            // [FIX] Add a check to ensure we don't close a position on the same bar it was opened.
+            if (bar.timestamp().equals(position.openTimestamp())) {
+                return;
+            }
+
             // Re-check if position still exists, as it might have been closed by another logic path
             if (!this.openPositionsBySymbol.getOrDefault(symbol, Collections.emptyMap()).containsKey(position.id())) {
                 return;
