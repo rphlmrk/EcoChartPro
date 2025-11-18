@@ -2,6 +2,7 @@ package com.EcoChartPro.ui.toolbar.components;
 
 import com.EcoChartPro.core.settings.SettingsService;
 import com.EcoChartPro.ui.dashboard.theme.UITheme;
+import com.EcoChartPro.ui.toolbar.components.SymbolProgressCache.SymbolProgress;
 import com.EcoChartPro.utils.DataSourceManager.ChartDataSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,8 +32,8 @@ public class SymbolSelectionPanel extends JPanel implements PropertyChangeListen
 
     private static final Logger logger = LoggerFactory.getLogger(SymbolSelectionPanel.class);
     private final EventListenerList listenerList = new EventListenerList();
-    private final DefaultListModel<SymbolProgressCache.SymbolProgressInfo> listModel = new DefaultListModel<>();
-    private final JList<SymbolProgressCache.SymbolProgressInfo> suggestionsList;
+    private final DefaultListModel<SymbolProgress> listModel = new DefaultListModel<>();
+    private final JList<SymbolProgress> suggestionsList;
     private final boolean isReplayMode;
     
     // UI components for filtering
@@ -74,8 +75,6 @@ public class SymbolSelectionPanel extends JPanel implements PropertyChangeListen
         setPreferredSize(new Dimension(300, 350));
         
         filterList(); // Initial population
-        // [FIX] Corrected the method call to match the signature in SettingsService.
-        // The propertyChange method already filters for "favoritesChanged".
         SettingsService.getInstance().addPropertyChangeListener(this);
     }
 
@@ -98,7 +97,6 @@ public class SymbolSelectionPanel extends JPanel implements PropertyChangeListen
     private JPanel createProviderFilterPanel() {
         JPanel panel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 2, 2));
 
-        // Add the "All" button first and select it
         JToggleButton allButton = new JToggleButton("All", true);
         allButton.setActionCommand("All");
         allButton.setMargin(new Insets(2, 5, 2, 5));
@@ -106,9 +104,9 @@ public class SymbolSelectionPanel extends JPanel implements PropertyChangeListen
         providerButtonGroup.add(allButton);
         panel.add(allButton);
 
-        // Populate with providers found in our live data list
-        List<String> providers = SymbolProgressCache.getInstance().getFilteredProgressInfo("", "All", false, isReplayMode).stream()
-                .map(info -> info.source().providerName())
+        List<String> providers = SymbolProgressCache.getInstance().getProgressForAllSymbols().stream()
+                .filter(info -> (isReplayMode && info.source().dbPath() != null) || (!isReplayMode && info.source().dbPath() == null))
+                .map(SymbolProgress::providerName)
                 .distinct()
                 .sorted()
                 .collect(Collectors.toList());
@@ -144,16 +142,28 @@ public class SymbolSelectionPanel extends JPanel implements PropertyChangeListen
         ButtonModel selectedModel = providerButtonGroup.getSelection();
         String selectedProvider = (selectedModel != null) ? selectedModel.getActionCommand() : "All";
         boolean showOnlyFavorites = favoritesToggle.isSelected();
+        
+        String lowerCaseQuery = (searchText != null) ? searchText.toLowerCase().trim() : "";
+        SettingsService sm = SettingsService.getInstance();
 
-        List<SymbolProgressCache.SymbolProgressInfo> filtered = SymbolProgressCache.getInstance()
-                .getFilteredProgressInfo(searchText, selectedProvider, showOnlyFavorites, isReplayMode);
+        List<SymbolProgress> filtered = SymbolProgressCache.getInstance().getProgressForAllSymbols().stream()
+                .filter(info -> {
+                    boolean isLocalData = info.source().dbPath() != null;
+                    return isReplayMode == isLocalData;
+                })
+                .filter(info -> !showOnlyFavorites || sm.isFavoriteSymbol(info.symbol()))
+                .filter(info -> "All".equalsIgnoreCase(selectedProvider) || selectedProvider.equals(info.providerName()))
+                .filter(info -> lowerCaseQuery.isEmpty() || info.displayName().toLowerCase().contains(lowerCaseQuery))
+                .sorted(Comparator.comparing((SymbolProgress info) -> !sm.isFavoriteSymbol(info.symbol()))
+                                  .thenComparing(SymbolProgress::displayName))
+                .collect(Collectors.toList());
         
         listModel.clear();
         listModel.addAll(filtered);
     }
 
-    private JList<SymbolProgressCache.SymbolProgressInfo> createSuggestionsList() {
-        JList<SymbolProgressCache.SymbolProgressInfo> list = new JList<>(listModel);
+    private JList<SymbolProgress> createSuggestionsList() {
+        JList<SymbolProgress> list = new JList<>(listModel);
         list.setCellRenderer(new SymbolProgressRenderer(this.isReplayMode));
         list.setBackground(UIManager.getColor("List.background"));
         list.setSelectionBackground(UIManager.getColor("List.selectionBackground"));
@@ -164,26 +174,23 @@ public class SymbolSelectionPanel extends JPanel implements PropertyChangeListen
                 int index = list.locationToIndex(e.getPoint());
                 if (index == -1) return;
 
-                SymbolProgressCache.SymbolProgressInfo info = list.getModel().getElementAt(index);
+                SymbolProgress info = list.getModel().getElementAt(index);
                 if (info == null) return;
                 
-                // Define the clickable area for the star icon (at the start of the cell)
                 Rectangle starBounds = new Rectangle(5, 5, 24, 24);
                 Rectangle cellBounds = list.getCellBounds(index, index);
                 Point relativeClick = new Point(e.getX() - cellBounds.x, e.getY() - cellBounds.y);
 
-                // Check if the click was on the star
                 if (starBounds.contains(relativeClick)) {
                     SettingsService sm = SettingsService.getInstance();
-                    String symbol = info.source().symbol();
+                    String symbol = info.symbol();
                     if (sm.isFavoriteSymbol(symbol)) {
                         sm.removeFavoriteSymbol(symbol);
                     } else {
                         sm.addFavoriteSymbol(symbol);
                     }
-                    e.consume(); // Prevent the list selection from changing
+                    e.consume(); 
                 } else {
-                    // Regular click on the item
                     fireActionPerformed(info.source());
                 }
             }
@@ -212,7 +219,7 @@ public class SymbolSelectionPanel extends JPanel implements PropertyChangeListen
     /**
      * Inner class for rendering the JList items with a progress bar and favorite star.
      */
-    private static class SymbolProgressRenderer extends JPanel implements ListCellRenderer<SymbolProgressCache.SymbolProgressInfo> {
+    private static class SymbolProgressRenderer extends JPanel implements ListCellRenderer<SymbolProgress> {
         private final JLabel label = new JLabel();
         private final JLabel starLabel = new JLabel();
         private final JProgressBar progressBar = new JProgressBar(0, 100);
@@ -239,16 +246,17 @@ public class SymbolSelectionPanel extends JPanel implements PropertyChangeListen
         }
 
         @Override
-        public Component getListCellRendererComponent(JList<? extends SymbolProgressCache.SymbolProgressInfo> list, SymbolProgressCache.SymbolProgressInfo value, int index, boolean isSelected, boolean cellHasFocus) {
-            label.setText(value.source().displayName());
+        public Component getListCellRendererComponent(JList<? extends SymbolProgress> list, SymbolProgress value, int index, boolean isSelected, boolean cellHasFocus) {
+            label.setText(value.displayName());
             
-            boolean isFavorite = SettingsService.getInstance().isFavoriteSymbol(value.source().symbol());
+            boolean isFavorite = SettingsService.getInstance().isFavoriteSymbol(value.symbol());
             starLabel.setIcon(isFavorite ? STAR_FILLED : STAR_EMPTY);
             starLabel.setToolTipText(isFavorite ? "Remove from Favorites" : "Add to Favorites");
             
             if (isReplayMode) {
-                progressBar.setValue(value.progressPercent());
-                progressBar.setString(value.progressPercent() + "%");
+                int progress = (int) Math.round(value.progressPercentage());
+                progressBar.setValue(progress);
+                progressBar.setString(progress + "%");
                 progressBar.setVisible(true);
             } else {
                 progressBar.setVisible(false);

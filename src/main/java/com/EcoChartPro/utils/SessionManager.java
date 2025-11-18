@@ -73,6 +73,11 @@ public final class SessionManager {
         }
     }
 
+    /**
+     * [NEW] A result object to return both the loaded state and its type.
+     */
+    public record LatestSessionResult(ReplaySessionState state, SessionType type, File sourceFile) {}
+
 
     private SessionManager() {
         this.objectMapper = new ObjectMapper();
@@ -112,6 +117,50 @@ public final class SessionManager {
             }
         }
         return instance;
+    }
+    
+    /**
+     * [NEW] Smartly loads the most recent session file, regardless of its type (Live or Replay).
+     * @return An Optional containing the loaded state, its type, and source file.
+     */
+    public Optional<LatestSessionResult> getLatestSession() {
+        Optional<File> lastManualFileOpt = getLastSessionPath().map(Path::toFile);
+        Optional<File> replayAutoSaveFileOpt = AppDataManager.getAutoSaveFilePath().filter(Files::exists).map(Path::toFile);
+        Optional<File> liveAutoSaveFileOpt = getLiveAutoSaveFilePath().filter(File::exists);
+
+        File latestFile = null;
+        long latestMod = -1;
+
+        if (lastManualFileOpt.isPresent() && lastManualFileOpt.get().lastModified() > latestMod) {
+            latestFile = lastManualFileOpt.get();
+            latestMod = latestFile.lastModified();
+        }
+        if (replayAutoSaveFileOpt.isPresent() && replayAutoSaveFileOpt.get().lastModified() > latestMod) {
+            latestFile = replayAutoSaveFileOpt.get();
+            latestMod = latestFile.lastModified();
+        }
+        if (liveAutoSaveFileOpt.isPresent() && liveAutoSaveFileOpt.get().lastModified() > latestMod) {
+            latestFile = liveAutoSaveFileOpt.get();
+        }
+
+        if (latestFile == null) {
+            return Optional.empty();
+        }
+
+        try {
+            // First, try to load it as a Live file, as it's the most specific format.
+            ReplaySessionState state = loadStateFromLiveFile(latestFile);
+            return Optional.of(new LatestSessionResult(state, SessionType.LIVE, latestFile));
+        } catch (IOException liveException) {
+            try {
+                // If that fails, it's likely a Replay file.
+                ReplaySessionState state = loadSession(latestFile);
+                return Optional.of(new LatestSessionResult(state, SessionType.REPLAY, latestFile));
+            } catch (IOException replayException) {
+                logger.error("Failed to load latest session file '{}' as either Live or Replay format.", latestFile.getAbsolutePath(), replayException);
+                return Optional.empty();
+            }
+        }
     }
     
     // [MODIFIED] Renamed and updated logic to be specific to REPLAY mode.

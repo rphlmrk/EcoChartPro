@@ -1,6 +1,7 @@
 package com.EcoChartPro.ui.dialogs;
 
 import com.EcoChartPro.ui.toolbar.components.SymbolProgressCache;
+import com.EcoChartPro.ui.toolbar.components.SymbolProgressCache.SymbolProgress;
 import com.EcoChartPro.utils.DataSourceManager.ChartDataSource;
 
 import javax.swing.*;
@@ -13,12 +14,13 @@ import java.awt.event.ActionListener;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.List;
+import java.util.stream.Collectors;
 
 public class SymbolSearchDialog extends JDialog {
 
     private final JLabel inputLabel;
-    private final JList<SymbolProgressCache.SymbolProgressInfo> resultsList;
-    private final DefaultListModel<SymbolProgressCache.SymbolProgressInfo> listModel;
+    private final JList<SymbolProgress> resultsList;
+    private final DefaultListModel<SymbolProgress> listModel;
     private final boolean isReplayMode;
     private final EventListenerList listenerList = new EventListenerList();
 
@@ -87,8 +89,17 @@ public class SymbolSearchDialog extends JDialog {
 
         listModel.clear();
         if (!input.isEmpty()) {
-            List<SymbolProgressCache.SymbolProgressInfo> filtered = SymbolProgressCache.getInstance()
-                    .getFilteredProgressInfo(input, "All", false, isReplayMode);
+            // [FIX] This filtering logic is now inside SymbolSelectionPanel, but we replicate it here for simplicity.
+            // A better long-term solution might be to share the filter logic.
+            String lowerCaseQuery = input.toLowerCase().trim();
+            List<SymbolProgress> filtered = SymbolProgressCache.getInstance().getProgressForAllSymbols().stream()
+                .filter(info -> {
+                    boolean isLocalData = info.source().dbPath() != null;
+                    return isReplayMode == isLocalData;
+                })
+                .filter(info -> info.displayName().toLowerCase().contains(lowerCaseQuery))
+                .collect(Collectors.toList());
+
             listModel.addAll(filtered);
         }
 
@@ -114,7 +125,7 @@ public class SymbolSearchDialog extends JDialog {
     }
 
     public ChartDataSource getSelectedSymbol() {
-        SymbolProgressCache.SymbolProgressInfo selected = resultsList.getSelectedValue();
+        SymbolProgress selected = resultsList.getSelectedValue();
         return (selected != null) ? selected.source() : null;
     }
 
@@ -133,8 +144,8 @@ public class SymbolSearchDialog extends JDialog {
         @Override
         public Component getListCellRendererComponent(JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
             JLabel label = (JLabel) super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-            if (value instanceof SymbolProgressCache.SymbolProgressInfo info) {
-                label.setText(info.source().displayName());
+            if (value instanceof SymbolProgress info) {
+                label.setText(info.displayName());
             }
             label.setBorder(new EmptyBorder(5, 5, 5, 5));
             return label;
