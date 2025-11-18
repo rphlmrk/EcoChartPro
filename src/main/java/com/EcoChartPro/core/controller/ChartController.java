@@ -5,6 +5,7 @@ import com.EcoChartPro.core.manager.DrawingManager;
 import com.EcoChartPro.core.model.ChartDataModel;
 import com.EcoChartPro.core.tool.InfoTool;
 import com.EcoChartPro.core.trading.PaperTradingService;
+import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.drawing.DrawingObject;
 import com.EcoChartPro.model.drawing.DrawingObjectPoint;
 import com.EcoChartPro.model.drawing.TextObject;
@@ -107,21 +108,22 @@ public class ChartController {
                 }
 
                 // --- TRADING INTERACTION ---
-                if (view.getDataModel().isInReplayMode()) {
-                    activeInteractionItem = view.getOrderRenderer().findZoneAt(e.getPoint());
-                    if (activeInteractionItem != null) {
-                        if (activeInteractionItem.type() == InteractionType.CLOSE_POSITION) {
-                            handleClosePositionRequest(activeInteractionItem.objectId());
-                            activeInteractionItem = null;
-                        } else if (activeInteractionItem.type() == InteractionType.CANCEL_ORDER) {
-                            handleCancelOrderRequest(activeInteractionItem.objectId());
-                            activeInteractionItem = null;
-                        } else { // Draggable item
-                            view.setCursor(Cursor.getPredefinedCursor(Cursor.N_RESIZE_CURSOR));
+                // [FIX] Removed "if (view.getDataModel().isInReplayMode())" wrapper to enable in live mode.
+                activeInteractionItem = view.getOrderRenderer().findZoneAt(e.getPoint());
+                if (activeInteractionItem != null) {
+                    if (activeInteractionItem.type() == InteractionType.CLOSE_POSITION) {
+                        handleClosePositionRequest(activeInteractionItem.objectId());
+                        activeInteractionItem = null;
+                    } else if (activeInteractionItem.type() == InteractionType.CANCEL_ORDER) {
+                        handleCancelOrderRequest(activeInteractionItem.objectId());
+                        activeInteractionItem = null;
+                    } else { // Draggable item
+                        view.setCursor(Cursor.getPredefinedCursor(Cursor.N_RESIZE_CURSOR));
+                        if (view.getDataModel().isInReplayMode()) {
                             ReplaySessionManager.getInstance().pause();
                         }
-                        return; // IMPORTANT: A trading item was handled, so stop processing.
                     }
+                    return; // IMPORTANT: A trading item was handled, so stop processing.
                 }
 
                 DrawingManager dm = workspaceContext.getDrawingManager(); // [MODIFIED]
@@ -292,17 +294,16 @@ public class ChartController {
                     return;
                 }
 
-                if (view.getDataModel().isInReplayMode()) {
-                    OrderRenderer.InteractiveZone zone = view.getOrderRenderer().findZoneAt(e.getPoint());
-                    if (zone != null) {
-                        if (zone.type() == InteractionType.CLOSE_POSITION || zone.type() == InteractionType.CANCEL_ORDER) {
-                            view.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-                        } else {
-                            view.setCursor(Cursor.getPredefinedCursor(Cursor.N_RESIZE_CURSOR));
-                        }
+                // [FIX] Removed "if (view.getDataModel().isInReplayMode())" wrapper.
+                OrderRenderer.InteractiveZone zone = view.getOrderRenderer().findZoneAt(e.getPoint());
+                if (zone != null) {
+                    if (zone.type() == InteractionType.CLOSE_POSITION || zone.type() == InteractionType.CANCEL_ORDER) {
+                        view.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
                     } else {
-                        view.setCursor(Cursor.getDefaultCursor());
+                        view.setCursor(Cursor.getPredefinedCursor(Cursor.N_RESIZE_CURSOR));
                     }
+                } else {
+                    view.setCursor(Cursor.getDefaultCursor());
                 }
             }
         };
@@ -335,14 +336,15 @@ public class ChartController {
 
 
     private void handleClosePositionRequest(UUID positionId) {
-        if (model.getCurrentReplayKLine() == null) {
-            JOptionPane.showMessageDialog(view, "Cannot close position, replay data not available.", "Error", JOptionPane.ERROR_MESSAGE);
+        KLine currentBar = model.getCurrentReplayKLine();
+        if (currentBar == null) {
+            JOptionPane.showMessageDialog(view, "Cannot close position, live/replay data not available.", "Error", JOptionPane.ERROR_MESSAGE);
             return;
         }
         Position position = workspaceContext.getPaperTradingService().getOpenPositions().stream().filter(p -> p.id().equals(positionId)).findFirst().orElse(null); // [MODIFIED]
         if (position == null) return;
         int choice = JOptionPane.showConfirmDialog(view, String.format("Are you sure you want to close this %s position on %s at market?", position.direction(), position.symbol().name()), "Confirm Close Position", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
-        if (choice == JOptionPane.YES_OPTION) workspaceContext.getPaperTradingService().closePosition(positionId, model.getCurrentReplayKLine()); // [MODIFIED]
+        if (choice == JOptionPane.YES_OPTION) workspaceContext.getPaperTradingService().closePosition(positionId, currentBar); // [MODIFIED]
     }
 
     private void finalizeOrderModification(UUID objectId, InteractionType dragType, BigDecimal finalPrice) {

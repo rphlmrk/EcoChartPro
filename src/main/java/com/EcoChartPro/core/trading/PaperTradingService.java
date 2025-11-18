@@ -212,30 +212,34 @@ public class PaperTradingService implements TradingService {
         if (symbolOrders == null || symbolOrders.isEmpty()) return;
 
         boolean ordersChanged = false;
-        for (Order order : new ArrayList<>(symbolOrders.values())) {
-            BigDecimal fillPrice = null;
-            if (order.direction() == TradeDirection.LONG) {
-                if (order.type() == OrderType.LIMIT && bar.low().compareTo(order.limitPrice()) <= 0) {
-                    fillPrice = order.limitPrice();
-                } else if (order.type() == OrderType.STOP && bar.high().compareTo(order.limitPrice()) >= 0) {
-                    fillPrice = order.limitPrice();
+        try {
+            for (Order order : new ArrayList<>(symbolOrders.values())) {
+                BigDecimal fillPrice = null;
+                if (order.direction() == TradeDirection.LONG) {
+                    if (order.type() == OrderType.LIMIT && bar.low().compareTo(order.limitPrice()) <= 0) {
+                        fillPrice = order.limitPrice();
+                    } else if (order.type() == OrderType.STOP && bar.high().compareTo(order.limitPrice()) >= 0) {
+                        fillPrice = order.limitPrice();
+                    }
+                } else { // SHORT
+                    if (order.type() == OrderType.LIMIT && bar.high().compareTo(order.limitPrice()) >= 0) {
+                        fillPrice = order.limitPrice();
+                    } else if (order.type() == OrderType.STOP && bar.low().compareTo(order.limitPrice()) <= 0) {
+                        fillPrice = order.limitPrice();
+                    }
                 }
-            } else { // SHORT
-                if (order.type() == OrderType.LIMIT && bar.high().compareTo(order.limitPrice()) >= 0) {
-                    fillPrice = order.limitPrice();
-                } else if (order.type() == OrderType.STOP && bar.low().compareTo(order.limitPrice()) <= 0) {
-                    fillPrice = order.limitPrice();
+                if (fillPrice != null) {
+                    openPosition(order, fillPrice, bar.timestamp());
+                    symbolOrders.remove(order.id());
+                    logger.info("Filled order {} for symbol {} at price {}", order.id(), symbol, fillPrice);
+                    ordersChanged = true;
                 }
             }
-            if (fillPrice != null) {
-                openPosition(order, fillPrice, bar.timestamp());
-                symbolOrders.remove(order.id());
-                logger.info("Filled order {} for symbol {} at price {}", order.id(), symbol, fillPrice);
-                ordersChanged = true;
+        } finally {
+            // [FIX] Ensure UI is notified even if an error occurs.
+            if (ordersChanged) {
+                pcs.firePropertyChange("pendingOrdersUpdated", null, getPendingOrders());
             }
-        }
-        if (ordersChanged) {
-            pcs.firePropertyChange("pendingOrdersUpdated", null, getPendingOrders());
         }
     }
 
@@ -312,17 +316,23 @@ public class PaperTradingService implements TradingService {
     private synchronized void placeOrderInternal(Order order, KLine currentBar) {
         String symbol = order.symbol().name();
         
-        if (order.type() == OrderType.MARKET) {
-            if (currentBar == null) {
-                logger.error("Cannot place market order without a current bar context.");
-                return;
+        try {
+            if (order.type() == OrderType.MARKET) {
+                if (currentBar == null) {
+                    logger.error("Cannot place market order without a current bar context.");
+                    return;
+                }
+                openPosition(order, currentBar.close(), currentBar.timestamp());
+                logger.info("Filled market order {} for {} at {}", order.id(), symbol, currentBar.close());
+            } else {
+                this.pendingOrdersBySymbol.computeIfAbsent(symbol, k -> new ConcurrentHashMap<>()).put(order.id(), order);
+                logger.info("Placed pending order for {}: {}", symbol, order);
             }
-            openPosition(order, currentBar.close(), currentBar.timestamp());
-            logger.info("Filled market order {} for {} at {}", order.id(), symbol, currentBar.close());
-        } else {
-            this.pendingOrdersBySymbol.computeIfAbsent(symbol, k -> new ConcurrentHashMap<>()).put(order.id(), order);
-            pcs.firePropertyChange("pendingOrdersUpdated", null, getPendingOrders());
-            logger.info("Placed pending order for {}: {}", symbol, order);
+        } finally {
+            // [FIX] Ensure UI is notified of the new pending order. openPosition handles its own notifications.
+            if (order.type() != OrderType.MARKET) {
+                pcs.firePropertyChange("pendingOrdersUpdated", null, getPendingOrders());
+            }
         }
     }
 
@@ -334,87 +344,96 @@ public class PaperTradingService implements TradingService {
             fromOrder.takeProfit(), fromOrder.trailingStopDistance(),
             timestamp, fromOrder.checklistId()
         );
-        this.openPositionsBySymbol.computeIfAbsent(symbol, k -> new ConcurrentHashMap<>()).put(newPosition.id(), newPosition);
+        
+        try {
+            this.openPositionsBySymbol.computeIfAbsent(symbol, k -> new ConcurrentHashMap<>()).put(newPosition.id(), newPosition);
 
-        // We assume Live mode if ReplaySessionManager is not active on this symbol
-        boolean isLiveMode = ReplaySessionManager.getInstance().getActiveSymbol() == null;
-        if (isLiveMode) {
-            List<KLine> entryBuffer = fetchCandleBuffer(symbol, timestamp, CANDLE_BUFFER);
-            activeTradeCandles.put(newPosition.id(), Collections.synchronizedList(new ArrayList<>(entryBuffer)));
-            logger.info("Initialized candle cache for new position {} with {} buffer candles.", newPosition.id(), entryBuffer.size());
+            // We assume Live mode if ReplaySessionManager is not active on this symbol
+            boolean isLiveMode = ReplaySessionManager.getInstance().getActiveSymbol() == null;
+            if (isLiveMode) {
+                List<KLine> entryBuffer = fetchCandleBuffer(symbol, timestamp, CANDLE_BUFFER);
+                activeTradeCandles.put(newPosition.id(), Collections.synchronizedList(new ArrayList<>(entryBuffer)));
+                logger.info("Initialized candle cache for new position {} with {} buffer candles.", newPosition.id(), entryBuffer.size());
+            }
+    
+            BigDecimal commission = SettingsService.getInstance().getCommissionPerTrade();
+            if (commission != null && commission.compareTo(BigDecimal.ZERO) > 0) {
+                this.accountBalance = this.accountBalance.subtract(commission);
+                logger.info("Applied entry commission of {} for trade {}. New balance: {}",
+                    commission, newPosition.id(), this.accountBalance);
+            }
+        } finally {
+            // [FIX] Ensure UI is always notified about the new open position.
+            pcs.firePropertyChange("openPositionsUpdated", null, getOpenPositions());
         }
-
-        BigDecimal commission = SettingsService.getInstance().getCommissionPerTrade();
-        if (commission != null && commission.compareTo(BigDecimal.ZERO) > 0) {
-            this.accountBalance = this.accountBalance.subtract(commission);
-            logger.info("Applied entry commission of {} for trade {}. New balance: {}",
-                commission, newPosition.id(), this.accountBalance);
-        }
-
-        pcs.firePropertyChange("openPositionsUpdated", null, getOpenPositions());
     }
 
     private Trade finalizeTrade(Position position, BigDecimal exitPrice, Instant exitTime, boolean planFollowed) {
+        // [MODIFIED] All state modifications are now wrapped in a try block.
         String symbol = position.symbol().name();
-        BigDecimal pnl;
-        if (position.direction() == TradeDirection.LONG) {
-            pnl = exitPrice.subtract(position.entryPrice()).multiply(position.size());
-            BigDecimal spread = SettingsService.getInstance().getSimulatedSpreadPoints();
-            if (spread != null && spread.compareTo(BigDecimal.ZERO) > 0) {
-                pnl = pnl.subtract(spread.multiply(position.size()));
-            }
-        } else { // SHORT
-            pnl = position.entryPrice().subtract(exitPrice).multiply(position.size());
-            BigDecimal spread = SettingsService.getInstance().getSimulatedSpreadPoints();
-            if (spread != null && spread.compareTo(BigDecimal.ZERO) > 0) {
-                pnl = pnl.subtract(spread.multiply(position.size()));
-            }
-        }
-
-        List<String> autoTags = new ArrayList<>();
-        ReplaySessionManager rsm = ReplaySessionManager.getInstance();
-        boolean isLiveMode = rsm.getActiveSymbol() == null;
-
-        if (isLiveMode) {
-            List<KLine> cachedCandles = activeTradeCandles.get(position.id());
-            if (cachedCandles != null && !cachedCandles.isEmpty()) {
-                Trade tempTrade = new Trade(position.id(), position.symbol(), position.direction(), position.openTimestamp(), position.entryPrice(), exitTime, exitPrice, position.size(), pnl, planFollowed);
-                autoTags = automatedTaggingService.generateTags(tempTrade, cachedCandles);
-            }
-            List<KLine> candlesToSave = activeTradeCandles.remove(position.id());
-            if (candlesToSave != null && !candlesToSave.isEmpty()) {
-                DatabaseManager.getInstance().saveTradeCandles(position.id(), symbol, "1m", candlesToSave);
-            } else {
-                logger.warn("No cached candles found for closing trade {}. Data will not be saved.", position.id());
-            }
-        } else { // REPLAY mode
-            if (rsm.getCurrentSource() != null && rsm.getCurrentSource().symbol().equals(symbol)) {
-                try (DatabaseManager db = new DatabaseManager("jdbc:sqlite:" + rsm.getCurrentSource().dbPath().toAbsolutePath())) {
-                    List<KLine> tradeKlines = db.getKLinesBetween(new Symbol(symbol), "1m", position.openTimestamp(), exitTime);
-                    Trade tempTrade = new Trade(position.id(), position.symbol(), position.direction(), position.openTimestamp(), position.entryPrice(), exitTime, exitPrice, position.size(), pnl, planFollowed);
-                    autoTags = automatedTaggingService.generateTags(tempTrade, tradeKlines);
-                    if (tradeKlines != null && !tradeKlines.isEmpty()) {
-                        DatabaseManager.getInstance().saveTradeCandles(position.id(), symbol, "1m", tradeKlines);
-                    }
-                } catch (Exception e) {
-                    logger.error("Failed to retrieve or save K-lines for replay mode trade.", e);
+        Trade completedTrade = null;
+        try {
+            BigDecimal pnl;
+            if (position.direction() == TradeDirection.LONG) {
+                pnl = exitPrice.subtract(position.entryPrice()).multiply(position.size());
+                BigDecimal spread = SettingsService.getInstance().getSimulatedSpreadPoints();
+                if (spread != null && spread.compareTo(BigDecimal.ZERO) > 0) {
+                    pnl = pnl.subtract(spread.multiply(position.size()));
+                }
+            } else { // SHORT
+                pnl = position.entryPrice().subtract(exitPrice).multiply(position.size());
+                BigDecimal spread = SettingsService.getInstance().getSimulatedSpreadPoints();
+                if (spread != null && spread.compareTo(BigDecimal.ZERO) > 0) {
+                    pnl = pnl.subtract(spread.multiply(position.size()));
                 }
             }
+    
+            List<String> autoTags = new ArrayList<>();
+            ReplaySessionManager rsm = ReplaySessionManager.getInstance();
+            boolean isLiveMode = rsm.getActiveSymbol() == null;
+    
+            if (isLiveMode) {
+                List<KLine> cachedCandles = activeTradeCandles.get(position.id());
+                if (cachedCandles != null && !cachedCandles.isEmpty()) {
+                    Trade tempTrade = new Trade(position.id(), position.symbol(), position.direction(), position.openTimestamp(), position.entryPrice(), exitTime, exitPrice, position.size(), pnl, planFollowed);
+                    autoTags = automatedTaggingService.generateTags(tempTrade, cachedCandles);
+                }
+                List<KLine> candlesToSave = activeTradeCandles.remove(position.id());
+                if (candlesToSave != null && !candlesToSave.isEmpty()) {
+                    DatabaseManager.getInstance().saveTradeCandles(position.id(), symbol, "1m", candlesToSave);
+                } else {
+                    logger.warn("No cached candles found for closing trade {}. Data will not be saved.", position.id());
+                }
+            } else { // REPLAY mode
+                if (rsm.getCurrentSource() != null && rsm.getCurrentSource().symbol().equals(symbol)) {
+                    try (DatabaseManager db = new DatabaseManager("jdbc:sqlite:" + rsm.getCurrentSource().dbPath().toAbsolutePath())) {
+                        List<KLine> tradeKlines = db.getKLinesBetween(new Symbol(symbol), "1m", position.openTimestamp(), exitTime);
+                        Trade tempTrade = new Trade(position.id(), position.symbol(), position.direction(), position.openTimestamp(), position.entryPrice(), exitTime, exitPrice, position.size(), pnl, planFollowed);
+                        autoTags = automatedTaggingService.generateTags(tempTrade, tradeKlines);
+                        if (tradeKlines != null && !tradeKlines.isEmpty()) {
+                            DatabaseManager.getInstance().saveTradeCandles(position.id(), symbol, "1m", tradeKlines);
+                        }
+                    } catch (Exception e) {
+                        logger.error("Failed to retrieve or save K-lines for replay mode trade.", e);
+                    }
+                }
+            }
+            
+            completedTrade = new Trade(
+                position.id(), position.symbol(), position.direction(), position.openTimestamp(),
+                position.entryPrice(), exitTime, exitPrice, position.size(), pnl, planFollowed,
+                null, autoTags, position.checklistId()
+            );
+            this.tradeHistoryBySymbol.computeIfAbsent(symbol, k -> Collections.synchronizedList(new ArrayList<>())).add(completedTrade);
+            this.accountBalance = this.accountBalance.add(pnl);
+            this.openPositionsBySymbol.get(symbol).remove(position.id());
+            
+            logger.info("Trade finalized for {}. Position: {}. PnL: {}. Plan Followed: {}. New Balance: {}. Auto-tags: {}", symbol, position.id(), pnl, planFollowed, this.accountBalance, autoTags);
+        } finally {
+            // [FIX] UI notifications are now in a finally block to guarantee execution.
+            pcs.firePropertyChange("tradeHistoryUpdated", null, getTradeHistory());
+            pcs.firePropertyChange("openPositionsUpdated", null, getOpenPositions());
         }
-        
-        Trade completedTrade = new Trade(
-            position.id(), position.symbol(), position.direction(), position.openTimestamp(),
-            position.entryPrice(), exitTime, exitPrice, position.size(), pnl, planFollowed,
-            null, autoTags, position.checklistId()
-        );
-        this.tradeHistoryBySymbol.computeIfAbsent(symbol, k -> Collections.synchronizedList(new ArrayList<>())).add(completedTrade);
-        this.accountBalance = this.accountBalance.add(pnl);
-        this.openPositionsBySymbol.get(symbol).remove(position.id());
-        
-        pcs.firePropertyChange("tradeHistoryUpdated", null, getTradeHistory());
-        pcs.firePropertyChange("openPositionsUpdated", null, getOpenPositions());
-        
-        logger.info("Trade finalized for {}. Position: {}. PnL: {}. Plan Followed: {}. New Balance: {}. Auto-tags: {}", symbol, position.id(), pnl, planFollowed, this.accountBalance, autoTags);
         return completedTrade;
     }
     
@@ -451,30 +470,34 @@ public class PaperTradingService implements TradingService {
         }
         String symbol = symbolOpt.get();
 
-        Order existingOrder = this.pendingOrdersBySymbol.get(symbol).get(orderId);
-        if (existingOrder != null) {
-            Order updatedOrder = new Order(
-                existingOrder.id(), existingOrder.symbol(), existingOrder.type(),
-                existingOrder.status(), existingOrder.direction(), existingOrder.size(),
-                newPrice, newStopLoss, newTakeProfit, newTrailingStopDistance,
-                existingOrder.creationTime(), existingOrder.checklistId()
-            );
-            this.pendingOrdersBySymbol.get(symbol).put(orderId, updatedOrder);
+        try {
+            Order existingOrder = this.pendingOrdersBySymbol.get(symbol).get(orderId);
+            if (existingOrder != null) {
+                Order updatedOrder = new Order(
+                    existingOrder.id(), existingOrder.symbol(), existingOrder.type(),
+                    existingOrder.status(), existingOrder.direction(), existingOrder.size(),
+                    newPrice, newStopLoss, newTakeProfit, newTrailingStopDistance,
+                    existingOrder.creationTime(), existingOrder.checklistId()
+                );
+                this.pendingOrdersBySymbol.get(symbol).put(orderId, updatedOrder);
+                logger.info("Modified pending order {} for symbol {}", orderId, symbol);
+                return;
+            }
+            Position existingPosition = this.openPositionsBySymbol.get(symbol).get(orderId);
+            if (existingPosition != null) {
+                 Position updatedPosition = new Position(
+                    existingPosition.id(), existingPosition.symbol(), existingPosition.direction(),
+                    existingPosition.size(), existingPosition.entryPrice(),
+                    newStopLoss, newTakeProfit, newTrailingStopDistance,
+                    existingPosition.openTimestamp(), existingPosition.checklistId()
+                 );
+                 this.openPositionsBySymbol.get(symbol).put(orderId, updatedPosition);
+                 logger.info("Modified open position SL/TP for {} on symbol {}", orderId, symbol);
+            }
+        } finally {
+            // [FIX] Ensure UI is notified regardless of whether an order or position was modified.
             pcs.firePropertyChange("pendingOrdersUpdated", null, getPendingOrders());
-            logger.info("Modified pending order {} for symbol {}", orderId, symbol);
-            return;
-        }
-        Position existingPosition = this.openPositionsBySymbol.get(symbol).get(orderId);
-        if (existingPosition != null) {
-             Position updatedPosition = new Position(
-                existingPosition.id(), existingPosition.symbol(), existingPosition.direction(),
-                existingPosition.size(), existingPosition.entryPrice(),
-                newStopLoss, newTakeProfit, newTrailingStopDistance,
-                existingPosition.openTimestamp(), existingPosition.checklistId()
-             );
-             this.openPositionsBySymbol.get(symbol).put(orderId, updatedPosition);
-             pcs.firePropertyChange("openPositionsUpdated", null, getOpenPositions());
-             logger.info("Modified open position SL/TP for {} on symbol {}", orderId, symbol);
+            pcs.firePropertyChange("openPositionsUpdated", null, getOpenPositions());
         }
     }
 
@@ -529,8 +552,12 @@ public class PaperTradingService implements TradingService {
 
     private synchronized void cancelOrderInternal(UUID orderId) {
         findSymbolForTradable(orderId).ifPresent(symbol -> {
-            if (this.pendingOrdersBySymbol.get(symbol).remove(orderId) != null) {
-                logger.info("Cancelled pending order {} for symbol {}", orderId, symbol);
+            try {
+                if (this.pendingOrdersBySymbol.get(symbol).remove(orderId) != null) {
+                    logger.info("Cancelled pending order {} for symbol {}", orderId, symbol);
+                }
+            } finally {
+                // [FIX] Always notify the UI after an attempted cancellation.
                 pcs.firePropertyChange("pendingOrdersUpdated", null, getPendingOrders());
             }
         });
@@ -561,19 +588,21 @@ public class PaperTradingService implements TradingService {
 
     @Override
     public void resetSession(BigDecimal startingBalance, BigDecimal leverage) {
-        this.accountBalance = startingBalance;
-        this.leverage = (leverage != null && leverage.compareTo(BigDecimal.ZERO) > 0) ? leverage : BigDecimal.ONE;
-        this.openPositionsBySymbol.clear();
-        this.pendingOrdersBySymbol.clear();
-        this.tradeHistoryBySymbol.clear();
-        this.activeSymbol = null;
-        activeTradeCandles.clear();
-
-        pcs.firePropertyChange("openPositionsUpdated", null, Collections.emptyList());
-        pcs.firePropertyChange("tradeHistoryUpdated", null, Collections.emptyList());
-        pcs.firePropertyChange("pendingOrdersUpdated", null, Collections.emptyList());
-        
-        logger.info("Paper Trading Service session reset. Starting Balance: {}. Leverage: {}x", startingBalance, this.leverage);
+        try {
+            this.accountBalance = startingBalance;
+            this.leverage = (leverage != null && leverage.compareTo(BigDecimal.ZERO) > 0) ? leverage : BigDecimal.ONE;
+            this.openPositionsBySymbol.clear();
+            this.pendingOrdersBySymbol.clear();
+            this.tradeHistoryBySymbol.clear();
+            this.activeSymbol = null;
+            activeTradeCandles.clear();
+            logger.info("Paper Trading Service session reset. Starting Balance: {}. Leverage: {}x", startingBalance, this.leverage);
+        } finally {
+            // [FIX] Ensure UI is cleared regardless of what happens during reset.
+            pcs.firePropertyChange("openPositionsUpdated", null, Collections.emptyList());
+            pcs.firePropertyChange("tradeHistoryUpdated", null, Collections.emptyList());
+            pcs.firePropertyChange("pendingOrdersUpdated", null, Collections.emptyList());
+        }
     }
 
     public void importTradeHistory(List<Trade> newHistory, BigDecimal startingBalance) {

@@ -497,6 +497,8 @@ public class ChartWorkspacePanel extends JPanel implements PropertyChangeListene
     public void startReplaySession(DataSourceManager.ChartDataSource source, int startIndex) {
         ensureReplayUIInitialized();
         ReplaySessionManager.getInstance().startSession(source, startIndex);
+        // [FIX] Set the active symbol for the paper trading service context.
+        workspaceContext.getPaperTradingService().switchActiveSymbol(source.symbol());
         workspaceContext.getDrawingManager().setActiveSymbol(source.symbol());
         setDbManagerForSource(source); 
         workspaceManager.applyLayout(WorkspaceManager.LayoutType.ONE);
