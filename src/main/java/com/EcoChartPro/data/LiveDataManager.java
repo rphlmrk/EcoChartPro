@@ -193,9 +193,9 @@ public class LiveDataManager {
     }
     
     /**
-     * [NEW] Calculates the overall system state based on all client states and fires an event if it changes.
+     * [MODIFIED] Calculates the overall system state based on all client states and fires an event if it changes.
      */
-    private void updateAndFireSystemState() {
+    private synchronized void updateAndFireSystemState() {
         // If we are actively syncing, that state takes precedence and should not be overridden.
         if (systemState == LiveDataSystemState.SYNCING) {
             return;
@@ -219,10 +219,10 @@ public class LiveDataManager {
     }
     
     /**
-     * [NEW] Helper method to manually set the system state and fire a property change event.
+     * [MODIFIED] Helper method to manually set the system state and fire a property change event.
      * @param newState The new state to set.
      */
-    private void setSystemState(LiveDataSystemState newState) {
+    private synchronized void setSystemState(LiveDataSystemState newState) {
         if (this.systemState != newState) {
             LiveDataSystemState oldState = this.systemState;
             this.systemState = newState;
