@@ -2,6 +2,7 @@ package com.EcoChartPro.core.model.providers;
 
 import com.EcoChartPro.core.model.calculators.FootprintCalculator;
 import com.EcoChartPro.data.DataProvider;
+import com.EcoChartPro.data.DataResampler;
 import com.EcoChartPro.data.LiveDataManager;
 import com.EcoChartPro.data.provider.BinanceProvider;
 import com.EcoChartPro.data.provider.OkxProvider;
@@ -22,13 +23,14 @@ import java.util.List;
 import java.util.function.Consumer;
 
 /**
- * Manages the state and data fetching/subscription for a chart in Live mode.
- * It interacts with the LiveDataManager to receive real-time ticks and uses
- * a DataProvider to fetch historical data when needed (e.g., on initial load or deep panning).
+ * Manages state, data fetching, and resampling for a chart in Live mode.
+ * Acts as an engine that converts a Base Data Stream (e.g., 5m) into a Target
+ * View (e.g., 20m).
  */
 public class LiveHistoryProvider implements IHistoryProvider {
 
     private static final Logger logger = LoggerFactory.getLogger(LiveHistoryProvider.class);
+    private static final int MAX_BASE_CACHE_SIZE = 10000; // [NEW] Memory limit constant
 
     // --- Dependencies ---
     private final ChartPanel chartPanel;
@@ -38,46 +40,76 @@ public class LiveHistoryProvider implements IHistoryProvider {
     private final boolean isFootprintMode;
 
     // --- State ---
-    private Timeframe currentTimeframe;
+    private Timeframe targetTimeframe;
+    private Timeframe baseTimeframe;
+
+    // CACHE: Raw data from the provider
+    private final List<KLine> baseDataCache = new ArrayList<>();
+
+    // VIEW: Resampled data for the chart
     private List<KLine> finalizedCandles = new ArrayList<>();
     private KLine currentlyFormingCandle;
+
     private volatile boolean isFetchingHistory = false;
-    
-    // --- Live Subscription ---
+
     private final Consumer<KLine> liveKLineConsumer;
     private final Consumer<TradeTick> liveTradeConsumer;
 
-    public LiveHistoryProvider(ChartPanel chartPanel, DataSourceManager.ChartDataSource source, DataProvider dataProvider, Timeframe initialTimeframe, boolean isFootprintMode, FootprintCalculator footprintCalculator) {
+    public LiveHistoryProvider(ChartPanel chartPanel, DataSourceManager.ChartDataSource source,
+            DataProvider dataProvider, Timeframe initialTimeframe, boolean isFootprintMode,
+            FootprintCalculator footprintCalculator) {
         this.chartPanel = chartPanel;
         this.source = source;
         this.dataProvider = dataProvider;
-        this.currentTimeframe = initialTimeframe;
         this.isFootprintMode = isFootprintMode;
         this.footprintCalculator = footprintCalculator;
 
-        // Create stable references for consumers
-        this.liveKLineConsumer = isFootprintMode ? this::onLiveFootprintKLineUpdate : this::onLiveStandardKLineUpdate;
+        this.liveKLineConsumer = isFootprintMode ? this::onLiveFootprintKLineUpdate : this::onLiveBaseKLineUpdate;
         this.liveTradeConsumer = isFootprintMode ? this::onLiveTradeUpdate : null;
 
-        loadInitialHistory();
+        setTimeframe(initialTimeframe, true);
     }
-    
-    // --- IHistoryProvider Implementation (Unchanged) ---
-    @Override public List<KLine> getFinalizedCandles() { return finalizedCandles; }
-    @Override public KLine getFormingCandle() { return currentlyFormingCandle; }
-    @Override public int getTotalCandleCount() { return finalizedCandles.size() + (currentlyFormingCandle != null ? 1 : 0); }
-    @Override public int getDataWindowStartIndex() { return 0; }
+
+    @Override
+    public List<KLine> getFinalizedCandles() {
+        return finalizedCandles;
+    }
+
+    @Override
+    public KLine getFormingCandle() {
+        return currentlyFormingCandle;
+    }
+
+    @Override
+    public int getTotalCandleCount() {
+        return finalizedCandles.size() + (currentlyFormingCandle != null ? 1 : 0);
+    }
+
+    @Override
+    public int getDataWindowStartIndex() {
+        return 0;
+    }
 
     @Override
     public void setTimeframe(Timeframe newTimeframe, boolean forceReload) {
-        if (newTimeframe == null) return;
-        if (!forceReload && newTimeframe.equals(this.currentTimeframe)) return;
+        if (newTimeframe == null)
+            return;
+        if (!forceReload && newTimeframe.equals(this.targetTimeframe))
+            return;
 
         cleanupSubscriptions();
-        this.currentTimeframe = newTimeframe;
+
+        this.targetTimeframe = newTimeframe;
+        this.baseTimeframe = Timeframe.getSmartBaseTimeframe(newTimeframe);
+
+        logger.info("Timeframe set to {}. Using Base: {}", targetTimeframe, baseTimeframe);
+
+        this.baseDataCache.clear();
         this.finalizedCandles.clear();
         this.currentlyFormingCandle = null;
-        if (isFootprintMode) this.footprintCalculator.clear();
+        if (isFootprintMode)
+            this.footprintCalculator.clear();
+
         loadInitialHistory();
     }
 
@@ -86,136 +118,208 @@ public class LiveHistoryProvider implements IHistoryProvider {
         cleanupSubscriptions();
     }
 
-    // --- Live Data Handling ---
-
-    private void onLiveStandardKLineUpdate(KLine newTick) {
+    private void onLiveBaseKLineUpdate(KLine incomingBaseTick) {
         SwingUtilities.invokeLater(() -> {
-            Instant intervalStart = getIntervalStart(newTick.timestamp(), currentTimeframe);
-            if (currentlyFormingCandle == null) {
-                currentlyFormingCandle = newTick;
-            } else if (!currentlyFormingCandle.timestamp().equals(intervalStart)) {
-                finalizedCandles.add(currentlyFormingCandle);
-                chartPanel.getDataModel().fireLiveCandleAdded(currentlyFormingCandle);
-                currentlyFormingCandle = newTick;
-            } else {
-                currentlyFormingCandle = new KLine(currentlyFormingCandle.timestamp(), currentlyFormingCandle.open(), currentlyFormingCandle.high().max(newTick.high()), currentlyFormingCandle.low().min(newTick.low()), newTick.close(), currentlyFormingCandle.volume().add(newTick.volume()));
-            }
+            updateBaseCache(incomingBaseTick);
+            refreshViewFromCache();
             chartPanel.getDataModel().fireLiveTickReceived(currentlyFormingCandle);
             chartPanel.getDataModel().fireDataUpdated();
         });
     }
 
-    private void onLiveFootprintKLineUpdate(KLine newTick) {
+    private void onLiveFootprintKLineUpdate(KLine incomingBaseTick) {
         SwingUtilities.invokeLater(() -> {
-            Instant intervalStart = getIntervalStart(newTick.timestamp(), currentTimeframe);
-            if (currentlyFormingCandle == null || !currentlyFormingCandle.timestamp().equals(intervalStart)) {
-                if (currentlyFormingCandle != null) {
-                    finalizedCandles.add(currentlyFormingCandle);
-                    chartPanel.getDataModel().fireLiveCandleAdded(currentlyFormingCandle);
-                }
-                currentlyFormingCandle = newTick;
-                // Pre-create the footprint bar for the new interval
-                footprintCalculator.addLiveTrade(new TradeTick(Instant.now(), newTick.open(), BigDecimal.ZERO, "buy"), newTick);
-                chartPanel.getDataModel().fireDataUpdated();
+            updateBaseCache(incomingBaseTick);
+            refreshViewFromCache();
+            if (currentlyFormingCandle != null) {
+                footprintCalculator.addLiveTrade(
+                        new TradeTick(Instant.now(), incomingBaseTick.close(), BigDecimal.ZERO, "buy"),
+                        currentlyFormingCandle);
             }
+            chartPanel.getDataModel().fireDataUpdated();
         });
     }
 
     private void onLiveTradeUpdate(TradeTick newTrade) {
         SwingUtilities.invokeLater(() -> {
-            if (currentlyFormingCandle == null) return;
+            if (currentlyFormingCandle == null)
+                return;
             footprintCalculator.addLiveTrade(newTrade, currentlyFormingCandle);
-            currentlyFormingCandle = new KLine(currentlyFormingCandle.timestamp(), currentlyFormingCandle.open(), currentlyFormingCandle.high().max(newTrade.price()), currentlyFormingCandle.low().min(newTrade.price()), newTrade.price(), currentlyFormingCandle.volume().add(newTrade.quantity()));
-            chartPanel.getDataModel().fireLiveTickReceived(currentlyFormingCandle);
             chartPanel.getDataModel().fireDataUpdated();
         });
     }
 
-    // --- Historical Data Fetching ---
+    private void updateBaseCache(KLine tick) {
+        if (baseDataCache.isEmpty()) {
+            baseDataCache.add(tick);
+            return;
+        }
 
-    public void fetchOlderHistoryAsync(long endTimeForFetch, int limit) {
-        if (isFetchingHistory) return;
-        isFetchingHistory = true;
-        if (chartPanel != null) chartPanel.setLoading(true, "Loading older history...");
+        KLine lastBase = baseDataCache.get(baseDataCache.size() - 1);
+        if (tick.timestamp().equals(lastBase.timestamp())) {
+            // Update existing forming base candle
+            baseDataCache.set(baseDataCache.size() - 1, tick);
+        } else {
+            // New base candle started
+            baseDataCache.add(tick);
+
+            // [NEW] Memory Management: Prune old data if cache exceeds limit
+            // We only remove data from the head (oldest) if it's not needed for the view.
+            // Since the View is resampled from this cache, removing the head might shift
+            // the view indices, but since this is live mode, we typically look at the tail.
+            if (baseDataCache.size() > MAX_BASE_CACHE_SIZE) {
+                // Remove the oldest candle
+                baseDataCache.remove(0);
+
+                // We must also adjust the startIndex in ChartInteractionManager to prevent
+                // the chart from "jumping" visually, as the total count effectively decreases
+                // relative to the viewport if we are scrolled back.
+                // However, for Live mode defaulting to the right edge, this is less critical
+                // than preventing OOM.
+            }
+        }
+    }
+
+    private void refreshViewFromCache() {
+        List<KLine> resampled = DataResampler.resample(baseDataCache, targetTimeframe);
+
+        if (!resampled.isEmpty()) {
+            KLine newForming = resampled.get(resampled.size() - 1);
+
+            if (currentlyFormingCandle != null && !newForming.timestamp().equals(currentlyFormingCandle.timestamp())) {
+                finalizedCandles.add(currentlyFormingCandle);
+                chartPanel.getDataModel().fireLiveCandleAdded(currentlyFormingCandle);
+            }
+
+            if (finalizedCandles.size() != resampled.size() - 1) {
+                if (resampled.size() > 1) {
+                    finalizedCandles = new ArrayList<>(resampled.subList(0, resampled.size() - 1));
+                } else {
+                    finalizedCandles.clear();
+                }
+            }
+
+            currentlyFormingCandle = newForming;
+        }
+    }
+
+    private void loadInitialHistory() {
+        if (chartPanel != null)
+            chartPanel.setLoading(true, "Optimizing " + targetTimeframe.displayName() + " view...");
+
         new SwingWorker<List<KLine>, Void>() {
             @Override
-            protected List<KLine> doInBackground() throws Exception {
-                if (dataProvider instanceof BinanceProvider bp) return bp.getHistoricalData(source.symbol(), currentTimeframe.displayName(), limit, null, endTimeForFetch);
-                else if (dataProvider instanceof OkxProvider op) return op.getHistoricalData(source.symbol(), currentTimeframe.displayName(), limit, endTimeForFetch, null);
-                return Collections.emptyList();
+            protected List<KLine> doInBackground() {
+                long targetMin = targetTimeframe.duration().toMinutes();
+                long baseMin = baseTimeframe.duration().toMinutes();
+                double multiplier = (double) targetMin / Math.max(1, baseMin);
+                int baseLimit = (int) Math.min(1000 * multiplier, 5000);
+
+                return dataProvider.getHistoricalData(source.symbol(), baseTimeframe.displayName(), baseLimit);
             }
+
             @Override
             protected void done() {
                 try {
-                    List<KLine> olderData = get();
-                    if (olderData != null && !olderData.isEmpty()) {
-                        finalizedCandles.addAll(0, olderData);
-                        if(isFootprintMode) footprintCalculator.calculateHistoricalFootprints(finalizedCandles);
-                        logger.info("Fetched and prepended {} older candles in Live mode.", olderData.size());
-                        chartPanel.getDataModel().getInteractionManager().setStartIndex(chartPanel.getDataModel().getInteractionManager().getStartIndex() + olderData.size());
+                    List<KLine> initialBaseData = get();
+                    if (initialBaseData != null && !initialBaseData.isEmpty()) {
+                        baseDataCache.addAll(initialBaseData);
+                        refreshViewFromCache();
+
+                        if (isFootprintMode) {
+                            List<KLine> all = new ArrayList<>(finalizedCandles);
+                            if (currentlyFormingCandle != null)
+                                all.add(currentlyFormingCandle);
+                            footprintCalculator.calculateHistoricalFootprints(all);
+                        }
                     }
-                } catch (Exception e) { logger.error("Failed to fetch older live data.", e);
-                } finally {
-                    isFetchingHistory = false;
-                    if (chartPanel != null) chartPanel.setLoading(false, null);
+
+                    LiveDataManager.getInstance().subscribeToKLine(source.symbol(), baseTimeframe.displayName(),
+                            liveKLineConsumer);
+                    if (isFootprintMode)
+                        LiveDataManager.getInstance().subscribeToTrades(source.symbol(), liveTradeConsumer);
+
+                    int dataBarsOnScreen = (int) (chartPanel.getDataModel().getInteractionManager().getBarsPerScreen()
+                            * (1.0 - chartPanel.getDataModel().getInteractionManager().getRightMarginRatio()));
+                    int initialStartIndex = Math.max(0, finalizedCandles.size() - dataBarsOnScreen);
+                    chartPanel.getDataModel().getInteractionManager().setStartIndex(initialStartIndex);
+
                     chartPanel.getDataModel().fireDataUpdated();
+                } catch (Exception e) {
+                    logger.error("Failed to load live history for timeframe {}", targetTimeframe, e);
+                } finally {
+                    if (chartPanel != null)
+                        chartPanel.setLoading(false, null);
                 }
             }
         }.execute();
     }
 
-    private void loadInitialHistory() {
-        if (chartPanel != null) chartPanel.setLoading(true, "Loading " + currentTimeframe.displayName() + " history...");
+    public void fetchOlderHistoryAsync(long endTimeForFetch, int limit) {
+        if (isFetchingHistory)
+            return;
+        isFetchingHistory = true;
+        if (chartPanel != null)
+            chartPanel.setLoading(true, "Loading older history...");
+
         new SwingWorker<List<KLine>, Void>() {
             @Override
-            protected List<KLine> doInBackground() {
-                return dataProvider.getHistoricalData(source.symbol(), currentTimeframe.displayName(), 1000);
+            protected List<KLine> doInBackground() throws Exception {
+                long targetMin = targetTimeframe.duration().toMinutes();
+                long baseMin = baseTimeframe.duration().toMinutes();
+                double multiplier = (double) targetMin / Math.max(1, baseMin);
+                int baseLimit = (int) Math.min(limit * multiplier, 1000);
+
+                if (dataProvider instanceof BinanceProvider bp) {
+                    return bp.getHistoricalData(source.symbol(), baseTimeframe.displayName(), baseLimit, null,
+                            endTimeForFetch);
+                } else if (dataProvider instanceof OkxProvider op) {
+                    return op.getHistoricalData(source.symbol(), baseTimeframe.displayName(), baseLimit, null,
+                            endTimeForFetch);
+                }
+                return Collections.emptyList();
             }
+
             @Override
             protected void done() {
                 try {
-                    List<KLine> initialData = get();
-                    if (initialData != null && !initialData.isEmpty()) {
-                        finalizedCandles = new ArrayList<>(initialData.subList(0, initialData.size() - 1));
-                        currentlyFormingCandle = initialData.get(initialData.size() - 1);
-                        if (isFootprintMode) {
-                            footprintCalculator.calculateHistoricalFootprints(initialData);
-                        }
-                    } else { /* Handle empty initial data */ }
-                    
-                    LiveDataManager.getInstance().subscribeToKLine(source.symbol(), currentTimeframe.displayName(), liveKLineConsumer);
-                    if (isFootprintMode) {
-                        LiveDataManager.getInstance().subscribeToTrades(source.symbol(), liveTradeConsumer);
-                    }
+                    List<KLine> olderData = get();
+                    if (olderData != null && !olderData.isEmpty()) {
+                        baseDataCache.addAll(0, olderData);
+                        refreshViewFromCache();
 
-                    int dataBarsOnScreen = (int) (chartPanel.getDataModel().getInteractionManager().getBarsPerScreen() * (1.0 - chartPanel.getDataModel().getInteractionManager().getRightMarginRatio()));
-                    int initialStartIndex = Math.max(0, finalizedCandles.size() - dataBarsOnScreen);
-                    chartPanel.getDataModel().getInteractionManager().setStartIndex(initialStartIndex);
-                    chartPanel.getDataModel().fireDataUpdated();
+                        if (isFootprintMode) {
+                            List<KLine> all = new ArrayList<>(finalizedCandles);
+                            if (currentlyFormingCandle != null)
+                                all.add(currentlyFormingCandle);
+                            footprintCalculator.calculateHistoricalFootprints(all);
+                        }
+
+                        long multiplier = Math.max(1,
+                                targetTimeframe.duration().toMinutes() / baseTimeframe.duration().toMinutes());
+                        int addedTargetBars = olderData.size() / (int) multiplier;
+                        chartPanel.getDataModel().getInteractionManager().setStartIndex(
+                                chartPanel.getDataModel().getInteractionManager().getStartIndex() + addedTargetBars);
+                    }
                 } catch (Exception e) {
-                    logger.error("Failed to load live history for timeframe {}", currentTimeframe, e);
+                    logger.error("Failed to fetch older live data.", e);
                 } finally {
-                    if (chartPanel != null) chartPanel.setLoading(false, null);
+                    isFetchingHistory = false;
+                    if (chartPanel != null)
+                        chartPanel.setLoading(false, null);
+                    chartPanel.getDataModel().fireDataUpdated();
                 }
             }
         }.execute();
     }
 
     private void cleanupSubscriptions() {
-        if (source != null && currentTimeframe != null) {
-            if (liveKLineConsumer != null) {
-                LiveDataManager.getInstance().unsubscribeFromKLine(source.symbol(), currentTimeframe.displayName(), liveKLineConsumer);
-            }
-            if (liveTradeConsumer != null) {
+        if (source != null && baseTimeframe != null) {
+            if (liveKLineConsumer != null)
+                LiveDataManager.getInstance().unsubscribeFromKLine(source.symbol(), baseTimeframe.displayName(),
+                        liveKLineConsumer);
+            if (liveTradeConsumer != null)
                 LiveDataManager.getInstance().unsubscribeFromTrades(source.symbol(), liveTradeConsumer);
-            }
         }
-    }
-    
-    private static Instant getIntervalStart(Instant timestamp, Timeframe timeframe) {
-        long durationMillis = timeframe.duration().toMillis();
-        if (durationMillis == 0) return timestamp;
-        long epochMillis = timestamp.toEpochMilli();
-        return Instant.ofEpochMilli(epochMillis - (epochMillis % durationMillis));
     }
 }

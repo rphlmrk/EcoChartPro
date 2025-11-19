@@ -12,24 +12,24 @@ import java.awt.event.ActionListener;
 import java.util.List;
 
 public class TimeframeSelectionPanel extends JPanel {
-    
+
     private final EventListenerList listenerList = new EventListenerList();
 
     public TimeframeSelectionPanel() {
         setLayout(new GridLayout(0, 4, 5, 5));
         setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
         setOpaque(false);
-        
+
         List<Timeframe> allTimeframes = Timeframe.getStandardTimeframes();
-        
+
         for (Timeframe tf : allTimeframes) {
             JButton button = new JButton(tf.displayName());
             button.setFocusPainted(false);
             button.setMargin(new Insets(4, 8, 4, 8));
             button.setActionCommand("timeframeChanged:" + tf.displayName());
-            
+
             button.addActionListener(e -> fireActionPerformed(e.getActionCommand()));
-            
+
             add(button);
         }
 
@@ -38,9 +38,32 @@ public class TimeframeSelectionPanel extends JPanel {
         customButton.setMargin(new Insets(4, 8, 4, 8));
         customButton.addActionListener(e -> {
             // --- Custom Timeframe Dialog ---
-            Frame owner = (Frame) SwingUtilities.getWindowAncestor(this);
+
+            // [FIX] Retrieve the actual application window.
+            // Since this panel is inside a JPopupMenu, 'getWindowAncestor(this)' returns
+            // the popup's HeavyWeightWindow, which causes the IllegalArgumentException.
+            // We must get the JPopupMenu's invoker (the toolbar button) and get its window.
+            Window owner = null;
+            Container parent = this.getParent();
+            if (parent instanceof JPopupMenu) {
+                Component invoker = ((JPopupMenu) parent).getInvoker();
+                if (invoker != null) {
+                    owner = SwingUtilities.getWindowAncestor(invoker);
+                }
+            }
+
+            // Fallback if not in a popup (e.g. testing)
+            if (owner == null) {
+                owner = SwingUtilities.getWindowAncestor(this);
+            }
+
+            // Final safety check: ensure we don't pass a HeavyWeightWindow
+            if (owner != null && owner.getClass().getName().contains("HeavyWeightWindow")) {
+                owner = null; // JDialog accepts null (creates a default owner)
+            }
+
             CustomTimeframeDialog dialog = new CustomTimeframeDialog(owner);
-            dialog.setVisible(true); 
+            dialog.setVisible(true);
 
             Timeframe customTf = dialog.getCustomTimeframe();
             if (customTf != null) {
@@ -51,7 +74,7 @@ public class TimeframeSelectionPanel extends JPanel {
         });
         add(customButton);
     }
-    
+
     public void addActionListener(ActionListener l) {
         listenerList.add(ActionListener.class, l);
     }

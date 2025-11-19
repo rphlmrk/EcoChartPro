@@ -1,38 +1,48 @@
 package com.EcoChartPro.data.provider;
 
-import com.EcoChartPro.model.Timeframe;
-import java.time.Duration;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
- * A utility class for converting between EcoChartPro formats and Binance API formats.
+ * A utility class for converting between EcoChartPro formats and Binance API
+ * formats.
  */
 public final class BinanceDataUtils {
 
-    private BinanceDataUtils() {}
+    private static final Logger logger = LoggerFactory.getLogger(BinanceDataUtils.class);
 
-    /**
-     * Converts a symbol like "BTC/USDT" to the Binance API format "btcusdt".
-     * @param symbol The symbol from the application.
-     * @return The symbol in Binance's lowercase, no-slash format.
-     */
+    private BinanceDataUtils() {
+    }
+
     public static String toBinanceSymbol(String symbol) {
         return symbol.replace("/", "").toLowerCase();
     }
 
-    /**
-     * Converts an EcoChartPro Timeframe record to Binance's interval string format.
-     * @param timeframe The Timeframe record.
-     * @return The interval string for the Binance API (e.g., "1m", "4h", "1d").
-     */
     public static String toBinanceInterval(String timeframe) {
-        Timeframe tf = Timeframe.fromString(timeframe);
-        if (tf == null) return "1h"; // Fallback
+        if (timeframe == null) {
+            return "1h";
+        }
 
-        Duration d = tf.duration();
-        if (d.toDays() > 0) return d.toDays() + "d";
-        if (d.toHours() > 0) return d.toHours() + "h";
-        if (d.toMinutes() > 0) return d.toMinutes() + "m";
-        
-        return "1h"; // Default fallback
+        return switch (timeframe) {
+            case "1m" -> "1m";
+            case "3m" -> "3m";
+            case "5m" -> "5m";
+            case "15m" -> "15m";
+            case "30m" -> "30m";
+            case "1H" -> "1h";
+            case "2H" -> "2h";
+            case "4H" -> "4h";
+            case "6H" -> "6h";
+            case "8H" -> "8h";
+            case "12H" -> "12h";
+            case "1D" -> "1d";
+            case "3D" -> "3d";
+            case "1W" -> "1w";
+            case "1M" -> "1M";
+            default -> {
+                logger.warn("Unsupported/Custom timeframe {} requested from Binance. Falling back to 1h.", timeframe);
+                yield "1h";
+            }
+        };
     }
 }

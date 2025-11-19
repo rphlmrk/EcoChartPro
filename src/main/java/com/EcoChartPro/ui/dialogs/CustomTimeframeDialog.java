@@ -11,9 +11,12 @@ public class CustomTimeframeDialog extends JDialog {
     private final JSpinner valueSpinner;
     private final JComboBox<String> unitComboBox;
 
-    // constructor to accept Frame, as the ultimate owner should be a top-level Frame.
-    public CustomTimeframeDialog(Frame owner) {
-        super(owner, "Custom Timeframe", true);
+    public CustomTimeframeDialog(Window owner) {
+        // Use ModalityType constructor which properly supports Window owners
+        // (introduced in Java 1.6)
+        // If owner is null, it creates a hidden owner frame automatically.
+        super(owner, "Custom Timeframe", ModalityType.APPLICATION_MODAL);
+
         setLayout(new BorderLayout(10, 10));
         getRootPane().setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
@@ -45,7 +48,7 @@ public class CustomTimeframeDialog extends JDialog {
         gbc.gridx = 1;
         gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.weightx = 1.0;
-        String[] units = {"Minutes", "Hours", "Days"};
+        String[] units = { "Minutes", "Hours", "Days" };
         unitComboBox = new JComboBox<>(units);
         inputPanel.add(unitComboBox, gbc);
 
@@ -64,7 +67,7 @@ public class CustomTimeframeDialog extends JDialog {
             if (selectedUnit != null) {
                 unitChar = Character.toLowerCase(selectedUnit.charAt(0));
             }
-            
+
             Timeframe.of(value, unitChar).ifPresent(tf -> this.customTimeframe = tf);
 
             dispose();
@@ -74,7 +77,7 @@ public class CustomTimeframeDialog extends JDialog {
             this.customTimeframe = null;
             dispose();
         });
-        
+
         getRootPane().setDefaultButton(okButton);
 
         // --- Assemble Dialog ---

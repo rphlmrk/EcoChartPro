@@ -26,8 +26,8 @@ import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 /**
- * An implementation of DataProvider for fetching public data from the OKX exchange.
- * It uses the REST API for historical data and symbol lists.
+ * An implementation of DataProvider for fetching public data from the OKX
+ * exchange.
  */
 public class OkxProvider implements DataProvider {
 
@@ -56,7 +56,8 @@ public class OkxProvider implements DataProvider {
 
             String jsonBody = response.body().string();
             JsonObject root = JsonParser.parseString(jsonBody).getAsJsonObject();
-            Type listType = new TypeToken<List<OkxInstrumentData>>() {}.getType();
+            Type listType = new TypeToken<List<OkxInstrumentData>>() {
+            }.getType();
             List<OkxInstrumentData> okxInstruments = gson.fromJson(root.get("data"), listType);
 
             List<ChartDataSource> sources = okxInstruments.stream()
@@ -64,12 +65,11 @@ public class OkxProvider implements DataProvider {
                     .map(s -> {
                         String displayName = s.instId.replaceFirst("-", "/");
                         return new ChartDataSource(
-                            getProviderName(),
-                            s.instId.toLowerCase(), 
-                            displayName,
-                            null, 
-                            List.of("1m", "5m", "15m", "30m", "1H", "4H", "1D")
-                        );
+                                getProviderName(),
+                                s.instId.toLowerCase(),
+                                displayName,
+                                null,
+                                List.of("1m", "5m", "15m", "30m", "1H", "4H", "1D"));
                     })
                     .collect(Collectors.toList());
 
@@ -91,26 +91,37 @@ public class OkxProvider implements DataProvider {
             return Collections.emptyList();
         }
     }
-    
+
     @Override
     public List<TradeTick> getHistoricalTrades(String symbol, long startTimeMillis, int limit) {
         logger.warn("getHistoricalTrades not yet implemented for OkxProvider.");
         return Collections.emptyList();
     }
-    
+
     public List<KLine> getHistoricalData(String symbol, String timeframe, int limit, Long before) throws IOException {
         return getHistoricalData(symbol, timeframe, limit, before, null);
     }
-    
-    public List<KLine> getHistoricalData(String symbol, String timeframe, int limit, Long before, Long after) throws IOException {
+
+    public List<KLine> getHistoricalData(String symbol, String timeframe, int limit, Long before, Long after)
+            throws IOException {
         String okxSymbol = OkxDataUtils.toOkxSymbol(symbol);
         String okxInterval = OkxDataUtils.toOkxInterval(timeframe);
 
-        String url = String.format("%s/api/v5/market/history-candles?instId=%s&bar=%s&limit=%d"
-                        + (before != null ? "&before=" + before : "")
-                        + (after != null ? "&after=" + after : ""),
-                API_BASE_URL, okxSymbol, okxInterval, limit);
+        StringBuilder urlBuilder = new StringBuilder(
+                String.format("%s/api/v5/market/history-candles?instId=%s&bar=%s&limit=%d",
+                        API_BASE_URL, okxSymbol, okxInterval, limit));
 
+        // OKX API Semantics:
+        // 'after' requests data OLDER than this timestamp.
+        // 'before' requests data NEWER than this timestamp.
+        if (after != null && after > 0) {
+            urlBuilder.append("&after=").append(after);
+        }
+        if (before != null && before > 0) {
+            urlBuilder.append("&before=").append(before);
+        }
+
+        String url = urlBuilder.toString();
         Request request = new Request.Builder().url(url).build();
         logger.info("Fetching historical data from OKX: {}", url);
 
@@ -123,20 +134,21 @@ public class OkxProvider implements DataProvider {
 
             String jsonBody = response.body().string();
             JsonObject root = JsonParser.parseString(jsonBody).getAsJsonObject();
-            Type listType = new TypeToken<List<List<String>>>() {}.getType();
+            Type listType = new TypeToken<List<List<String>>>() {
+            }.getType();
             List<List<String>> rawData = gson.fromJson(root.get("data"), listType);
-            if (rawData == null) return Collections.emptyList();
+            if (rawData == null)
+                return Collections.emptyList();
 
             List<KLine> klineDataList = new ArrayList<>();
             for (List<String> rawBar : rawData) {
                 klineDataList.add(new KLine(
-                    Instant.ofEpochMilli(Long.parseLong(rawBar.get(0))),
-                    new BigDecimal(rawBar.get(1)), 
-                    new BigDecimal(rawBar.get(2)), 
-                    new BigDecimal(rawBar.get(3)), 
-                    new BigDecimal(rawBar.get(4)), 
-                    new BigDecimal(rawBar.get(5))
-                ));
+                        Instant.ofEpochMilli(Long.parseLong(rawBar.get(0))),
+                        new BigDecimal(rawBar.get(1)),
+                        new BigDecimal(rawBar.get(2)),
+                        new BigDecimal(rawBar.get(3)),
+                        new BigDecimal(rawBar.get(4)),
+                        new BigDecimal(rawBar.get(5))));
             }
             // OKX returns in reverse chronological order (newest first)
             Collections.reverse(klineDataList);
@@ -149,7 +161,8 @@ public class OkxProvider implements DataProvider {
         Long currentBefore = null;
         final int batchLimit = 100;
 
-        logger.info("Starting historical data backfill for {} @ {} from {}", symbol, timeframe, Instant.ofEpochMilli(startTimeMillis));
+        logger.info("Starting historical data backfill for {} @ {} from {}", symbol, timeframe,
+                Instant.ofEpochMilli(startTimeMillis));
 
         while (true) {
             int retries = 3;
@@ -160,35 +173,32 @@ public class OkxProvider implements DataProvider {
                     break;
                 } catch (IOException e) {
                     retries--;
-                    logger.warn("Retry {}/3 for OKX backfill due to: {}. Retrying in 2s...", (3 - retries), e.getMessage());
-                    try { Thread.sleep(2000); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); break; }
+                    try {
+                        Thread.sleep(2000);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
                 }
             }
 
-            if (batch == null || batch.isEmpty()) {
-                logger.info("Backfill complete. No more data returned or retries failed.");
+            if (batch == null || batch.isEmpty())
                 break;
-            }
 
             allData.addAll(0, batch);
             currentBefore = batch.get(0).timestamp().toEpochMilli();
 
-            if (currentBefore <= startTimeMillis) {
-                logger.info("Backfill complete. Reached start time.");
+            if (currentBefore <= startTimeMillis)
                 break;
-            }
-            
             try {
                 Thread.sleep(500);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                logger.warn("OKX backfill process was interrupted.");
                 break;
             }
         }
-        
+
         allData.removeIf(k -> k.timestamp().toEpochMilli() < startTimeMillis);
-        logger.info("Total historical klines backfilled for {} @ {}: {}", symbol, timeframe, allData.size());
         return allData;
     }
 
@@ -197,44 +207,40 @@ public class OkxProvider implements DataProvider {
         Long currentAfter = startTimeMillis;
         final int batchLimit = 100;
 
-        logger.info("Starting forward historical data backfill for {} @ {} from {}", symbol, timeframe, Instant.ofEpochMilli(startTimeMillis));
-
         while (true) {
             int retries = 3;
             List<KLine> batch = null;
             while (retries > 0) {
                 try {
+                    // Pass currentAfter to 'after' param to get data OLDER than this timestamp
                     batch = getHistoricalData(symbol, timeframe, batchLimit, null, currentAfter);
                     break;
                 } catch (IOException e) {
                     retries--;
-                    logger.warn("Retry {}/3 for OKX forward backfill due to: {}. Retrying in 2s...", (3 - retries), e.getMessage());
-                    try { Thread.sleep(2000); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); break; }
+                    try {
+                        Thread.sleep(2000);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
                 }
             }
 
-            if (batch == null || batch.isEmpty()) {
-                logger.info("Forward backfill complete. No more data returned or retries failed.");
+            if (batch == null || batch.isEmpty())
                 break;
-            }
 
             allData.addAll(batch);
             currentAfter = batch.get(batch.size() - 1).timestamp().toEpochMilli();
 
-            if (batch.size() < batchLimit) {
-                logger.info("Forward backfill complete. Received last batch of data.");
+            if (batch.size() < batchLimit)
                 break;
-            }
-
             try {
                 Thread.sleep(500);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                logger.warn("OKX forward backfill process was interrupted.");
                 break;
             }
         }
-        logger.info("Total historical klines forward-backfilled for {} @ {}: {}", symbol, timeframe, allData.size());
         return allData;
     }
 
@@ -247,7 +253,7 @@ public class OkxProvider implements DataProvider {
     public void disconnectFromLiveStream(String symbol, String timeframe, Consumer<KLine> onKLineUpdate) {
         LiveDataManager.getInstance().unsubscribeFromKLine(symbol, timeframe, onKLineUpdate);
     }
-    
+
     @Override
     public void connectToTradeStream(String symbol, Consumer<TradeTick> onTradeUpdate) {
         LiveDataManager.getInstance().subscribeToTrades(symbol, onTradeUpdate);
@@ -257,7 +263,7 @@ public class OkxProvider implements DataProvider {
     public void disconnectFromTradeStream(String symbol, Consumer<TradeTick> onTradeUpdate) {
         LiveDataManager.getInstance().unsubscribeFromTrades(symbol, onTradeUpdate);
     }
-    
+
     private static class OkxInstrumentData {
         String instId;
         String baseCcy;

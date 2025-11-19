@@ -27,9 +27,9 @@ import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 /**
- * An implementation of DataProvider for fetching data from the Binance exchange.
- * It uses the REST API for historical data and symbol lists, and delegates
- * live streaming to the LiveDataManager.
+ * An implementation of DataProvider for fetching data from the Binance
+ * exchange.
+ * Uses REST API for history/symbols and LiveDataManager for streaming.
  */
 public class BinanceProvider implements DataProvider {
 
@@ -40,9 +40,12 @@ public class BinanceProvider implements DataProvider {
             .build();
     private static final Gson gson = new Gson();
 
-    /**
-     * DTO for parsing 24h ticker data.
-     */
+    // [FIX] Removed "1s" from supported list
+    private static final List<String> BINANCE_TIMEFRAMES = List.of(
+            "1m", "3m", "5m", "15m", "30m",
+            "1H", "2H", "4H", "6H", "8H", "12H",
+            "1D", "3D", "1W", "1M");
+
     public static class TickerData {
         public String symbol;
         public String priceChange;
@@ -70,18 +73,18 @@ public class BinanceProvider implements DataProvider {
 
             String jsonBody = response.body().string();
             JsonObject root = JsonParser.parseString(jsonBody).getAsJsonObject();
-            Type listType = new TypeToken<List<BinanceSymbolData>>() {}.getType();
+            Type listType = new TypeToken<List<BinanceSymbolData>>() {
+            }.getType();
             List<BinanceSymbolData> binanceSymbols = gson.fromJson(root.get("symbols"), listType);
 
             List<ChartDataSource> sources = binanceSymbols.stream()
-                    .filter(s -> "TRADING".equals(s.status) && s.quoteAsset.equals("USDT")) // Filter for trading USDT pairs
+                    .filter(s -> "TRADING".equals(s.status) && s.quoteAsset.equals("USDT"))
                     .map(s -> new ChartDataSource(
                             getProviderName(),
-                            s.symbol.toLowerCase(), // e.g. "btcusdt"
-                            s.baseAsset + "/" + s.quoteAsset, // e.g. "BTC/USDT"
-                            null, // No local DB path for a live provider
-                            List.of("1m", "5m", "15m", "30m", "1H", "4H", "1D")
-                    ))
+                            s.symbol.toLowerCase(),
+                            s.baseAsset + "/" + s.quoteAsset,
+                            null,
+                            BINANCE_TIMEFRAMES))
                     .collect(Collectors.toList());
 
             logger.info("Successfully loaded {} tradable USDT symbols from Binance.", sources.size());
@@ -120,16 +123,18 @@ public class BinanceProvider implements DataProvider {
         }
     }
 
-    public List<KLine> getHistoricalData(String symbol, String timeframe, int limit, Long startTimeMillis, Long endTimeMillis) throws IOException {
+    public List<KLine> getHistoricalData(String symbol, String timeframe, int limit, Long startTimeMillis,
+            Long endTimeMillis) throws IOException {
         String binanceSymbol = BinanceDataUtils.toBinanceSymbol(symbol).toUpperCase();
         String binanceInterval = BinanceDataUtils.toBinanceInterval(timeframe);
-        
+
         StringBuilder urlBuilder = new StringBuilder(String.format("%s/klines?symbol=%s&interval=%s&limit=%d",
                 API_BASE_URL, binanceSymbol, binanceInterval, limit));
-        if (startTimeMillis != null) {
+
+        if (startTimeMillis != null && startTimeMillis > 0) {
             urlBuilder.append("&startTime=").append(startTimeMillis);
         }
-        if (endTimeMillis != null) {
+        if (endTimeMillis != null && endTimeMillis > 0) {
             urlBuilder.append("&endTime=").append(endTimeMillis);
         }
         String url = urlBuilder.toString();
@@ -145,19 +150,19 @@ public class BinanceProvider implements DataProvider {
             }
 
             String jsonBody = response.body().string();
-            Type listType = new TypeToken<List<List<Object>>>() {}.getType();
+            Type listType = new TypeToken<List<List<Object>>>() {
+            }.getType();
             List<List<Object>> rawData = gson.fromJson(jsonBody, listType);
 
             List<KLine> klineDataList = new ArrayList<>();
             for (List<Object> rawBar : rawData) {
                 klineDataList.add(new KLine(
-                    Instant.ofEpochMilli(((Number) rawBar.get(0)).longValue()),
-                    new BigDecimal((String) rawBar.get(1)),
-                    new BigDecimal((String) rawBar.get(2)),
-                    new BigDecimal((String) rawBar.get(3)),
-                    new BigDecimal((String) rawBar.get(4)),
-                    new BigDecimal((String) rawBar.get(5))
-                ));
+                        Instant.ofEpochMilli(((Number) rawBar.get(0)).longValue()),
+                        new BigDecimal((String) rawBar.get(1)),
+                        new BigDecimal((String) rawBar.get(2)),
+                        new BigDecimal((String) rawBar.get(3)),
+                        new BigDecimal((String) rawBar.get(4)),
+                        new BigDecimal((String) rawBar.get(5))));
             }
             return klineDataList;
         }
@@ -167,7 +172,6 @@ public class BinanceProvider implements DataProvider {
     public List<TradeTick> getHistoricalTrades(String symbol, long startTimeMillis, int limit) {
         String binanceSymbol = BinanceDataUtils.toBinanceSymbol(symbol).toUpperCase();
         String url = String.format("%s/historicalTrades?symbol=%s&limit=%d", API_BASE_URL, binanceSymbol, limit);
-        logger.warn("Fetching historical trades is a demo implementation and requires an API key in the header for full functionality.");
         Request request = new Request.Builder().url(url).build();
 
         try (Response response = client.newCall(request).execute()) {
@@ -175,7 +179,8 @@ public class BinanceProvider implements DataProvider {
                 return Collections.emptyList();
             }
             String jsonBody = response.body().string();
-            Type listType = new TypeToken<List<BinanceTradeData>>() {}.getType();
+            Type listType = new TypeToken<List<BinanceTradeData>>() {
+            }.getType();
             List<BinanceTradeData> rawTrades = gson.fromJson(jsonBody, listType);
 
             return rawTrades.stream()
@@ -183,8 +188,7 @@ public class BinanceProvider implements DataProvider {
                             Instant.ofEpochMilli(trade.time),
                             new BigDecimal(trade.price),
                             new BigDecimal(trade.qty),
-                            !trade.isBuyerMaker ? "buy" : "sell"
-                    ))
+                            !trade.isBuyerMaker ? "buy" : "sell"))
                     .collect(Collectors.toList());
         } catch (IOException e) {
             logger.error("Network error fetching historical trades for {}", symbol, e);
@@ -197,7 +201,8 @@ public class BinanceProvider implements DataProvider {
         long currentStartTime = startTimeMillis;
         final int batchLimit = 1000;
 
-        logger.info("Starting historical data backfill for {} @ {} from {}", symbol, timeframe, Instant.ofEpochMilli(startTimeMillis));
+        logger.info("Starting historical data backfill for {} @ {} from {}", symbol, timeframe,
+                Instant.ofEpochMilli(startTimeMillis));
 
         while (true) {
             int retries = 3;
@@ -205,39 +210,31 @@ public class BinanceProvider implements DataProvider {
             while (retries > 0) {
                 try {
                     batch = getHistoricalData(symbol, timeframe, batchLimit, currentStartTime, null);
-                    break; 
+                    break;
                 } catch (IOException e) {
                     retries--;
-                    logger.warn("Retry {}/3 for backfill due to: {}. Retrying in 2s...", (3 - retries), e.getMessage());
-                    try { Thread.sleep(2000); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); break; }
+                    try {
+                        Thread.sleep(2000);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
                 }
             }
 
-            if (batch == null || batch.isEmpty()) {
-                logger.info("Backfill complete. No more data returned from API or retries failed.");
+            if (batch == null || batch.isEmpty())
                 break;
-            }
-            
             allData.addAll(batch);
-            
             currentStartTime = batch.get(batch.size() - 1).timestamp().toEpochMilli() + 1;
-            logger.debug("Fetched batch of {} candles. Next fetch starts at {}.", batch.size(), Instant.ofEpochMilli(currentStartTime));
-
-            if (batch.size() < batchLimit) {
-                logger.info("Backfill complete. Received last batch of data.");
+            if (batch.size() < batchLimit)
                 break;
-            }
-
             try {
                 Thread.sleep(500);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                logger.warn("Backfill process was interrupted.");
                 break;
             }
         }
-        
-        logger.info("Total historical klines backfilled for {} @ {}: {}", symbol, timeframe, allData.size());
         return allData;
     }
 
@@ -267,7 +264,7 @@ public class BinanceProvider implements DataProvider {
         String baseAsset;
         String quoteAsset;
     }
-    
+
     private static class BinanceTradeData {
         long id, time;
         String price, qty;
