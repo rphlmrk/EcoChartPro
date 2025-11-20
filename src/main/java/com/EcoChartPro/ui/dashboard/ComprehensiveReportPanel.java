@@ -35,7 +35,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
-// [FIX] Added 'implements Scrollable'
 public class ComprehensiveReportPanel extends JPanel implements PropertyChangeListener, Scrollable {
     private static final Logger logger = LoggerFactory.getLogger(ComprehensiveReportPanel.class);
 
@@ -356,6 +355,10 @@ public class ComprehensiveReportPanel extends JPanel implements PropertyChangeLi
         int optimal = GamificationService.getInstance().getOptimalTradeCount();
         disciplineWidget.setOverallData(trades.size(), optimal);
 
+        // [FIX] Update the Streak Panel with the latest data
+        streakPanel.updateViewModel(GamificationService.getInstance().getLatestProgressViewModel());
+
+        // Update Coaching models
         coachingModels.clear();
         GamificationService.getInstance().getActiveDailyChallenge().ifPresent(challenge -> {
             if (!challenge.isComplete()) {
@@ -396,8 +399,6 @@ public class ComprehensiveReportPanel extends JPanel implements PropertyChangeLi
         }
     }
 
-    // --- Scrollable Implementation ---
-
     @Override
     public Dimension getPreferredScrollableViewportSize() {
         return getPreferredSize();
@@ -405,7 +406,7 @@ public class ComprehensiveReportPanel extends JPanel implements PropertyChangeLi
 
     @Override
     public int getScrollableUnitIncrement(Rectangle visibleRect, int orientation, int direction) {
-        return 40;
+        return 40; // Faster scrolling
     }
 
     @Override
@@ -415,7 +416,7 @@ public class ComprehensiveReportPanel extends JPanel implements PropertyChangeLi
 
     @Override
     public boolean getScrollableTracksViewportWidth() {
-        return true; // Force panel to match viewport width (essential for resizing)
+        return true;
     }
 
     @Override

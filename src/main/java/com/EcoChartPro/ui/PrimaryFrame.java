@@ -75,16 +75,15 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
         this.reportPanelContainer = createAnalysisReportPanel();
         this.reportPanelContainer.setVisible(false); // Hide until data is loaded
 
-        // [FIX] Use a ScrollablePanel instead of a raw JPanel.
-        // This forces the width to track the viewport, fixing the resize issue.
+        // Use a ScrollablePanel to force width tracking
         JPanel homeContainerPanel = new ScrollablePanel(new BorderLayout());
         homeContainerPanel.add(splashPanel, BorderLayout.NORTH);
         homeContainerPanel.add(this.reportPanelContainer, BorderLayout.CENTER);
 
         JScrollPane homeScrollPane = new JScrollPane(homeContainerPanel);
         homeScrollPane.setBorder(null);
-        homeScrollPane.getVerticalScrollBar().setUnitIncrement(16);
-        // [FIX] Horizontal scroll policy MUST be NEVER to force GridBagLayout to reflow
+        // [FIX] Increase scroll speed here
+        homeScrollPane.getVerticalScrollBar().setUnitIncrement(40);
         homeScrollPane.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
 
         mainContentPanel.add(homeScrollPane, "HOME");
@@ -100,7 +99,7 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
         liveContext.getUndoManager().addPropertyChangeListener(this);
     }
 
-    // [FIX] Inner class to handle Scrollable interface correctly
+    // [FIX] Updated ScrollablePanel to return a larger unit increment
     private static class ScrollablePanel extends JPanel implements Scrollable {
         public ScrollablePanel(LayoutManager layout) {
             super(layout);
@@ -113,17 +112,17 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
 
         @Override
         public int getScrollableUnitIncrement(Rectangle visibleRect, int orientation, int direction) {
-            return 16;
+            return 40; // Increased from 16 for faster scrolling
         }
 
         @Override
         public int getScrollableBlockIncrement(Rectangle visibleRect, int orientation, int direction) {
-            return 16;
+            return 40;
         }
 
         @Override
         public boolean getScrollableTracksViewportWidth() {
-            return true; // This is the key line that forces resize!
+            return true;
         }
 
         @Override
@@ -131,8 +130,6 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
             return false;
         }
     }
-
-    // ... [Rest of the class remains exactly the same] ...
 
     public JMenuBar createHomeMenuBar() {
         JMenuBar menuBar = new JMenuBar();
@@ -270,7 +267,6 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
         } else if (titleBarManager.getLiveNavButton().isSelected()) {
             return liveContext;
         }
-        // Default to live context if Home is selected but a choice needs to be made
         return liveContext;
     }
 
@@ -318,7 +314,6 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
             }
             updateAnalysisReport();
         } else if ("stateChanged".equals(evt.getPropertyName())) {
-            // Check source to ensure we're updating for the correct context
             if (evt.getSource() == getActiveContext().getUndoManager()) {
                 updateUndoRedoState();
             }

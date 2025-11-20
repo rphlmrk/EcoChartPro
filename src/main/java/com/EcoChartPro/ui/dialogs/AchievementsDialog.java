@@ -9,7 +9,8 @@ import java.awt.*;
 import java.util.List;
 
 /**
- * A dialog window that displays all available achievements and their current locked/unlocked state.
+ * A dialog window that displays all available achievements and their current
+ * locked/unlocked state.
  */
 public class AchievementsDialog extends JDialog {
 
@@ -17,18 +18,16 @@ public class AchievementsDialog extends JDialog {
         super(owner, "Achievements & Goals", true);
         setSize(850, 600);
         setLocationRelativeTo(owner);
-        // Switched to GridBagLayout for more reliable component placement.
         setLayout(new GridBagLayout());
 
         GamificationService gamificationService = GamificationService.getInstance();
         ProfileHeaderPanel profileHeader = new ProfileHeaderPanel();
         GamificationService.XpProgress progress = gamificationService.getCurrentLevelXpProgress();
         profileHeader.updateData(
-            gamificationService.getCurrentLevel(),
-            gamificationService.getLevelTitle(gamificationService.getCurrentLevel()),
-            progress.currentXpInLevel(),
-            progress.requiredXpForLevel()
-        );
+                gamificationService.getCurrentLevel(),
+                gamificationService.getLevelTitle(gamificationService.getCurrentLevel()),
+                progress.currentXpInLevel(),
+                progress.requiredXpForLevel());
 
         AchievementService achievementService = AchievementService.getInstance();
         List<Achievement> allAchievements = achievementService.getAllAchievements();
@@ -51,9 +50,10 @@ public class AchievementsDialog extends JDialog {
         scrollPane.setBorder(BorderFactory.createEmptyBorder(0, 15, 0, 0));
         scrollPane.getViewport().setOpaque(false);
         scrollPane.setOpaque(false);
-        scrollPane.getVerticalScrollBar().setUnitIncrement(16);
-        
-        // Use GridBagConstraints to correctly position the header and the list.
+
+        // [FIX] Increased unit increment for faster scrolling (was 16)
+        scrollPane.getVerticalScrollBar().setUnitIncrement(40);
+
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.gridx = 0;
         gbc.gridy = 0;
@@ -68,17 +68,13 @@ public class AchievementsDialog extends JDialog {
         add(scrollPane, gbc);
     }
 
-    /**
-     * A custom ListCellRenderer that uses AchievementPanel to display each item.
-     * It wraps the panel to provide spacing, creating a grid-like gap.
-     */
     private static class AchievementCellRenderer implements ListCellRenderer<Achievement> {
         @Override
         public Component getListCellRendererComponent(JList<? extends Achievement> list,
-                                                      Achievement achievement,
-                                                      int index,
-                                                      boolean isSelected,
-                                                      boolean cellHasFocus) {
+                Achievement achievement,
+                int index,
+                boolean isSelected,
+                boolean cellHasFocus) {
             AchievementService service = AchievementService.getInstance();
             boolean isUnlocked = service.isUnlocked(achievement.id());
             AchievementPanel panel = new AchievementPanel(achievement, isUnlocked);
