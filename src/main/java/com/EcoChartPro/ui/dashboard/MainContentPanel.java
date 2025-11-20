@@ -9,9 +9,7 @@ import org.slf4j.LoggerFactory;
 
 import javax.swing.*;
 import java.awt.*;
-import java.io.File;
 import java.io.IOException;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -20,18 +18,19 @@ public class MainContentPanel extends JPanel {
 
     private static final Logger logger = LoggerFactory.getLogger(MainContentPanel.class);
     private final CardLayout cardLayout = new CardLayout();
-    
+
     private final ReplayViewPanel replayViewPanel;
     private final LiveViewPanel liveViewPanel;
 
-    // [MODIFIED] Define the preferred size as a field.
-    // This is the SINGLE place to control the dashboard's default launch size.
     private final Dimension defaultDashboardSize = new Dimension(740, 680);
 
     public MainContentPanel(DashboardViewPanel dashboardViewPanel) {
         setOpaque(false);
         setLayout(cardLayout);
-        
+
+        // [FIX] Set size in constructor instead of overriding getPreferredSize
+        setPreferredSize(defaultDashboardSize);
+
         this.replayViewPanel = new ReplayViewPanel();
         this.liveViewPanel = new LiveViewPanel();
 
@@ -42,14 +41,8 @@ public class MainContentPanel extends JPanel {
         add(this.liveViewPanel, "LIVE");
     }
 
-    // [MODIFIED] Override getPreferredSize to enforce our desired default dimensions.
-    // This is more robust than setPreferredSize() as it cannot be overridden
-    // by the panel's internal layout manager.
-    @Override
-    public Dimension getPreferredSize() {
-        return defaultDashboardSize;
-    }
-    
+    // [FIX] Removed @Override getPreferredSize() to allow dynamic resizing
+
     public ReplayViewPanel getReplayViewPanel() {
         return replayViewPanel;
     }
@@ -63,14 +56,16 @@ public class MainContentPanel extends JPanel {
     }
 
     public void refreshWithLastSession() {
-        // [MODIFIED] Load REPLAY session data using the replay-specific method
+        // Load REPLAY session data using the replay-specific method
         Optional<ReplaySessionState> lastReplayStateOpt = SessionManager.getInstance().getLatestReplaySessionState();
         if (lastReplayStateOpt.isPresent()) {
             ReplaySessionState lastLoadedState = lastReplayStateOpt.get();
-            if (lastLoadedState != null && lastLoadedState.symbolStates() != null && !lastLoadedState.symbolStates().isEmpty()) {
+            if (lastLoadedState != null && lastLoadedState.symbolStates() != null
+                    && !lastLoadedState.symbolStates().isEmpty()) {
                 List<Trade> allTradesInSession = new ArrayList<>();
                 lastLoadedState.symbolStates().values().forEach(s -> {
-                    if (s.tradeHistory() != null) allTradesInSession.addAll(s.tradeHistory());
+                    if (s.tradeHistory() != null)
+                        allTradesInSession.addAll(s.tradeHistory());
                 });
 
                 if (!allTradesInSession.isEmpty()) {
@@ -93,17 +88,5 @@ public class MainContentPanel extends JPanel {
             logger.info("No last live session found to auto-load.");
             liveViewPanel.getReportPanel().updateData(null); // Clear the panel
         }
-    }
-    
-    private JPanel createPlaceholderPanel(String text) {
-        JPanel panel = new JPanel(new GridBagLayout());
-        panel.setOpaque(false);
-        
-        JLabel label = new JLabel(text);
-        label.setFont(UIManager.getFont("app.font.heading"));
-        label.setForeground(UIManager.getColor("Label.foreground"));
-        panel.add(label);
-        
-        return panel;
     }
 }

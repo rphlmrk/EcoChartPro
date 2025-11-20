@@ -29,30 +29,31 @@ public class ReplayViewPanel extends JPanel {
         scrollPane.setOpaque(false);
         scrollPane.getViewport().setOpaque(false);
         scrollPane.setBorder(null);
-        scrollPane.getVerticalScrollBar().setUnitIncrement(16);
+        // [FIX] Increased unit increment
+        scrollPane.getVerticalScrollBar().setUnitIncrement(40);
         scrollPane.getVerticalScrollBar().setUI(new com.formdev.flatlaf.ui.FlatScrollBarUI());
 
         add(scrollPane, BorderLayout.CENTER);
     }
-    
+
     public ComprehensiveReportPanel getReportPanel() {
         return reportView;
     }
-    
+
     public void updateData(ReplaySessionState state) {
         if (state == null || state.symbolStates() == null || state.symbolStates().isEmpty()) {
             return;
         }
 
         List<Trade> allTradesInSession = state.symbolStates().values().stream()
-            .flatMap(symbolState -> {
-                if (symbolState.tradeHistory() != null) {
-                    return symbolState.tradeHistory().stream();
-                }
-                return null;
-            })
-            .filter(java.util.Objects::nonNull)
-            .collect(Collectors.toList());
+                .flatMap(symbolState -> {
+                    if (symbolState.tradeHistory() != null) {
+                        return symbolState.tradeHistory().stream();
+                    }
+                    return null;
+                })
+                .filter(java.util.Objects::nonNull)
+                .collect(Collectors.toList());
 
         if (allTradesInSession.isEmpty()) {
             return;
@@ -60,11 +61,12 @@ public class ReplayViewPanel extends JPanel {
 
         JournalAnalysisService service = new JournalAnalysisService();
         BigDecimal totalPnl = allTradesInSession.stream()
-            .map(Trade::profitAndLoss)
-            .reduce(BigDecimal.ZERO, BigDecimal::add);
+                .map(Trade::profitAndLoss)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal initialBalance = state.accountBalance().subtract(totalPnl);
-        
-        JournalAnalysisService.OverallStats stats = service.analyzeOverallPerformance(allTradesInSession, initialBalance);
+
+        JournalAnalysisService.OverallStats stats = service.analyzeOverallPerformance(allTradesInSession,
+                initialBalance);
         reportView.updateData(stats, service, state);
     }
 

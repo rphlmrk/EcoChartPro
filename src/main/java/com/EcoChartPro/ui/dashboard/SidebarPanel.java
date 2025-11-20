@@ -1,9 +1,5 @@
 package com.EcoChartPro.ui.dashboard;
 
-import com.EcoChartPro.core.controller.LiveSessionTrackerService;
-import com.EcoChartPro.core.trading.PaperTradingService;
-import com.EcoChartPro.core.trading.SessionType;
-
 import javax.swing.*;
 import java.awt.*;
 import java.awt.geom.RoundRectangle2D;
@@ -11,23 +7,18 @@ import java.beans.PropertyChangeListener;
 import java.beans.PropertyChangeSupport;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.Set;
 
 public class SidebarPanel extends JPanel {
 
     private final MainContentPanel mainContentPanel;
-    private final DashboardFrame.BackgroundLayeredPane backgroundPane;
     private final Map<String, String> viewTabs = new LinkedHashMap<>();
     private final ButtonGroup navigationGroup = new ButtonGroup();
     private JToggleButton selectedButton;
-    private PropertyChangeSupport pcs; // Initialized in constructor
+    private PropertyChangeSupport pcs;
 
-    public SidebarPanel(MainContentPanel mainContentPanel, DashboardFrame.BackgroundLayeredPane backgroundPane) {
-        // Super() is called implicitly here. UI delegate might call addPropertyChangeListener.
+    // [FIX] Constructor no longer takes backgroundPane
+    public SidebarPanel(MainContentPanel mainContentPanel) {
         this.mainContentPanel = mainContentPanel;
-        this.backgroundPane = backgroundPane;
-
-        // Initialize pcs after super() has completed.
         this.pcs = new PropertyChangeSupport(this);
 
         setOpaque(false);
@@ -36,32 +27,29 @@ public class SidebarPanel extends JPanel {
         viewTabs.put("DASHBOARD", "Dashboard");
         viewTabs.put("LIVE", "Live market");
         viewTabs.put("REPLAY", "Replay Mode");
-        
+
         boolean isFirst = true;
         for (Map.Entry<String, String> entry : viewTabs.entrySet()) {
             add(createNavigationTab(entry.getValue(), entry.getKey(), isFirst));
             isFirst = false;
         }
     }
-    
+
     @Override
     public void addPropertyChangeListener(PropertyChangeListener listener) {
-        // Guard against calls from the UI delegate during super() constructor execution.
-        if (pcs != null) {
+        if (pcs != null)
             pcs.addPropertyChangeListener(listener);
-        }
     }
 
     @Override
     public void removePropertyChangeListener(PropertyChangeListener listener) {
-        if (pcs != null) {
+        if (pcs != null)
             pcs.removePropertyChangeListener(listener);
-        }
     }
 
     private JToggleButton createNavigationTab(String text, String viewName, boolean selected) {
         JToggleButton button = new JToggleButton(text, selected);
-        button.setActionCommand(viewName); // Use action command to identify the button
+        button.setActionCommand(viewName);
         button.setFocusPainted(false);
         button.setBorderPainted(false);
         button.setContentAreaFilled(false);
@@ -80,21 +68,17 @@ public class SidebarPanel extends JPanel {
         button.addActionListener(e -> {
             selectedButton = button;
             mainContentPanel.switchToView(viewName);
-            backgroundPane.updateBackgroundImage(viewName);
-
-            // This logic is now redundant here as it's handled in DashboardFrame's propertyChange
-            // SessionType type = "LIVE".equals(viewName) ? SessionType.LIVE : SessionType.REPLAY;
-            // PaperTradingService.getInstance().setActiveSessionType(type);
-            // LiveSessionTrackerService.getInstance().setActiveSessionType(type);
+            // [FIX] Removed backgroundPane.updateBackgroundImage(viewName);
 
             for (Component comp : getComponents()) {
                 if (comp instanceof AbstractButton) {
                     AbstractButton btn = (AbstractButton) comp;
-                    btn.setForeground(btn.isSelected() ? UIManager.getColor("Button.foreground") : UIManager.getColor("Button.disabledText"));
+                    btn.setForeground(btn.isSelected() ? UIManager.getColor("Button.foreground")
+                            : UIManager.getColor("Button.disabledText"));
                 }
             }
             repaint();
-            
+
             pcs.firePropertyChange("viewSwitched", null, viewName);
         });
 
@@ -102,15 +86,11 @@ public class SidebarPanel extends JPanel {
         return button;
     }
 
-    /**
-     * [NEW] Programmatically sets the active view by simulating a click on the corresponding button.
-     * @param viewName The key of the view to activate (e.g., "LIVE", "REPLAY").
-     */
     public void setActiveView(String viewName) {
         for (Component comp : getComponents()) {
             if (comp instanceof JToggleButton button) {
                 if (viewName.equals(button.getActionCommand())) {
-                    button.doClick(); // This will trigger the action listener and all associated logic.
+                    button.doClick();
                     break;
                 }
             }
@@ -127,7 +107,7 @@ public class SidebarPanel extends JPanel {
         Color transparentBg = new Color(bgColor.getRed(), bgColor.getGreen(), bgColor.getBlue(), 220);
         g2d.setColor(transparentBg);
         g2d.fill(new RoundRectangle2D.Float(0, 0, getWidth(), getHeight(), 50, 50));
-        
+
         if (selectedButton != null) {
             Rectangle bounds = selectedButton.getBounds();
             g2d.setColor(UIManager.getColor("Component.focusedBorderColor"));
@@ -136,19 +116,6 @@ public class SidebarPanel extends JPanel {
 
         g2d.dispose();
     }
-    
-    public Set<String> getBackgroundKeys() {
-        return viewTabs.keySet();
-    }
-    
-    public String getSelectedViewKey() {
-        if (selectedButton != null) {
-            for (Map.Entry<String, String> entry : viewTabs.entrySet()) {
-                if (entry.getValue().equals(selectedButton.getText())) {
-                    return entry.getKey();
-                }
-            }
-        }
-        return "DASHBOARD"; // Fallback
-    }
+
+    // [FIX] Removed getBackgroundKeys() method
 }

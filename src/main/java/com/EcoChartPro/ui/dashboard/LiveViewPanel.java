@@ -21,7 +21,8 @@ public class LiveViewPanel extends JPanel implements PropertyChangeListener {
         scrollPane.setOpaque(false);
         scrollPane.getViewport().setOpaque(false);
         scrollPane.setBorder(null);
-        scrollPane.getVerticalScrollBar().setUnitIncrement(16);
+        // [FIX] Increased unit increment
+        scrollPane.getVerticalScrollBar().setUnitIncrement(40);
         scrollPane.getVerticalScrollBar().setUI(new com.formdev.flatlaf.ui.FlatScrollBarUI());
         add(scrollPane, BorderLayout.CENTER);
     }
@@ -34,7 +35,7 @@ public class LiveViewPanel extends JPanel implements PropertyChangeListener {
     public ComprehensiveReportPanel getReportPanel() {
         return reportPanel;
     }
-    
+
     private JPanel createHeaderPanel() {
         JPanel headerPanel = new JPanel(new BorderLayout());
         headerPanel.setOpaque(false);

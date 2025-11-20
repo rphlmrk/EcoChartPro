@@ -42,15 +42,14 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
     private final JPanel reportPanelContainer;
     private ReplaySessionState lastReplayState;
     private ReplaySessionState lastLiveState;
-    
+
     // --- Menu Items ---
     private JMenuItem undoMenuItem;
     private JMenuItem redoMenuItem;
 
-
     public PrimaryFrame() {
         setUndecorated(true);
-        
+
         setTitle("Eco Chart Pro");
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setSize(1220, 720);
@@ -62,12 +61,11 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
         liveContext = new WorkspaceContext();
 
         this.titleBarManager = new TitleBarManager(this);
-        // [MODIFIED] TitleBarManager now controls menu creation. We just set the initial one.
         this.titleBarManager.setMenuBar(createHomeMenuBar());
 
         replayWorkspacePanel = new ChartWorkspacePanel(this, true, replayContext);
         liveWorkspacePanel = new ChartWorkspacePanel(this, false, liveContext);
-        
+
         boolean isConnected = InternetConnectivityService.getInstance().isConnected();
         liveWorkspacePanel.setOfflineMode(!isConnected);
 
@@ -77,28 +75,64 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
         this.reportPanelContainer = createAnalysisReportPanel();
         this.reportPanelContainer.setVisible(false); // Hide until data is loaded
 
-        JPanel homeContainerPanel = new JPanel(new BorderLayout());
+        // [FIX] Use a ScrollablePanel instead of a raw JPanel.
+        // This forces the width to track the viewport, fixing the resize issue.
+        JPanel homeContainerPanel = new ScrollablePanel(new BorderLayout());
         homeContainerPanel.add(splashPanel, BorderLayout.NORTH);
         homeContainerPanel.add(this.reportPanelContainer, BorderLayout.CENTER);
-        
+
         JScrollPane homeScrollPane = new JScrollPane(homeContainerPanel);
         homeScrollPane.setBorder(null);
         homeScrollPane.getVerticalScrollBar().setUnitIncrement(16);
+        // [FIX] Horizontal scroll policy MUST be NEVER to force GridBagLayout to reflow
+        homeScrollPane.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
 
         mainContentPanel.add(homeScrollPane, "HOME");
         mainContentPanel.add(replayWorkspacePanel, "REPLAY");
         mainContentPanel.add(liveWorkspacePanel, "LIVE");
-        
+
         add(titleBarManager, BorderLayout.NORTH);
         add(mainContentPanel, BorderLayout.CENTER);
-        
+
         replayContext.getSessionTracker().addPropertyChangeListener(this);
         liveContext.getSessionTracker().addPropertyChangeListener(this);
         replayContext.getUndoManager().addPropertyChangeListener(this);
         liveContext.getUndoManager().addPropertyChangeListener(this);
     }
-    
-    // [NEW] Public methods for TitleBarManager to build context-aware menus
+
+    // [FIX] Inner class to handle Scrollable interface correctly
+    private static class ScrollablePanel extends JPanel implements Scrollable {
+        public ScrollablePanel(LayoutManager layout) {
+            super(layout);
+        }
+
+        @Override
+        public Dimension getPreferredScrollableViewportSize() {
+            return getPreferredSize();
+        }
+
+        @Override
+        public int getScrollableUnitIncrement(Rectangle visibleRect, int orientation, int direction) {
+            return 16;
+        }
+
+        @Override
+        public int getScrollableBlockIncrement(Rectangle visibleRect, int orientation, int direction) {
+            return 16;
+        }
+
+        @Override
+        public boolean getScrollableTracksViewportWidth() {
+            return true; // This is the key line that forces resize!
+        }
+
+        @Override
+        public boolean getScrollableTracksViewportHeight() {
+            return false;
+        }
+    }
+
+    // ... [Rest of the class remains exactly the same] ...
 
     public JMenuBar createHomeMenuBar() {
         JMenuBar menuBar = new JMenuBar();
@@ -127,22 +161,22 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
     private JMenu createReplayFileMenu() {
         JMenu fileMenu = new JMenu("File");
         SessionController sc = SessionController.getInstance();
-    
+
         JMenuItem newReplayItem = new JMenuItem("New Replay Session...");
         newReplayItem.addActionListener(e -> sc.showNewReplaySessionDialog(this));
         fileMenu.add(newReplayItem);
-    
+
         JMenuItem loadReplayItem = new JMenuItem("Load Replay Session...");
         loadReplayItem.addActionListener(e -> sc.loadReplaySessionFromFile(this));
         fileMenu.add(loadReplayItem);
-        
+
         JMenuItem saveReplayItem = new JMenuItem("Save Replay Session As...");
         saveReplayItem.addActionListener(e -> sc.saveSessionWithUI(this, true, replayContext));
         fileMenu.add(saveReplayItem);
-        
+
         return fileMenu;
     }
-    
+
     private JMenu createLiveFileMenu() {
         JMenu fileMenu = new JMenu("File");
         SessionController sc = SessionController.getInstance();
@@ -150,38 +184,40 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
         JMenuItem newLiveItem = new JMenuItem("New Live Session...");
         newLiveItem.addActionListener(e -> sc.showNewLiveSessionDialog(this));
         fileMenu.add(newLiveItem);
-    
+
         JMenuItem loadLiveItem = new JMenuItem("Load Live Session...");
         loadLiveItem.addActionListener(e -> sc.loadLiveSessionFromFile(this));
         fileMenu.add(loadLiveItem);
-    
+
         JMenuItem saveLiveItem = new JMenuItem("Save Live Session As...");
         saveLiveItem.addActionListener(e -> sc.saveSessionWithUI(this, false, liveContext));
         fileMenu.add(saveLiveItem);
 
         return fileMenu;
     }
-    
+
     private JMenu createEditMenu() {
         JMenu editMenu = new JMenu("Edit");
         undoMenuItem = new JMenuItem("Undo");
-        undoMenuItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_Z, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+        undoMenuItem.setAccelerator(
+                KeyStroke.getKeyStroke(KeyEvent.VK_Z, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
         undoMenuItem.addActionListener(e -> getActiveContext().getUndoManager().undo());
-        
+
         redoMenuItem = new JMenuItem("Redo");
         boolean isMac = System.getProperty("os.name").toLowerCase().contains("mac");
         KeyStroke redoKeyStroke = isMac
-            ? KeyStroke.getKeyStroke(KeyEvent.VK_Z, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK)
-            : KeyStroke.getKeyStroke(KeyEvent.VK_Y, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+                ? KeyStroke.getKeyStroke(KeyEvent.VK_Z,
+                        Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK)
+                : KeyStroke.getKeyStroke(KeyEvent.VK_Y, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
         redoMenuItem.setAccelerator(redoKeyStroke);
         redoMenuItem.addActionListener(e -> getActiveContext().getUndoManager().redo());
-        
+
         editMenu.add(undoMenuItem);
         editMenu.add(redoMenuItem);
         updateUndoRedoState();
         return editMenu;
     }
-    
+
     private JMenu createToolsMenu() {
         JMenu toolsMenu = new JMenu("Tools");
 
@@ -192,7 +228,7 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
         JMenuItem marketplaceItem = new JMenuItem("Community Marketplace...");
         marketplaceItem.addActionListener(e -> getActiveWorkspacePanel().getUiManager().openMarketplaceDialog());
         toolsMenu.add(marketplaceItem);
-        
+
         toolsMenu.addSeparator();
 
         JMenuItem calculatorItem = new JMenuItem("Position Size Calculator...");
@@ -208,7 +244,7 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
         return toolsMenu;
     }
 
-    private JMenu createHelpMenu() { 
+    private JMenu createHelpMenu() {
         JMenu helpMenu = new JMenu("Help");
         JMenuItem aboutItem = new JMenuItem("About Eco Chart Pro");
         aboutItem.addActionListener(e -> new AboutDialog(this).setVisible(true));
@@ -217,7 +253,8 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
     }
 
     private void updateUndoRedoState() {
-        if (undoMenuItem == null || redoMenuItem == null) return;
+        if (undoMenuItem == null || redoMenuItem == null)
+            return;
         WorkspaceContext activeContext = getActiveContext();
         undoMenuItem.setEnabled(activeContext.getUndoManager().canUndo());
         redoMenuItem.setEnabled(activeContext.getUndoManager().canRedo());
@@ -227,7 +264,7 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
         if (titleBarManager == null || titleBarManager.getReplayNavButton() == null) {
             return liveContext;
         }
-        
+
         if (titleBarManager.getReplayNavButton().isSelected()) {
             return replayContext;
         } else if (titleBarManager.getLiveNavButton().isSelected()) {
@@ -247,7 +284,7 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
         }
         return liveWorkspacePanel;
     }
-    
+
     private JPanel createAnalysisReportPanel() {
         JPanel panel = new JPanel(new BorderLayout(0, 10));
         panel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
@@ -264,7 +301,7 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
         replayReportButton.addActionListener(reportSwitcher);
         liveReportButton.addActionListener(reportSwitcher);
         replayReportButton.setSelected(true);
-        
+
         panel.add(topPanel, BorderLayout.NORTH);
         panel.add(analysisReportPanel, BorderLayout.CENTER);
         return panel;
@@ -301,12 +338,31 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
         });
     }
 
-    public WorkspaceContext getReplayContext() { return replayContext; }
-    public WorkspaceContext getLiveContext() { return liveContext; }
-    public JPanel getMainContentPanel() { return mainContentPanel; }
-    public CardLayout getMainCardLayout() { return mainCardLayout; }
-    public TitleBarManager getTitleBarManager() { return this.titleBarManager; }
+    public WorkspaceContext getReplayContext() {
+        return replayContext;
+    }
 
-    public ChartWorkspacePanel getReplayWorkspacePanel() { return replayWorkspacePanel; }
-    public ChartWorkspacePanel getLiveWorkspacePanel() { return liveWorkspacePanel; }
+    public WorkspaceContext getLiveContext() {
+        return liveContext;
+    }
+
+    public JPanel getMainContentPanel() {
+        return mainContentPanel;
+    }
+
+    public CardLayout getMainCardLayout() {
+        return mainCardLayout;
+    }
+
+    public TitleBarManager getTitleBarManager() {
+        return this.titleBarManager;
+    }
+
+    public ChartWorkspacePanel getReplayWorkspacePanel() {
+        return replayWorkspacePanel;
+    }
+
+    public ChartWorkspacePanel getLiveWorkspacePanel() {
+        return liveWorkspacePanel;
+    }
 }
