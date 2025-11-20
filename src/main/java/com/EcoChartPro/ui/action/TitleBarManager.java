@@ -63,12 +63,13 @@ public class TitleBarManager extends JPanel {
                 new Shortcut(List.of("→"), "Next Bar"),
                 new Shortcut(List.of("Space"), "Play/Pause"),
                 new Shortcut(List.of(modKey, "Z"), "Undo"),
-                new Shortcut(List.of(modKey, redoShift, redoKey), "Redo"));
+                new Shortcut(List.of(modKey, "F"), "Search")); // Added Search to Replay as well for consistency
+
         liveShortcuts = List.of(
                 new Shortcut(List.of("B"), "Buy"),
                 new Shortcut(List.of("S"), "Sell"),
                 new Shortcut(List.of(modKey, "Z"), "Undo"),
-                new Shortcut(List.of(modKey, redoShift, redoKey), "Redo"));
+                new Shortcut(List.of(modKey, "F"), "Search")); // [ADDED] Search shortcut
 
         initializeUI();
         addDragListeners();

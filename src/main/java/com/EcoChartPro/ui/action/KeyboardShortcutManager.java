@@ -19,7 +19,8 @@ import java.awt.event.KeyEvent;
 import java.util.UUID;
 
 /**
- * Manages the registration of global keyboard shortcuts for the main application window.
+ * Manages the registration of global keyboard shortcuts for the main
+ * application window.
  */
 public class KeyboardShortcutManager {
 
@@ -52,20 +53,21 @@ public class KeyboardShortcutManager {
         this.timeframeInputTimer.setRepeats(false);
 
         // Initialize symbol search components and add listener for MOUSE clicks
-        this.symbolSearchDialog = new SymbolSearchDialog(owner.getFrameOwner(), owner.getReplayController().isPresent());
+        this.symbolSearchDialog = new SymbolSearchDialog(owner.getFrameOwner(),
+                owner.getReplayController().isPresent());
         this.symbolSearchDialog.addActionListener(e -> {
             if (e.getSource() instanceof ChartDataSource) {
                 owner.changeActiveSymbol((ChartDataSource) e.getSource());
             }
             clearSymbolSearch(); // Always clear on close/select
         });
-        
+
         // Make the timer's action mouse-aware and fix forward reference
         this.symbolSearchTimer = new Timer(3000, e -> {
             if (symbolSearchDialog.isVisible()) {
                 // Get the current mouse position on the screen
                 Point mousePos = MouseInfo.getPointerInfo().getLocation();
-                
+
                 // Get the dialog's bounds on the screen
                 Rectangle dialogBounds = symbolSearchDialog.getBounds();
                 dialogBounds.setLocation(symbolSearchDialog.getLocationOnScreen());
@@ -86,6 +88,20 @@ public class KeyboardShortcutManager {
     public void setup() {
         InputMap inputMap = rootComponent.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
         ActionMap actionMap = rootComponent.getActionMap();
+
+        // --- Search Symbol (Ctrl+F / Cmd+F) ---
+        inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_F, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()),
+                "searchSymbol");
+        actionMap.put("searchSymbol", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                if (owner.getActiveChartPanel() != null) {
+                    symbolSearchBuffer.setLength(0); // Clear buffer
+                    symbolSearchDialog.showDialog(owner.getActiveChartPanel(), "");
+                    symbolSearchTimer.restart();
+                }
+            }
+        });
 
         // --- Drawing Actions ---
         inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_DELETE, 0), "deleteDrawing");
@@ -116,6 +132,12 @@ public class KeyboardShortcutManager {
                 }
                 owner.getDrawingToolbar().clearSelection();
                 workspaceContext.getDrawingManager().setSelectedDrawingId(null); // [MODIFIED]
+
+                // Also close dialogs if open
+                if (symbolSearchDialog.isVisible())
+                    clearSymbolSearch();
+                if (timeframeInputDialog.isVisible())
+                    clearTimeframeInput();
             }
         });
 
@@ -136,7 +158,8 @@ public class KeyboardShortcutManager {
         });
 
         // --- Edit Actions ---
-        inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_Z, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()), "undo");
+        inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_Z, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()),
+                "undo");
         actionMap.put("undo", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
@@ -145,8 +168,9 @@ public class KeyboardShortcutManager {
         });
 
         KeyStroke redoKeyStroke = isMac
-            ? KeyStroke.getKeyStroke(KeyEvent.VK_Z, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK)
-            : KeyStroke.getKeyStroke(KeyEvent.VK_Y, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+                ? KeyStroke.getKeyStroke(KeyEvent.VK_Z,
+                        Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK)
+                : KeyStroke.getKeyStroke(KeyEvent.VK_Y, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
         inputMap.put(redoKeyStroke, "redo");
         actionMap.put("redo", new AbstractAction() {
             @Override
@@ -154,19 +178,23 @@ public class KeyboardShortcutManager {
                 workspaceContext.getUndoManager().redo(); // [MODIFIED]
             }
         });
-        
+
         // --- Global Key Event Dispatcher ---
         this.keyEventDispatcher = e -> {
             // Check if the panel is showing on screen before processing key events.
-            if (!owner.isShowing()) return false;
-            
+            if (!owner.isShowing())
+                return false;
+
             Component focused = e.getComponent();
-            if (focused instanceof JTextComponent) return false;
+            if (focused instanceof JTextComponent)
+                return false;
 
             ChartPanel activePanel = owner.getActiveChartPanel();
 
             if (e.getID() == KeyEvent.KEY_TYPED) {
                 char c = e.getKeyChar();
+
+                // 1. Handle input IF Symbol Search is ALREADY visible (from Ctrl+F)
                 if (symbolSearchDialog.isVisible()) {
                     if (Character.isLetterOrDigit(c) || c == '-' || c == '/') {
                         symbolSearchBuffer.append(c);
@@ -175,6 +203,8 @@ public class KeyboardShortcutManager {
                     }
                     return true;
                 }
+
+                // 2. Handle input IF Timeframe Input is ALREADY visible
                 if (timeframeInputDialog.isVisible()) {
                     String currentInput = timeframeInputBuffer.toString();
                     boolean hasUnit = currentInput.matches(".*[mhdMHD]$");
@@ -187,17 +217,18 @@ public class KeyboardShortcutManager {
                     timeframeInputTimer.restart();
                     return true;
                 }
+
+                // 3. Trigger Timeframe Input (Numbers ONLY)
                 if (Character.isDigit(c)) {
                     timeframeInputBuffer.append(c);
-                    if (activePanel != null) timeframeInputDialog.showDialog(activePanel, timeframeInputBuffer.toString());
+                    if (activePanel != null)
+                        timeframeInputDialog.showDialog(activePanel, timeframeInputBuffer.toString());
                     timeframeInputTimer.restart();
                     return true;
-                } else if (Character.isLetter(c)) {
-                    symbolSearchBuffer.append(c);
-                    if (activePanel != null) symbolSearchDialog.showDialog(activePanel, symbolSearchBuffer.toString());
-                    symbolSearchTimer.restart();
-                    return true;
                 }
+
+                // Note: Letters no longer trigger symbol search automatically.
+                // Ctrl+F must be used.
 
             } else if (e.getID() == KeyEvent.KEY_PRESSED) {
                 if (symbolSearchDialog.isVisible()) {
@@ -218,7 +249,8 @@ public class KeyboardShortcutManager {
                             return true;
                         case KeyEvent.VK_BACK_SPACE:
                             symbolSearchBuffer.setLength(Math.max(0, symbolSearchBuffer.length() - 1));
-                            if (symbolSearchBuffer.length() == 0) clearSymbolSearch();
+                            if (symbolSearchBuffer.length() == 0)
+                                clearSymbolSearch();
                             else {
                                 symbolSearchDialog.updateSearch(symbolSearchBuffer.toString());
                                 symbolSearchTimer.restart();
@@ -238,7 +270,8 @@ public class KeyboardShortcutManager {
                             return true;
                         case KeyEvent.VK_BACK_SPACE:
                             timeframeInputBuffer.setLength(Math.max(0, timeframeInputBuffer.length() - 1));
-                            if (timeframeInputBuffer.length() == 0) clearTimeframeInput();
+                            if (timeframeInputBuffer.length() == 0)
+                                clearTimeframeInput();
                             else {
                                 timeframeInputDialog.updateInputText(timeframeInputBuffer.toString());
                                 timeframeInputTimer.restart();
@@ -261,7 +294,7 @@ public class KeyboardShortcutManager {
         timeframeInputDialog.setVisible(false);
         timeframeInputTimer.stop();
     }
-    
+
     private void clearSymbolSearch() {
         symbolSearchBuffer.setLength(0);
         symbolSearchDialog.setVisible(false);
