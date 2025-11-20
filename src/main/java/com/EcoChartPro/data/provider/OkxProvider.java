@@ -36,6 +36,14 @@ public class OkxProvider implements DataProvider {
     private static final OkHttpClient client = new OkHttpClient();
     private static final Gson gson = new Gson();
 
+    // [MODIFIED] Removed "1s" from the list
+    private static final List<String> OKX_TIMEFRAMES = List.of(
+            "1m", "3m", "5m", "15m", "30m",
+            "1H", "2H", "4H", "6H", "12H",
+            "1D", "2D", "3D", "5D",
+            "1W",
+            "1M", "3M");
+
     @Override
     public String getProviderName() {
         return "OKX";
@@ -69,7 +77,7 @@ public class OkxProvider implements DataProvider {
                                 s.instId.toLowerCase(),
                                 displayName,
                                 null,
-                                List.of("1m", "5m", "15m", "30m", "1H", "4H", "1D"));
+                                OKX_TIMEFRAMES);
                     })
                     .collect(Collectors.toList());
 
