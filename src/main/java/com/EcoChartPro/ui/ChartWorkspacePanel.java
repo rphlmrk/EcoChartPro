@@ -28,6 +28,7 @@ import com.EcoChartPro.ui.action.KeyboardShortcutManager;
 import com.EcoChartPro.ui.action.TitleBarManager;
 import com.EcoChartPro.ui.chart.ChartPanel;
 import com.EcoChartPro.ui.components.CustomColorChooserPanel;
+import com.EcoChartPro.ui.components.LiveStatusBar; // [NEW]
 import com.EcoChartPro.ui.components.OnFireStreakWidget;
 import com.EcoChartPro.ui.components.ConnectionStatusWidget;
 import com.EcoChartPro.ui.components.StopTradingNudgeWidget;
@@ -67,6 +68,9 @@ public class ChartWorkspacePanel extends JPanel implements PropertyChangeListene
     private final StopTradingNudgeWidget stopTradingNudgeWidget;
     private final ConnectionStatusWidget connectionStatusWidget;
 
+    // [NEW] Bottom status bar for Live Mode
+    private LiveStatusBar liveStatusBar;
+
     // --- Controllers & Managers ---
     private ReplayController replayController;
     private ReplayControlPanel replayControlPanel;
@@ -99,7 +103,7 @@ public class ChartWorkspacePanel extends JPanel implements PropertyChangeListene
         this.onFireWidget = new OnFireStreakWidget();
         this.stopTradingNudgeWidget = new StopTradingNudgeWidget();
         this.connectionStatusWidget = new ConnectionStatusWidget();
-        
+
         JPanel northPanel = new JPanel(new BorderLayout());
         northPanel.add(this.topToolbarPanel, BorderLayout.CENTER);
 
@@ -121,6 +125,10 @@ public class ChartWorkspacePanel extends JPanel implements PropertyChangeListene
             tradingButtonsPanel.add(buyButton);
             tradingButtonsPanel.add(sellButton);
             northPanel.add(tradingButtonsPanel, BorderLayout.EAST);
+
+            // [NEW] Add Live Status Bar at the bottom for Live Mode
+            this.liveStatusBar = new LiveStatusBar();
+            mainContainerPanel.add(this.liveStatusBar, BorderLayout.SOUTH);
         }
         mainContainerPanel.add(northPanel, BorderLayout.NORTH);
 
@@ -129,17 +137,23 @@ public class ChartWorkspacePanel extends JPanel implements PropertyChangeListene
         } else {
             setupLiveMode();
         }
-        
+
         mainContainerPanel.add(workspaceManager.getChartAreaPanel(), BorderLayout.CENTER);
-        
+
         rootPanel.add(mainContainerPanel, JLayeredPane.DEFAULT_LAYER);
         rootPanel.add(onFireWidget, JLayeredPane.PALETTE_LAYER);
         rootPanel.add(stopTradingNudgeWidget, JLayeredPane.PALETTE_LAYER);
-        rootPanel.add(connectionStatusWidget, JLayeredPane.PALETTE_LAYER);
+        // Only add connection status widget (the large overlay) in Replay Mode or as a
+        // fallback
+        // In Live Mode, the status bar handles connection info.
+        if (isReplayMode) {
+            rootPanel.add(connectionStatusWidget, JLayeredPane.PALETTE_LAYER);
+        }
+
         add(rootPanel, BorderLayout.CENTER);
-        
+
         addPropertyChangeListeners();
-        
+
         this.keyboardShortcutManager = new KeyboardShortcutManager(rootPanel, this, this.workspaceContext);
         this.keyboardShortcutManager.setup();
 
@@ -151,7 +165,8 @@ public class ChartWorkspacePanel extends JPanel implements PropertyChangeListene
 
             @Override
             public void componentHidden(ComponentEvent e) {
-                // [FIX] When this workspace is hidden by CardLayout, hide its floating toolbars.
+                // [FIX] When this workspace is hidden by CardLayout, hide its floating
+                // toolbars.
                 drawingToolbar.setVisible(false);
                 propertiesToolbar.setVisible(false);
             }
@@ -175,9 +190,11 @@ public class ChartWorkspacePanel extends JPanel implements PropertyChangeListene
         }
         if (stopTradingNudgeWidget.isVisible()) {
             Dimension nudgeSize = stopTradingNudgeWidget.getPreferredSize();
-            stopTradingNudgeWidget.setBounds((rootPanel.getWidth() - nudgeSize.width) / 2, 20, nudgeSize.width, nudgeSize.height);
+            stopTradingNudgeWidget.setBounds((rootPanel.getWidth() - nudgeSize.width) / 2, 20, nudgeSize.width,
+                    nudgeSize.height);
         }
-        if (connectionStatusWidget.isVisible()) {
+        // Only position the large overlay widget if it's actually added (Replay mode)
+        if (connectionStatusWidget.isVisible() && connectionStatusWidget.getParent() == rootPanel) {
             ChartPanel activeChart = getActiveChartPanel();
             if (activeChart != null) {
                 Point chartPos = SwingUtilities.convertPoint(activeChart, 0, 0, rootPanel);
@@ -188,39 +205,35 @@ public class ChartWorkspacePanel extends JPanel implements PropertyChangeListene
             }
         }
     }
-    
+
     private void updateComponentLayouts() {
         if (rootPanel != null && mainContainerPanel != null) {
             mainContainerPanel.setBounds(0, 0, rootPanel.getWidth(), rootPanel.getHeight());
             if (drawingToolbar.isVisible()) {
-                drawingToolbar.updatePosition(SettingsService.getInstance().getDrawingToolbarPosition() == DrawingConfig.ToolbarPosition.LEFT
-                        ? FloatingDrawingToolbar.DockSide.LEFT
-                        : FloatingDrawingToolbar.DockSide.RIGHT);
+                drawingToolbar.updatePosition(
+                        SettingsService.getInstance().getDrawingToolbarPosition() == DrawingConfig.ToolbarPosition.LEFT
+                                ? FloatingDrawingToolbar.DockSide.LEFT
+                                : FloatingDrawingToolbar.DockSide.RIGHT);
             }
             repositionOverlayWidgets();
         }
     }
-    
+
     public void setOfflineMode(boolean isOffline) {
         if (isReplayMode) {
             return;
         }
 
+        // In Live Mode, the LiveStatusBar handles visual feedback.
+        // The large overlay widget is disabled for Live Mode to avoid redundancy.
         if (isOffline) {
-            // "No Internet" is the highest priority message.
-            connectionStatusWidget.showStatus(
-                "No Internet Connection. Live features disabled.",
-                UITheme.Icons.WIFI_OFF,
-                javax.swing.UIManager.getColor("app.color.negative")
-            );
-        } else {
-            // When internet returns, hide the banner. The LiveDataManager will
-            // shortly fire an event to update the status to CONNECTING/SYNCING/CONNECTED.
-            connectionStatusWidget.hideStatus();
+            // Optional: You could trigger a non-intrusive notification here if desired
         }
-        repositionOverlayWidgets();
+
+        // The status bar listens to connectivity events directly, so no manual update
+        // needed here.
     }
-    
+
     public void handleCloseRequest() {
         sessionController.handleWindowClose(this.owner, isReplayMode, this.workspaceContext);
     }
@@ -228,9 +241,12 @@ public class ChartWorkspacePanel extends JPanel implements PropertyChangeListene
     private void addPropertyChangeListeners() {
         SettingsService.getInstance().addPropertyChangeListener(this);
         workspaceContext.getDrawingManager().addPropertyChangeListener("activeSymbolChanged", this);
-        
+
         workspaceContext.getSessionTracker().addPropertyChangeListener(this);
         workspaceContext.getPaperTradingService().addPropertyChangeListener(this);
+
+        // We still listen to connectivity here for other logic, even if the widget is
+        // gone
         InternetConnectivityService.getInstance().addPropertyChangeListener(this);
         LiveDataManager.getInstance().addPropertyChangeListener("liveDataSystemStateChanged", this);
     }
@@ -246,10 +262,14 @@ public class ChartWorkspacePanel extends JPanel implements PropertyChangeListene
         }
         SettingsService.getInstance().removePropertyChangeListener(this);
         workspaceContext.getDrawingManager().removePropertyChangeListener(this);
-        
+
         workspaceContext.getSessionTracker().removePropertyChangeListener(this);
         if (!isReplayMode) {
             this.workspaceContext.getSessionTracker().stop();
+            // [NEW] Clean up status bar
+            if (liveStatusBar != null) {
+                liveStatusBar.dispose();
+            }
         }
 
         workspaceContext.getPaperTradingService().removePropertyChangeListener(this);
@@ -277,17 +297,18 @@ public class ChartWorkspacePanel extends JPanel implements PropertyChangeListene
                     workspaceManager.removeIndicatorPane((UUID) evt.getNewValue());
                     break;
                 case "drawingToolbarPositionChanged":
-                    FloatingDrawingToolbar.DockSide newSide = 
-                        (DrawingConfig.ToolbarPosition) evt.getNewValue() == DrawingConfig.ToolbarPosition.LEFT
-                            ? FloatingDrawingToolbar.DockSide.LEFT
-                            : FloatingDrawingToolbar.DockSide.RIGHT;
+                    FloatingDrawingToolbar.DockSide newSide = (DrawingConfig.ToolbarPosition) evt
+                            .getNewValue() == DrawingConfig.ToolbarPosition.LEFT
+                                    ? FloatingDrawingToolbar.DockSide.LEFT
+                                    : FloatingDrawingToolbar.DockSide.RIGHT;
                     drawingToolbar.forceUpdatePosition(newSide);
                     break;
                 case "activeSymbolChanged":
                     workspaceManager.getChartPanels().forEach(ChartPanel::repaint);
                     break;
                 case "sessionStreakUpdated":
-                    if (SettingsService.getInstance().isWinStreakNudgeEnabled() && evt.getNewValue() instanceof Integer count) {
+                    if (SettingsService.getInstance().isWinStreakNudgeEnabled()
+                            && evt.getNewValue() instanceof Integer count) {
                         if (count >= 3) {
                             onFireWidget.showStreak(count);
                             repositionOverlayWidgets();
@@ -297,7 +318,8 @@ public class ChartWorkspacePanel extends JPanel implements PropertyChangeListene
                     }
                     break;
                 case "sessionLossStreakUpdated":
-                     if (SettingsService.getInstance().isLossStreakNudgeEnabled() && evt.getNewValue() instanceof Integer count) {
+                    if (SettingsService.getInstance().isLossStreakNudgeEnabled()
+                            && evt.getNewValue() instanceof Integer count) {
                         if (count >= 3) {
                             stopTradingNudgeWidget.showNudge(count);
                         } else {
@@ -327,56 +349,77 @@ public class ChartWorkspacePanel extends JPanel implements PropertyChangeListene
 
     private void updateConnectionWidget(LiveDataManager.LiveDataSystemState state) {
         if (isReplayMode) {
+            // In replay mode, we might use the large overlay widget if we wanted to
+            // simulate connection loss,
+            // but typically replay is offline.
             return;
         }
-        switch (state) {
-            case INTERRUPTED:
-                connectionStatusWidget.showStatus(
-                    "Connection Lost... Reconnecting",
-                    UITheme.Icons.WIFI_OFF,
-                    javax.swing.UIManager.getColor("app.color.negative")
-                );
-                break;
-            case SYNCING:
-                connectionStatusWidget.showStatus(
-                    "Connection Restored. Syncing Data...",
-                    UITheme.Icons.REFRESH,
-                    javax.swing.UIManager.getColor("Component.focusedBorderColor")
-                );
-                break;
-            case CONNECTED:
-                connectionStatusWidget.hideStatus();
-                break;
-        }
-        repositionOverlayWidgets();
+        // In Live mode, the status bar handles this.
     }
 
     private void launchJournalDialogForTrade(Trade trade) {
         JournalEntryDialog dialog = new JournalEntryDialog(this.owner, trade, this.workspaceContext);
         dialog.setVisible(true);
     }
-    
+
     public void applyLiveIndicator(CustomIndicator plugin) {
         if (workspaceManager.getActiveChartPanel() != null) {
             ChartDataModel model = workspaceManager.getActiveChartPanel().getDataModel();
             model.getIndicatorManager().addOrUpdateFromLiveCode(plugin, model);
         } else {
-            JOptionPane.showMessageDialog(this, "No active chart to apply indicator to.", "Error", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(this, "No active chart to apply indicator to.", "Error",
+                    JOptionPane.ERROR_MESSAGE);
         }
     }
-    
-    public ChartPanel getActiveChartPanel() { return workspaceManager.getActiveChartPanel(); }
-    public FloatingDrawingToolbar getDrawingToolbar() { return drawingToolbar; }
-    public FloatingPropertiesToolbar getPropertiesToolbar() { return propertiesToolbar; }
-    public ChartToolbarPanel getTopToolbarPanel() { return topToolbarPanel; }
-    public Optional<TradingSidebarPanel> getTradingSidebar() { return Optional.ofNullable(tradingSidebar); }
-    public Optional<ReplayController> getReplayController() { return Optional.ofNullable(replayController); }
-    public WorkspaceManager getWorkspaceManager() { return workspaceManager; }
-    public UIManager getUiManager() { return uiManager; }
-    public SessionController getSessionController() { return sessionController; }
-    public DatabaseManager getActiveDbManager() { return activeDbManager; }
-    public boolean isReplayMode() { return this.isReplayMode; }
-    public WorkspaceContext getWorkspaceContext() { return this.workspaceContext; }
+
+    public ChartPanel getActiveChartPanel() {
+        return workspaceManager.getActiveChartPanel();
+    }
+
+    public FloatingDrawingToolbar getDrawingToolbar() {
+        return drawingToolbar;
+    }
+
+    public FloatingPropertiesToolbar getPropertiesToolbar() {
+        return propertiesToolbar;
+    }
+
+    public ChartToolbarPanel getTopToolbarPanel() {
+        return topToolbarPanel;
+    }
+
+    public Optional<TradingSidebarPanel> getTradingSidebar() {
+        return Optional.ofNullable(tradingSidebar);
+    }
+
+    public Optional<ReplayController> getReplayController() {
+        return Optional.ofNullable(replayController);
+    }
+
+    public WorkspaceManager getWorkspaceManager() {
+        return workspaceManager;
+    }
+
+    public UIManager getUiManager() {
+        return uiManager;
+    }
+
+    public SessionController getSessionController() {
+        return sessionController;
+    }
+
+    public DatabaseManager getActiveDbManager() {
+        return activeDbManager;
+    }
+
+    public boolean isReplayMode() {
+        return this.isReplayMode;
+    }
+
+    public WorkspaceContext getWorkspaceContext() {
+        return this.workspaceContext;
+    }
+
     public TitleBarManager getTitleBarManager() {
         if (getFrameOwner() instanceof PrimaryFrame) {
             return ((PrimaryFrame) getFrameOwner()).getTitleBarManager();
@@ -387,13 +430,15 @@ public class ChartWorkspacePanel extends JPanel implements PropertyChangeListene
     public ChartDataSource getCurrentSource() {
         return topToolbarPanel.getSelectedDataSource();
     }
-    
-    public void openNewSyncedWindow() {}
+
+    public void openNewSyncedWindow() {
+    }
 
     public void joinReplaySession() {
         ChartDataSource source = ReplaySessionManager.getInstance().getCurrentSource();
         if (source == null) {
-            JOptionPane.showMessageDialog(this, "No active replay session to join.", "Error", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(this, "No active replay session to join.", "Error",
+                    JOptionPane.ERROR_MESSAGE);
             return;
         }
         workspaceContext.getDrawingManager().setActiveSymbol(source.symbol());
@@ -419,7 +464,7 @@ public class ChartWorkspacePanel extends JPanel implements PropertyChangeListene
         this.tradingSidebar.addPropertyChangeListener(this::handleSidebarEvents);
         this.tradingSidebar.setVisible(false);
         mainContainerPanel.add(this.tradingSidebar, BorderLayout.WEST);
-        
+
         workspaceManager.initializeStandardMode();
         addTopToolbarListeners();
     }
@@ -430,7 +475,7 @@ public class ChartWorkspacePanel extends JPanel implements PropertyChangeListene
         workspaceManager.initializeReplayMode();
         addTopToolbarListeners();
     }
-    
+
     private void ensureReplayUIInitialized() {
         if (isReplayMode && tradingSidebar == null) {
             this.tradingSidebar = new TradingSidebarPanel(this.workspaceContext);
@@ -440,7 +485,7 @@ public class ChartWorkspacePanel extends JPanel implements PropertyChangeListene
         } else if (isReplayMode && tradingSidebar != null) {
             tradingSidebar.setVisible(true);
         }
-        
+
         if (isReplayMode && replayControlPanel == null) {
             this.replayControlPanel = new ReplayControlPanel(this.replayController);
             mainContainerPanel.add(this.replayControlPanel, BorderLayout.SOUTH);
@@ -450,7 +495,7 @@ public class ChartWorkspacePanel extends JPanel implements PropertyChangeListene
         mainContainerPanel.revalidate();
         mainContainerPanel.repaint();
     }
-    
+
     private void handleSidebarEvents(PropertyChangeEvent evt) {
         if ("jumpToTrade".equals(evt.getPropertyName()) && evt.getNewValue() instanceof Trade) {
             Trade trade = (Trade) evt.getNewValue();
@@ -461,9 +506,10 @@ public class ChartWorkspacePanel extends JPanel implements PropertyChangeListene
         if ("sidebarToggled".equals(evt.getPropertyName())) {
             SwingUtilities.invokeLater(() -> {
                 if (drawingToolbar.isVisible()) {
-                    drawingToolbar.updatePosition(SettingsService.getInstance().getDrawingToolbarPosition() == DrawingConfig.ToolbarPosition.LEFT
-                            ? FloatingDrawingToolbar.DockSide.LEFT
-                            : FloatingDrawingToolbar.DockSide.RIGHT);
+                    drawingToolbar.updatePosition(SettingsService.getInstance()
+                            .getDrawingToolbarPosition() == DrawingConfig.ToolbarPosition.LEFT
+                                    ? FloatingDrawingToolbar.DockSide.LEFT
+                                    : FloatingDrawingToolbar.DockSide.RIGHT);
                 }
             });
         }
@@ -487,7 +533,8 @@ public class ChartWorkspacePanel extends JPanel implements PropertyChangeListene
     }
 
     public void startLiveSession(DataSourceManager.ChartDataSource source) {
-        if (tradingSidebar != null) tradingSidebar.setVisible(true);
+        if (tradingSidebar != null)
+            tradingSidebar.setVisible(true);
 
         workspaceContext.getPaperTradingService().switchActiveSymbol(source.symbol());
         workspaceManager.applyLayout(WorkspaceManager.LayoutType.ONE);
@@ -500,7 +547,7 @@ public class ChartWorkspacePanel extends JPanel implements PropertyChangeListene
         // [FIX] Set the active symbol for the paper trading service context.
         workspaceContext.getPaperTradingService().switchActiveSymbol(source.symbol());
         workspaceContext.getDrawingManager().setActiveSymbol(source.symbol());
-        setDbManagerForSource(source); 
+        setDbManagerForSource(source);
         workspaceManager.applyLayout(WorkspaceManager.LayoutType.ONE);
         workspaceManager.getChartPanels().get(0).getDataModel().setDisplayTimeframe(Timeframe.M5);
         workspaceManager.setActiveChartPanel(workspaceManager.getChartPanels().get(0));
@@ -515,21 +562,22 @@ public class ChartWorkspacePanel extends JPanel implements PropertyChangeListene
         Optional<ChartDataSource> sourceOpt = DataSourceManager.getInstance().getAvailableSources().stream()
                 .filter(s -> s.symbol().equalsIgnoreCase(state.lastActiveSymbol())).findFirst();
         if (sourceOpt.isEmpty()) {
-            JOptionPane.showMessageDialog(this, "Data source for symbol '" + state.lastActiveSymbol() + "' not found.", "Load Error", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(this, "Data source for symbol '" + state.lastActiveSymbol() + "' not found.",
+                    "Load Error", JOptionPane.ERROR_MESSAGE);
             return;
         }
         setDbManagerForSource(sourceOpt.get());
         workspaceContext.getDrawingManager().setActiveSymbol(state.lastActiveSymbol());
         if (state.symbolStates() != null) {
-            state.symbolStates().forEach((symbol, symbolState) -> 
-                workspaceContext.getDrawingManager().restoreDrawingsForSymbol(symbol, symbolState.drawings())
-            );
+            state.symbolStates().forEach((symbol, symbolState) -> workspaceContext.getDrawingManager()
+                    .restoreDrawingsForSymbol(symbol, symbolState.drawings()));
         }
         workspaceContext.getPaperTradingService().restoreState(state);
         workspaceManager.applyLayout(WorkspaceManager.LayoutType.ONE);
         if (!workspaceManager.getChartPanels().isEmpty()) {
             if (!isReplayMode) {
-                if (tradingSidebar != null) tradingSidebar.setVisible(true);
+                if (tradingSidebar != null)
+                    tradingSidebar.setVisible(true);
                 loadChartForSource(sourceOpt.get());
             } else {
                 workspaceManager.getChartPanels().get(0).getDataModel().setDisplayTimeframe(Timeframe.M5);
@@ -539,12 +587,15 @@ public class ChartWorkspacePanel extends JPanel implements PropertyChangeListene
     }
 
     private void handleTradeAction(String command) {
-        if (workspaceManager.getActiveChartPanel() == null || workspaceManager.getActiveChartPanel().getDataModel().getCurrentSymbol() == null) {
-            JOptionPane.showMessageDialog(this, "Please select an active chart.", "No Chart Active", JOptionPane.WARNING_MESSAGE);
+        if (workspaceManager.getActiveChartPanel() == null
+                || workspaceManager.getActiveChartPanel().getDataModel().getCurrentSymbol() == null) {
+            JOptionPane.showMessageDialog(this, "Please select an active chart.", "No Chart Active",
+                    JOptionPane.WARNING_MESSAGE);
             return;
         }
         TradeDirection direction = "placeLongOrder".equals(command) ? TradeDirection.LONG : TradeDirection.SHORT;
-        new OrderDialog(this.owner, workspaceManager.getActiveChartPanel(), direction, this.workspaceContext).setVisible(true);
+        new OrderDialog(this.owner, workspaceManager.getActiveChartPanel(), direction, this.workspaceContext)
+                .setVisible(true);
     }
 
     private void addTopToolbarListeners() {
@@ -559,8 +610,7 @@ public class ChartWorkspacePanel extends JPanel implements PropertyChangeListene
                 } else {
                     loadChartForSource(newSource);
                 }
-            } 
-            else if (command.startsWith("timeframeChanged")) {
+            } else if (command.startsWith("timeframeChanged")) {
                 Timeframe newTimeframe = null;
                 if (e.getSource() instanceof Timeframe) {
                     newTimeframe = (Timeframe) e.getSource();
@@ -576,8 +626,7 @@ public class ChartWorkspacePanel extends JPanel implements PropertyChangeListene
                         workspaceManager.getChartPanels().get(0).getDataModel().setDisplayTimeframe(newTimeframe);
                     }
                 }
-            } 
-            else if (command.startsWith("layoutChanged:")) {
+            } else if (command.startsWith("layoutChanged:")) {
                 try {
                     String layoutName = command.substring("layoutChanged:".length());
                     WorkspaceManager.LayoutType type = WorkspaceManager.LayoutType.valueOf(layoutName);
@@ -585,8 +634,7 @@ public class ChartWorkspacePanel extends JPanel implements PropertyChangeListene
                 } catch (IllegalArgumentException ex) {
                     System.err.println("Invalid layout type received: " + command);
                 }
-            } 
-            else if (command.startsWith("chartTypeChanged:")) {
+            } else if (command.startsWith("chartTypeChanged:")) {
                 if (activePanel != null) {
                     try {
                         String typeName = command.substring("chartTypeChanged:".length());
@@ -596,8 +644,7 @@ public class ChartWorkspacePanel extends JPanel implements PropertyChangeListene
                         System.err.println("Invalid chart type received: " + command);
                     }
                 }
-            }
-            else if ("placeLongOrder".equals(command) || "placeShortOrder".equals(command)) {
+            } else if ("placeLongOrder".equals(command) || "placeShortOrder".equals(command)) {
                 handleTradeAction(command);
             }
         });
@@ -623,7 +670,8 @@ public class ChartWorkspacePanel extends JPanel implements PropertyChangeListene
     }
 
     private void loadChartForSource(DataSourceManager.ChartDataSource source) {
-        if (source == null) return;
+        if (source == null)
+            return;
         if (source.dbPath() != null) {
             setDbManagerForSource(source);
         } else {
@@ -636,20 +684,22 @@ public class ChartWorkspacePanel extends JPanel implements PropertyChangeListene
         if (!source.timeframes().isEmpty()) {
             String initialTimeframeStr = source.timeframes().get(0);
             Timeframe initialTimeframe = Timeframe.fromString(initialTimeframeStr);
-            if (initialTimeframe == null) initialTimeframe = Timeframe.H1;
+            if (initialTimeframe == null)
+                initialTimeframe = Timeframe.H1;
             topToolbarPanel.selectTimeframe(initialTimeframe.displayName());
             for (ChartPanel panel : workspaceManager.getChartPanels()) {
-                 panel.getDataModel().loadDataset(source, initialTimeframe);
+                panel.getDataModel().loadDataset(source, initialTimeframe);
             }
         } else {
-             if (!workspaceManager.getChartPanels().isEmpty()) {
+            if (!workspaceManager.getChartPanels().isEmpty()) {
                 workspaceManager.getChartPanels().get(0).getDataModel().clearData();
-             }
+            }
         }
     }
 
     public void changeActiveSymbol(DataSourceManager.ChartDataSource newSource) {
-        if (newSource == null) return;
+        if (newSource == null)
+            return;
         topToolbarPanel.setCurrentSymbol(newSource);
         if (isReplayMode) {
             handleReplaySymbolChange();

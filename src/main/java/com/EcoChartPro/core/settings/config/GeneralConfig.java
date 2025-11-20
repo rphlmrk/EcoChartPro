@@ -3,27 +3,72 @@ package com.EcoChartPro.core.settings.config;
 import com.EcoChartPro.core.theme.ThemeManager.Theme;
 import java.io.Serializable;
 import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.List;
 
 public class GeneralConfig implements Serializable {
 
-    public enum ImageSource { LIVE, LOCAL }
+    public enum ImageSource {
+        LIVE, LOCAL
+    }
+
+    // [NEW] Record to define a specific clock in the status bar
+    public record StatusBarClock(String label, ZoneId zoneId) implements Serializable {
+    }
 
     private Theme currentTheme = Theme.DARK;
     private float uiScale = 1.0f;
     private ZoneId displayZoneId = ZoneId.systemDefault();
     private ImageSource imageSource = ImageSource.LOCAL;
 
+    // [NEW] List of active clocks
+    private List<StatusBarClock> statusBarClocks = new ArrayList<>();
+
+    public GeneralConfig() {
+        // Set default clocks if none exist
+        statusBarClocks.add(new StatusBarClock("UTC", ZoneId.of("UTC")));
+        statusBarClocks.add(new StatusBarClock("Local", ZoneId.systemDefault()));
+    }
+
     // --- Getters and Setters ---
 
-    public Theme getCurrentTheme() { return currentTheme; }
-    public void setCurrentTheme(Theme currentTheme) { this.currentTheme = currentTheme; }
+    public Theme getCurrentTheme() {
+        return currentTheme;
+    }
 
-    public float getUiScale() { return uiScale; }
-    public void setUiScale(float uiScale) { this.uiScale = uiScale; }
+    public void setCurrentTheme(Theme currentTheme) {
+        this.currentTheme = currentTheme;
+    }
 
-    public ZoneId getDisplayZoneId() { return displayZoneId; }
-    public void setDisplayZoneId(ZoneId displayZoneId) { this.displayZoneId = displayZoneId; }
+    public float getUiScale() {
+        return uiScale;
+    }
 
-    public ImageSource getImageSource() { return imageSource; }
-    public void setImageSource(ImageSource imageSource) { this.imageSource = imageSource; }
+    public void setUiScale(float uiScale) {
+        this.uiScale = uiScale;
+    }
+
+    public ZoneId getDisplayZoneId() {
+        return displayZoneId;
+    }
+
+    public void setDisplayZoneId(ZoneId displayZoneId) {
+        this.displayZoneId = displayZoneId;
+    }
+
+    public ImageSource getImageSource() {
+        return imageSource;
+    }
+
+    public void setImageSource(ImageSource imageSource) {
+        this.imageSource = imageSource;
+    }
+
+    public List<StatusBarClock> getStatusBarClocks() {
+        return statusBarClocks;
+    }
+
+    public void setStatusBarClocks(List<StatusBarClock> statusBarClocks) {
+        this.statusBarClocks = statusBarClocks;
+    }
 }
