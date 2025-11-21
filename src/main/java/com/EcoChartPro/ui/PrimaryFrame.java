@@ -4,6 +4,7 @@ import com.EcoChartPro.core.controller.SessionController;
 import com.EcoChartPro.core.controller.WorkspaceContext;
 import com.EcoChartPro.core.service.InternetConnectivityService;
 import com.EcoChartPro.core.state.ReplaySessionState;
+import com.EcoChartPro.ui.Analysis.AnalysisMainPanel;
 import com.EcoChartPro.ui.action.TitleBarManager;
 import com.EcoChartPro.ui.dashboard.ComprehensiveReportPanel;
 import com.EcoChartPro.ui.dashboard.DashboardViewPanel;
@@ -30,6 +31,9 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
     private final WorkspaceContext replayContext;
     private final WorkspaceContext liveContext;
     private final TitleBarManager titleBarManager;
+    
+    // --- New Analysis Panel ---
+    private final AnalysisMainPanel analysisMainPanel;
 
     // --- Home Tab Components ---
     private final ComprehensiveReportPanel analysisReportPanel;
@@ -52,7 +56,6 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
         setLocationRelativeTo(null);
         setIconImage(new ImageIcon(getClass().getResource(UITheme.Icons.APP_LOGO)).getImage());
 
-        // Initialize contexts first, as they are needed by menu setup
         replayContext = new WorkspaceContext();
         liveContext = new WorkspaceContext();
 
@@ -61,28 +64,31 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
 
         replayWorkspacePanel = new ChartWorkspacePanel(this, true, replayContext);
         liveWorkspacePanel = new ChartWorkspacePanel(this, false, liveContext);
+        
+        // Initialize new Analysis Panel
+        analysisMainPanel = new AnalysisMainPanel();
 
         boolean isConnected = InternetConnectivityService.getInstance().isConnected();
         liveWorkspacePanel.setOfflineMode(!isConnected);
 
-        // --- Rearchitect the Home Tab ---
+        // --- Home Tab Setup ---
         analysisReportPanel = new ComprehensiveReportPanel();
         DashboardViewPanel splashPanel = new DashboardViewPanel();
         this.reportPanelContainer = createAnalysisReportPanel();
-        this.reportPanelContainer.setVisible(false); // Hide until data is loaded
+        this.reportPanelContainer.setVisible(false); 
 
-        // Use a ScrollablePanel to force width tracking
         JPanel homeContainerPanel = new ScrollablePanel(new BorderLayout());
         homeContainerPanel.add(splashPanel, BorderLayout.NORTH);
         homeContainerPanel.add(this.reportPanelContainer, BorderLayout.CENTER);
 
         JScrollPane homeScrollPane = new JScrollPane(homeContainerPanel);
         homeScrollPane.setBorder(null);
-        // [FIX] Increase scroll speed here
         homeScrollPane.getVerticalScrollBar().setUnitIncrement(40);
         homeScrollPane.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
 
+        // Add all panels to the main content stack
         mainContentPanel.add(homeScrollPane, "HOME");
+        mainContentPanel.add(analysisMainPanel, "ANALYSIS"); // Add Analysis Tab
         mainContentPanel.add(replayWorkspacePanel, "REPLAY");
         mainContentPanel.add(liveWorkspacePanel, "LIVE");
 
@@ -94,37 +100,38 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
         replayContext.getUndoManager().addPropertyChangeListener(this);
         liveContext.getUndoManager().addPropertyChangeListener(this);
     }
+    
+    /**
+     * Called by TitleBarManager when switching to the Analysis tab.
+     * Determines which session data to load based on where the user came from.
+     */
+    public void refreshAnalysisData() {
+        // Default to loading Replay state if available, otherwise Live
+        ReplaySessionState stateToLoad = lastReplayState;
+        
+        // If we navigated from Live tab, prioritize Live state
+        if (liveWorkspacePanel.isVisible() || (lastLiveState != null && lastReplayState == null)) {
+            stateToLoad = lastLiveState;
+        }
+        
+        // Ensure we have fresh state from contexts if available
+        if (replayWorkspacePanel.isVisible()) {
+             stateToLoad = replayContext.getPaperTradingService().getCurrentSessionState();
+        } else if (liveWorkspacePanel.isVisible()) {
+             stateToLoad = liveContext.getPaperTradingService().getCurrentSessionState();
+        }
 
-    // [FIX] Updated ScrollablePanel to return a larger unit increment
+        analysisMainPanel.loadSessionData(stateToLoad);
+    }
+
+    // ... (ScrollablePanel class remains unchanged) ...
     private static class ScrollablePanel extends JPanel implements Scrollable {
-        public ScrollablePanel(LayoutManager layout) {
-            super(layout);
-        }
-
-        @Override
-        public Dimension getPreferredScrollableViewportSize() {
-            return getPreferredSize();
-        }
-
-        @Override
-        public int getScrollableUnitIncrement(Rectangle visibleRect, int orientation, int direction) {
-            return 40; // Increased from 16 for faster scrolling
-        }
-
-        @Override
-        public int getScrollableBlockIncrement(Rectangle visibleRect, int orientation, int direction) {
-            return 40;
-        }
-
-        @Override
-        public boolean getScrollableTracksViewportWidth() {
-            return true;
-        }
-
-        @Override
-        public boolean getScrollableTracksViewportHeight() {
-            return false;
-        }
+        public ScrollablePanel(LayoutManager layout) { super(layout); }
+        @Override public Dimension getPreferredScrollableViewportSize() { return getPreferredSize(); }
+        @Override public int getScrollableUnitIncrement(Rectangle visibleRect, int orientation, int direction) { return 40; }
+        @Override public int getScrollableBlockIncrement(Rectangle visibleRect, int orientation, int direction) { return 40; }
+        @Override public boolean getScrollableTracksViewportWidth() { return true; }
+        @Override public boolean getScrollableTracksViewportHeight() { return false; }
     }
 
     public JMenuBar createHomeMenuBar() {
@@ -154,57 +161,43 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
     private JMenu createReplayFileMenu() {
         JMenu fileMenu = new JMenu("File");
         SessionController sc = SessionController.getInstance();
-
         JMenuItem newReplayItem = new JMenuItem("New Replay Session...");
         newReplayItem.addActionListener(e -> sc.showNewReplaySessionDialog(this));
         fileMenu.add(newReplayItem);
-
         JMenuItem loadReplayItem = new JMenuItem("Load Replay Session...");
         loadReplayItem.addActionListener(e -> sc.loadReplaySessionFromFile(this));
         fileMenu.add(loadReplayItem);
-
         JMenuItem saveReplayItem = new JMenuItem("Save Replay Session As...");
         saveReplayItem.addActionListener(e -> sc.saveSessionWithUI(this, true, replayContext));
         fileMenu.add(saveReplayItem);
-
         return fileMenu;
     }
 
     private JMenu createLiveFileMenu() {
         JMenu fileMenu = new JMenu("File");
         SessionController sc = SessionController.getInstance();
-
         JMenuItem newLiveItem = new JMenuItem("New Live Session...");
         newLiveItem.addActionListener(e -> sc.showNewLiveSessionDialog(this));
         fileMenu.add(newLiveItem);
-
         JMenuItem loadLiveItem = new JMenuItem("Load Live Session...");
         loadLiveItem.addActionListener(e -> sc.loadLiveSessionFromFile(this));
         fileMenu.add(loadLiveItem);
-
         JMenuItem saveLiveItem = new JMenuItem("Save Live Session As...");
         saveLiveItem.addActionListener(e -> sc.saveSessionWithUI(this, false, liveContext));
         fileMenu.add(saveLiveItem);
-
         return fileMenu;
     }
 
     private JMenu createEditMenu() {
         JMenu editMenu = new JMenu("Edit");
         undoMenuItem = new JMenuItem("Undo");
-        undoMenuItem.setAccelerator(
-                KeyStroke.getKeyStroke(KeyEvent.VK_Z, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+        undoMenuItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_Z, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
         undoMenuItem.addActionListener(e -> getActiveContext().getUndoManager().undo());
-
         redoMenuItem = new JMenuItem("Redo");
         boolean isMac = System.getProperty("os.name").toLowerCase().contains("mac");
-        KeyStroke redoKeyStroke = isMac
-                ? KeyStroke.getKeyStroke(KeyEvent.VK_Z,
-                        Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK)
-                : KeyStroke.getKeyStroke(KeyEvent.VK_Y, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+        KeyStroke redoKeyStroke = isMac ? KeyStroke.getKeyStroke(KeyEvent.VK_Z, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK) : KeyStroke.getKeyStroke(KeyEvent.VK_Y, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
         redoMenuItem.setAccelerator(redoKeyStroke);
         redoMenuItem.addActionListener(e -> getActiveContext().getUndoManager().redo());
-
         editMenu.add(undoMenuItem);
         editMenu.add(redoMenuItem);
         updateUndoRedoState();
@@ -224,11 +217,8 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
 
         toolsMenu.addSeparator();
 
-        // [NEW] Add Insights and Achievements to the Tools menu
-        JMenuItem insightsItem = new JMenuItem("Performance Insights...");
-        insightsItem.addActionListener(e -> getActiveWorkspacePanel().getUiManager().openInsightsDialog());
-        toolsMenu.add(insightsItem);
-
+        // [REMOVED] Performance Insights menu item - now a main tab.
+        
         JMenuItem achievementsItem = new JMenuItem("Achievements...");
         achievementsItem.addActionListener(e -> getActiveWorkspacePanel().getUiManager().openAchievementsDialog());
         toolsMenu.add(achievementsItem);
@@ -257,34 +247,22 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
     }
 
     private void updateUndoRedoState() {
-        if (undoMenuItem == null || redoMenuItem == null)
-            return;
+        if (undoMenuItem == null || redoMenuItem == null) return;
         WorkspaceContext activeContext = getActiveContext();
         undoMenuItem.setEnabled(activeContext.getUndoManager().canUndo());
         redoMenuItem.setEnabled(activeContext.getUndoManager().canRedo());
     }
 
     private WorkspaceContext getActiveContext() {
-        if (titleBarManager == null || titleBarManager.getReplayNavButton() == null) {
-            return liveContext;
-        }
-
-        if (titleBarManager.getReplayNavButton().isSelected()) {
-            return replayContext;
-        } else if (titleBarManager.getLiveNavButton().isSelected()) {
-            return liveContext;
-        }
+        if (titleBarManager == null || titleBarManager.getReplayNavButton() == null) return liveContext;
+        if (titleBarManager.getReplayNavButton().isSelected()) return replayContext;
+        else if (titleBarManager.getLiveNavButton().isSelected()) return liveContext;
         return liveContext;
     }
 
     private ChartWorkspacePanel getActiveWorkspacePanel() {
-        if (titleBarManager == null || titleBarManager.getReplayNavButton() == null) {
-            return liveWorkspacePanel;
-        }
-
-        if (titleBarManager.getReplayNavButton().isSelected()) {
-            return replayWorkspacePanel;
-        }
+        if (titleBarManager == null || titleBarManager.getReplayNavButton() == null) return liveWorkspacePanel;
+        if (titleBarManager.getReplayNavButton().isSelected()) return replayWorkspacePanel;
         return liveWorkspacePanel;
     }
 
@@ -304,7 +282,6 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
         replayReportButton.addActionListener(reportSwitcher);
         liveReportButton.addActionListener(reportSwitcher);
         replayReportButton.setSelected(true);
-
         panel.add(topPanel, BorderLayout.NORTH);
         panel.add(analysisReportPanel, BorderLayout.CENTER);
         return panel;
@@ -329,42 +306,17 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
 
     private void updateAnalysisReport() {
         SwingUtilities.invokeLater(() -> {
-            if (!reportPanelContainer.isVisible()) {
-                reportPanelContainer.setVisible(true);
-            }
-            if (replayReportButton.isSelected()) {
-                analysisReportPanel.updateData(lastReplayState);
-            } else if (liveReportButton.isSelected()) {
-                analysisReportPanel.updateData(lastLiveState);
-            }
+            if (!reportPanelContainer.isVisible()) reportPanelContainer.setVisible(true);
+            if (replayReportButton.isSelected()) analysisReportPanel.updateData(lastReplayState);
+            else if (liveReportButton.isSelected()) analysisReportPanel.updateData(lastLiveState);
         });
     }
 
-    public WorkspaceContext getReplayContext() {
-        return replayContext;
-    }
-
-    public WorkspaceContext getLiveContext() {
-        return liveContext;
-    }
-
-    public JPanel getMainContentPanel() {
-        return mainContentPanel;
-    }
-
-    public CardLayout getMainCardLayout() {
-        return mainCardLayout;
-    }
-
-    public TitleBarManager getTitleBarManager() {
-        return this.titleBarManager;
-    }
-
-    public ChartWorkspacePanel getReplayWorkspacePanel() {
-        return replayWorkspacePanel;
-    }
-
-    public ChartWorkspacePanel getLiveWorkspacePanel() {
-        return liveWorkspacePanel;
-    }
+    public WorkspaceContext getReplayContext() { return replayContext; }
+    public WorkspaceContext getLiveContext() { return liveContext; }
+    public JPanel getMainContentPanel() { return mainContentPanel; }
+    public CardLayout getMainCardLayout() { return mainCardLayout; }
+    public TitleBarManager getTitleBarManager() { return this.titleBarManager; }
+    public ChartWorkspacePanel getReplayWorkspacePanel() { return replayWorkspacePanel; }
+    public ChartWorkspacePanel getLiveWorkspacePanel() { return liveWorkspacePanel; }
 }

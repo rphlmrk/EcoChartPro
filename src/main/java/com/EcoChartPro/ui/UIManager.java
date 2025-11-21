@@ -1,8 +1,6 @@
 package com.EcoChartPro.ui;
 
-import com.EcoChartPro.core.state.ReplaySessionState;
 import com.EcoChartPro.ui.dialogs.AchievementsDialog;
-import com.EcoChartPro.ui.dialogs.InsightsDialog;
 import com.EcoChartPro.ui.dialogs.MarketplaceDialog;
 import com.EcoChartPro.ui.dialogs.PositionSizeCalculatorDialog;
 import com.EcoChartPro.ui.dialogs.SettingsDialog;
@@ -19,7 +17,7 @@ public class UIManager {
     private JavaEditorDialog javaEditorDialog;
     private SettingsDialog settingsDialog;
     private PositionSizeCalculatorDialog positionSizeCalculatorDialog;
-    private InsightsDialog insightsDialog;
+    // [REMOVED] InsightsDialog field
     private AchievementsDialog achievementsDialog;
     private MarketplaceDialog marketplaceDialog;
 
@@ -52,22 +50,14 @@ public class UIManager {
         positionSizeCalculatorDialog.requestFocus();
     }
 
+    /**
+     * Switches the main view to the Analysis/Insights tab.
+     */
     public void openInsightsDialog() {
-        if (insightsDialog == null || !insightsDialog.isDisplayable()) {
-            insightsDialog = new InsightsDialog(ownerPanel.getFrameOwner());
+        // Instead of opening a dialog, we switch the main view to the ANALYSIS tab.
+        if (ownerPanel.getFrameOwner() instanceof PrimaryFrame frame) {
+            frame.getTitleBarManager().getAnalysisNavButton().doClick();
         }
-
-        // [FIX] Retrieve the current session state from the active workspace context (Replay or Live)
-        ReplaySessionState currentState = ownerPanel.getWorkspaceContext()
-                                                    .getPaperTradingService()
-                                                    .getCurrentSessionState();
-
-        // Load the data into the dialog. If null, the dialog handles it gracefully (shows empty state).
-        insightsDialog.loadSessionData(currentState);
-
-        insightsDialog.setVisible(true);
-        insightsDialog.toFront();
-        insightsDialog.requestFocus();
     }
 
     public void openSettingsDialog() {
@@ -112,9 +102,6 @@ public class UIManager {
         }
         if (positionSizeCalculatorDialog != null) {
             positionSizeCalculatorDialog.dispose();
-        }
-        if (insightsDialog != null) {
-            insightsDialog.dispose();
         }
         if (achievementsDialog != null) {
             achievementsDialog.dispose();

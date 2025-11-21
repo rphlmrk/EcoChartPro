@@ -10,10 +10,10 @@ import com.EcoChartPro.core.journal.JournalAnalysisService.OverallStats;
 import com.EcoChartPro.core.service.ReviewReminderService;
 import com.EcoChartPro.core.state.ReplaySessionState;
 import com.EcoChartPro.model.Trade;
+import com.EcoChartPro.ui.PrimaryFrame;
 import com.EcoChartPro.ui.dashboard.theme.UITheme;
 import com.EcoChartPro.ui.dashboard.widgets.*;
 import com.EcoChartPro.ui.dialogs.AchievementsDialog;
-import com.EcoChartPro.ui.dialogs.InsightsDialog;
 import com.EcoChartPro.utils.DataSourceManager;
 import com.EcoChartPro.utils.report.HtmlReportGenerator;
 import com.EcoChartPro.utils.report.PdfReportGenerator;
@@ -155,15 +155,10 @@ public class ComprehensiveReportPanel extends JPanel implements PropertyChangeLi
 
     private void setupInteractions() {
         coachingPanel.addInsightsButtonListener(e -> {
-            Window owner = SwingUtilities.getWindowAncestor(this);
-            if (owner != null) {
-                InsightsDialog dialog = new InsightsDialog((Frame) owner);
-                
-                // [FIX] Explicitly pass the current state to the dialog!
-                // Without this, the dialog opens with null state and hangs or shows nothing.
-                dialog.loadSessionData(this.currentSessionState);
-                
-                dialog.setVisible(true);
+            Window window = SwingUtilities.getWindowAncestor(this);
+            // [FIX] Navigate to the new Analysis Tab instead of opening a dialog
+            if (window instanceof PrimaryFrame frame) {
+                frame.getTitleBarManager().getAnalysisNavButton().doClick();
             }
         });
 
@@ -362,10 +357,8 @@ public class ComprehensiveReportPanel extends JPanel implements PropertyChangeLi
         int optimal = GamificationService.getInstance().getOptimalTradeCount();
         disciplineWidget.setOverallData(trades.size(), optimal);
 
-        // [FIX] Update the Streak Panel with the latest data
         streakPanel.updateViewModel(GamificationService.getInstance().getLatestProgressViewModel());
 
-        // Update Coaching models
         coachingModels.clear();
         GamificationService.getInstance().getActiveDailyChallenge().ifPresent(challenge -> {
             if (!challenge.isComplete()) {
