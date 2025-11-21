@@ -2,6 +2,7 @@ package com.EcoChartPro.ui.Analysis;
 
 import com.EcoChartPro.core.coaching.CoachingInsight;
 import com.EcoChartPro.core.state.ReplaySessionState;
+import com.EcoChartPro.core.state.SymbolSessionState;
 import com.EcoChartPro.model.Trade;
 import com.EcoChartPro.ui.dashboard.theme.UITheme;
 import com.EcoChartPro.ui.dialogs.CoachingInsightRenderer;
@@ -41,6 +42,13 @@ public class AnalysisMainPanel extends JPanel {
     private final JLabel loadingLabel;
 
     private ReplaySessionState currentSessionState; 
+
+    // --- [PHASE 1] Caching State Fields ---
+    private int lastAnalyzedTradeCount = -1;
+    private String lastAnalyzedSymbol = "";
+    
+    // Note: cachedReportData could be stored if we wanted to prevent re-rendering, 
+    // but just preventing re-calculation via the trade count check is sufficient.
 
     public AnalysisMainPanel() {
         setLayout(new BorderLayout());
@@ -131,6 +139,18 @@ public class AnalysisMainPanel extends JPanel {
     }
 
     /**
+     * [NEW] Forces a re-calculation of the report data, invalidating the local trade-count cache.
+     * Call this when trades are modified (e.g., editing notes) but the total count hasn't changed.
+     */
+    public void forceRefresh() {
+        this.lastAnalyzedTradeCount = -1;
+        this.lastAnalyzedSymbol = "";
+        if (this.currentSessionState != null) {
+            loadSessionData(this.currentSessionState);
+        }
+    }
+
+    /**
      * Triggers the asynchronous loading of session data.
      * @param state The session state to analyze. If null, shows a placeholder message.
      */
@@ -138,8 +158,40 @@ public class AnalysisMainPanel extends JPanel {
         if (state == null) {
             loadingLabel.setText("No active session data to analyze.");
             cardLayout.show(contentCardPanel, "loading");
+            lastAnalyzedTradeCount = -1;
+            lastAnalyzedSymbol = "";
             return;
         }
+
+        // --- [PHASE 1] Smart Caching Check ---
+        // 1. Calculate current state fingerprint
+        int currentTradeCount = 0;
+        if (state.symbolStates() != null) {
+            for (SymbolSessionState s : state.symbolStates().values()) {
+                if (s.tradeHistory() != null) {
+                    currentTradeCount += s.tradeHistory().size();
+                }
+            }
+        }
+        String currentSymbol = state.lastActiveSymbol() != null ? state.lastActiveSymbol() : "";
+
+        // 2. Check if data has actually changed
+        if (this.lastAnalyzedTradeCount == currentTradeCount && 
+            this.lastAnalyzedSymbol.equals(currentSymbol)) {
+            
+            // Update reference just in case (for exports), but skip heavy calculation
+            this.currentSessionState = state;
+            
+            // Ensure content is visible immediately
+            if (!contentCardPanel.isVisible() || !contentCardPanel.isShowing()) {
+                cardLayout.show(contentCardPanel, "content");
+            }
+            return; // EXIT EARLY
+        }
+        
+        // 3. Capture values for the Worker callback
+        final int finalTradeCount = currentTradeCount;
+        final String finalSymbol = currentSymbol;
 
         this.currentSessionState = state;
         loadingLabel.setText("Analyzing Performance Data...");
@@ -186,6 +238,10 @@ public class AnalysisMainPanel extends JPanel {
                         journalPanel.loadSessionData(allTrades);
                         comparativePanel.loadData(allTrades);
                         explorerPanel.loadData(allTrades);
+
+                        // --- [PHASE 1] Update Cache State ---
+                        lastAnalyzedTradeCount = finalTradeCount;
+                        lastAnalyzedSymbol = finalSymbol;
 
                         // Switch View
                         cardLayout.show(contentCardPanel, "content");

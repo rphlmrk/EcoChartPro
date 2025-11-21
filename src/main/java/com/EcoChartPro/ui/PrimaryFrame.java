@@ -32,7 +32,7 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
     private final WorkspaceContext liveContext;
     private final TitleBarManager titleBarManager;
     
-    // --- New Analysis Panel ---
+    // --- Analysis Panel ---
     private final AnalysisMainPanel analysisMainPanel;
 
     // --- Home Tab Components ---
@@ -65,7 +65,7 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
         replayWorkspacePanel = new ChartWorkspacePanel(this, true, replayContext);
         liveWorkspacePanel = new ChartWorkspacePanel(this, false, liveContext);
         
-        // Initialize new Analysis Panel
+        // Initialize Analysis Panel
         analysisMainPanel = new AnalysisMainPanel();
 
         boolean isConnected = InternetConnectivityService.getInstance().isConnected();
@@ -95,10 +95,19 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
         add(titleBarManager, BorderLayout.NORTH);
         add(mainContentPanel, BorderLayout.CENTER);
 
+        // --- Event Listeners ---
+        // Listen for session stats (equity curve updates)
         replayContext.getSessionTracker().addPropertyChangeListener(this);
         liveContext.getSessionTracker().addPropertyChangeListener(this);
+        
+        // Listen for Undo/Redo availability
         replayContext.getUndoManager().addPropertyChangeListener(this);
         liveContext.getUndoManager().addPropertyChangeListener(this);
+
+        // [PHASE 3] Listen for Trade Edits (Reactive Cache Invalidation)
+        // We must listen to PaperTradingService directly to catch "tradeUpdated" and "mistakeLogged"
+        replayContext.getPaperTradingService().addPropertyChangeListener(this);
+        liveContext.getPaperTradingService().addPropertyChangeListener(this);
     }
     
     /**
@@ -217,8 +226,6 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
 
         toolsMenu.addSeparator();
 
-        // [REMOVED] Performance Insights menu item - now a main tab.
-        
         JMenuItem achievementsItem = new JMenuItem("Achievements...");
         achievementsItem.addActionListener(e -> getActiveWorkspacePanel().getUiManager().openAchievementsDialog());
         toolsMenu.add(achievementsItem);
@@ -289,7 +296,10 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
 
     @Override
     public void propertyChange(PropertyChangeEvent evt) {
-        if ("sessionStatsUpdated".equals(evt.getPropertyName())) {
+        String prop = evt.getPropertyName();
+
+        // 1. Handle standard session updates (New trades added)
+        if ("sessionStatsUpdated".equals(prop)) {
             Object source = evt.getSource();
             if (source == replayContext.getSessionTracker()) {
                 lastReplayState = replayContext.getPaperTradingService().getCurrentSessionState();
@@ -297,7 +307,22 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
                 lastLiveState = liveContext.getPaperTradingService().getCurrentSessionState();
             }
             updateAnalysisReport();
-        } else if ("stateChanged".equals(evt.getPropertyName())) {
+        } 
+        
+        // 2. [PHASE 3] Handle reactive updates (Trade edits/modifications)
+        else if ("tradeUpdated".equals(prop) || "mistakeLogged".equals(prop)) {
+            // Invalidate the Analysis Main Panel's cache
+            analysisMainPanel.forceRefresh();
+
+            // If the user is currently viewing the Analysis tab, force an immediate reload
+            // so the changes (like new tags/notes) appear instantly.
+            if (analysisMainPanel.isShowing()) {
+                refreshAnalysisData();
+            }
+        }
+        
+        // 3. Handle Undo/Redo state changes
+        else if ("stateChanged".equals(prop)) {
             if (evt.getSource() == getActiveContext().getUndoManager()) {
                 updateUndoRedoState();
             }

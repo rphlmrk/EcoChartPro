@@ -16,6 +16,7 @@ import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.time.temporal.WeekFields;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -56,22 +57,27 @@ public class JournalAnalysisService {
     ) {}
     public record EquityPoint(Instant timestamp, BigDecimal cumulativeBalance) {}
 
-    // --- MFE/MAE Calculation with Fallback ---
+    // --- [OPTIMIZATION] Static Cache for MFE/MAE Calculations ---
+    private static final Map<UUID, TradeMfeMae> mfeMaeCache = new ConcurrentHashMap<>();
+
+    public static void clearMfeMaeCache() {
+        mfeMaeCache.clear();
+    }
+
+    // --- MFE/MAE Calculation with Persistent Caching ---
 
     public List<TradeMfeMae> calculateMfeMaeForAllTrades(List<Trade> trades, DataSourceManager.ChartDataSource source) {
         if (trades == null || trades.isEmpty()) {
             return Collections.emptyList();
         }
 
-        // [FIX] Prepare a fallback database manager if needed
+        // Optimization: Only fetch if not in memory cache
+        long uncachedCount = trades.stream().filter(t -> !mfeMaeCache.containsKey(t.id())).count();
+
         DatabaseManager fallbackDb = null;
         boolean useFallback = false;
         
-        // Check if we need to access the source DB (Replay scenario)
-        if (source != null && source.dbPath() != null) {
-            // We initialize this lazily inside the loop or check availability, 
-            // but simple approach is to open it if we encounter misses.
-            // For efficiency, we'll open it once here if we suspect we need it.
+        if (uncachedCount > 0 && source != null && source.dbPath() != null) {
             useFallback = true;
         }
 
@@ -83,21 +89,36 @@ public class JournalAnalysisService {
             final DatabaseManager dbToUse = fallbackDb;
 
             return trades.stream().map(trade -> {
-                // 1. Try Fast Cache (Application DB)
+                // 1. Check RAM Cache
+                if (mfeMaeCache.containsKey(trade.id())) {
+                    return mfeMaeCache.get(trade.id());
+                }
+
+                // 2. Check Fast Cache (Local App DB)
+                // This checks the `trade_kline_data` table which is optimized for single-trade lookups
                 List<KLine> tradeKlines = DatabaseManager.getInstance().getCandlesForTrade(trade.id(), "1m");
 
-                // 2. Fallback to Source DB (Replay/Historical Data)
+                // 3. Fallback to Source DB (Slow/Heavy Historical Data)
                 if (tradeKlines.isEmpty() && dbToUse != null) {
-                    // Buffer time by 1 minute to ensure we capture high/low
                     Instant start = trade.entryTime().minusSeconds(60);
                     Instant end = trade.exitTime().plusSeconds(60);
-                    // Assuming symbol name matches. If replay uses mapped names, might need adjustment.
                     Symbol lookupSymbol = trade.symbol(); 
                     tradeKlines = dbToUse.getKLinesBetween(lookupSymbol, "1m", start, end);
+
+                    // [CRITICAL OPTIMIZATION]: Persist to Fast Cache
+                    // If we had to go to the source DB, save this snippet to the local DB so next time it's fast.
+                    if (!tradeKlines.isEmpty()) {
+                        DatabaseManager.getInstance().saveTradeCandles(trade.id(), trade.symbol().name(), "1m", tradeKlines);
+                    }
                 }
 
                 MfeMaeResult result = calculateMfeMaeForTrade(trade, tradeKlines);
-                return new TradeMfeMae(result.mfe(), result.mae(), trade.profitAndLoss());
+                TradeMfeMae calculatedStats = new TradeMfeMae(result.mfe(), result.mae(), trade.profitAndLoss());
+                
+                // 4. Update RAM Cache
+                mfeMaeCache.put(trade.id(), calculatedStats);
+                
+                return calculatedStats;
             }).collect(Collectors.toList());
 
         } catch (Exception e) {
@@ -110,7 +131,7 @@ public class JournalAnalysisService {
         }
     }
 
-    // --- Existing Methods (Kept identical to preserve logic) ---
+    // --- Existing Methods (Unchanged) ---
 
     public Map<String, MistakeStats> analyzeMistakes(List<Trade> trades) {
         if (trades == null || trades.isEmpty()) return Collections.emptyMap();
@@ -205,8 +226,6 @@ public class JournalAnalysisService {
         return new OverallStats(sorted, startingBalance, endBalance, totalPnl, total, winners.size(), losers.size(), winRate, avgWin, avgLoss, rr, pf, expectancy, calculateAverageDuration(sorted), BigDecimal.ZERO, curve, maxDD.negate(), maxRun);
     }
 
-    // --- Boilerplate Analysis Methods ---
-    
     public Map<String, TagPerformanceStats> analyzePerformanceByTag(List<Trade> trades) {
         if (trades == null) return Collections.emptyMap();
         Map<String, List<Trade>> map = new HashMap<>();
