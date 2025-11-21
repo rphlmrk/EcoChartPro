@@ -1,16 +1,14 @@
 package com.EcoChartPro.ui;
 
 import com.EcoChartPro.core.state.ReplaySessionState;
-import com.EcoChartPro.core.trading.PaperTradingService;
 import com.EcoChartPro.ui.dialogs.AchievementsDialog;
 import com.EcoChartPro.ui.dialogs.InsightsDialog;
 import com.EcoChartPro.ui.dialogs.MarketplaceDialog;
 import com.EcoChartPro.ui.dialogs.PositionSizeCalculatorDialog;
 import com.EcoChartPro.ui.dialogs.SettingsDialog;
 import com.EcoChartPro.ui.editor.JavaEditorDialog;
+
 import java.math.BigDecimal;
-import javax.swing.*;
-import java.awt.Frame;
 
 /**
  * Manages the creation and display of UI dialogs and windows.
@@ -57,12 +55,16 @@ public class UIManager {
     public void openInsightsDialog() {
         if (insightsDialog == null || !insightsDialog.isDisplayable()) {
             insightsDialog = new InsightsDialog(ownerPanel.getFrameOwner());
-            // This logic will need to be updated to get the state from the correct context.
-            // ReplaySessionState currentState = PaperTradingService.getInstance().getCurrentSessionState();
-            // if (currentState != null) {
-            //     insightsDialog.loadSessionData(currentState);
-            // }
         }
+
+        // [FIX] Retrieve the current session state from the active workspace context (Replay or Live)
+        ReplaySessionState currentState = ownerPanel.getWorkspaceContext()
+                                                    .getPaperTradingService()
+                                                    .getCurrentSessionState();
+
+        // Load the data into the dialog. If null, the dialog handles it gracefully (shows empty state).
+        insightsDialog.loadSessionData(currentState);
+
         insightsDialog.setVisible(true);
         insightsDialog.toFront();
         insightsDialog.requestFocus();
@@ -78,7 +80,7 @@ public class UIManager {
     }
     
     /**
-     * method to open the achievements dialog.
+     * Opens the achievements dialog.
      */
     public void openAchievementsDialog() {
         if (achievementsDialog == null || !achievementsDialog.isDisplayable()) {
@@ -90,7 +92,7 @@ public class UIManager {
     }
 
     /**
-     * [NEW] Opens the community marketplace dialog.
+     * Opens the community marketplace dialog.
      */
     public void openMarketplaceDialog() {
         if (marketplaceDialog == null || !marketplaceDialog.isDisplayable()) {

@@ -156,8 +156,15 @@ public class ComprehensiveReportPanel extends JPanel implements PropertyChangeLi
     private void setupInteractions() {
         coachingPanel.addInsightsButtonListener(e -> {
             Window owner = SwingUtilities.getWindowAncestor(this);
-            if (owner != null)
-                new InsightsDialog((Frame) owner).setVisible(true);
+            if (owner != null) {
+                InsightsDialog dialog = new InsightsDialog((Frame) owner);
+                
+                // [FIX] Explicitly pass the current state to the dialog!
+                // Without this, the dialog opens with null state and hangs or shows nothing.
+                dialog.loadSessionData(this.currentSessionState);
+                
+                dialog.setVisible(true);
+            }
         });
 
         streakPanel.addInsightsButtonListener(e -> {

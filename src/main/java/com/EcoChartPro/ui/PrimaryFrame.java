@@ -1,6 +1,5 @@
 package com.EcoChartPro.ui;
 
-import com.EcoChartPro.core.controller.ReplaySessionManager;
 import com.EcoChartPro.core.controller.SessionController;
 import com.EcoChartPro.core.controller.WorkspaceContext;
 import com.EcoChartPro.core.service.InternetConnectivityService;
@@ -10,7 +9,6 @@ import com.EcoChartPro.ui.dashboard.ComprehensiveReportPanel;
 import com.EcoChartPro.ui.dashboard.DashboardViewPanel;
 import com.EcoChartPro.ui.dashboard.theme.UITheme;
 import com.EcoChartPro.ui.dialogs.AboutDialog;
-import com.EcoChartPro.ui.dialogs.SessionDialog;
 
 import javax.swing.*;
 import java.awt.*;
@@ -19,8 +17,6 @@ import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
-import java.net.URI;
-import java.util.List;
 
 public class PrimaryFrame extends JFrame implements PropertyChangeListener {
 
@@ -225,6 +221,17 @@ public class PrimaryFrame extends JFrame implements PropertyChangeListener {
         JMenuItem marketplaceItem = new JMenuItem("Community Marketplace...");
         marketplaceItem.addActionListener(e -> getActiveWorkspacePanel().getUiManager().openMarketplaceDialog());
         toolsMenu.add(marketplaceItem);
+
+        toolsMenu.addSeparator();
+
+        // [NEW] Add Insights and Achievements to the Tools menu
+        JMenuItem insightsItem = new JMenuItem("Performance Insights...");
+        insightsItem.addActionListener(e -> getActiveWorkspacePanel().getUiManager().openInsightsDialog());
+        toolsMenu.add(insightsItem);
+
+        JMenuItem achievementsItem = new JMenuItem("Achievements...");
+        achievementsItem.addActionListener(e -> getActiveWorkspacePanel().getUiManager().openAchievementsDialog());
+        toolsMenu.add(achievementsItem);
 
         toolsMenu.addSeparator();
 

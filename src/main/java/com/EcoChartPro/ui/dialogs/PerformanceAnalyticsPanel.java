@@ -39,8 +39,8 @@ public class PerformanceAnalyticsPanel extends JPanel {
     private final JTextPane keyTakeawaysPane;
     private final MfeMaeScatterPlot mfeMaeScatterPlot;
     private final HistogramChart pnlDistributionChart;
-    private final TitledContentPanel challengePanel; // <-- NEW
-    private final JTextArea challengeDescriptionArea; // <-- NEW
+    private final TitledContentPanel challengePanel;
+    private final JTextArea challengeDescriptionArea;
 
     public PerformanceAnalyticsPanel() {
         setOpaque(false);
@@ -106,6 +106,17 @@ public class PerformanceAnalyticsPanel extends JPanel {
     }
 
     public void loadSessionData(ReplaySessionState state) {
+        // [FIX] Handle null state gracefully to prevent UI hangs
+        if (state == null) {
+            tradesPerDayChart.updateData(Collections.emptyMap());
+            performanceByHourChart.updateData(Collections.emptyMap());
+            mfeMaeScatterPlot.updateData(Collections.emptyList());
+            pnlDistributionChart.updateData(Collections.emptyList());
+            keyTakeawaysPane.setText("");
+            challengePanel.setVisible(false);
+            return;
+        }
+
         GamificationService gamificationService = GamificationService.getInstance();
         
         // --- Update Daily Challenge ---
@@ -114,7 +125,7 @@ public class PerformanceAnalyticsPanel extends JPanel {
             Challenge challenge = challengeOpt.get();
             String title = String.format("Active Daily Challenge: %s (+%d XP)", challenge.title(), challenge.xpReward());
             challengePanel.setVisible(true);
-            challengePanel.setTitle(title); // Use the new public method
+            challengePanel.setTitle(title);
             String challengeText = challenge.isComplete() ? "Completed Today! " + challenge.description() : challenge.description();
             challengeDescriptionArea.setText(challengeText);
         } else {
@@ -123,7 +134,7 @@ public class PerformanceAnalyticsPanel extends JPanel {
 
         // Collect all trades from the multi-symbol state
         List<Trade> allTrades = new ArrayList<>();
-        if (state != null && state.symbolStates() != null) {
+        if (state.symbolStates() != null) {
             state.symbolStates().values().forEach(s -> {
                 if (s.tradeHistory() != null) {
                     allTrades.addAll(s.tradeHistory());
@@ -149,8 +160,12 @@ public class PerformanceAnalyticsPanel extends JPanel {
 
         // --- Update MFE vs MAE Chart ---
         // Use lastActiveSymbol to find the correct data source for analysis
-        Optional<DataSourceManager.ChartDataSource> sourceOpt = DataSourceManager.getInstance().getAvailableSources().stream()
-                .filter(s -> s.symbol().equalsIgnoreCase(state.lastActiveSymbol())).findFirst();
+        // [FIX] Safe handling for lastActiveSymbol
+        Optional<DataSourceManager.ChartDataSource> sourceOpt = Optional.empty();
+        if (state.lastActiveSymbol() != null) {
+            sourceOpt = DataSourceManager.getInstance().getAvailableSources().stream()
+                    .filter(s -> s.symbol().equalsIgnoreCase(state.lastActiveSymbol())).findFirst();
+        }
 
         if (sourceOpt.isPresent()) {
             List<JournalAnalysisService.TradeMfeMae> mfeMaeData = analysisService.calculateMfeMaeForAllTrades(allTrades, sourceOpt.get());
