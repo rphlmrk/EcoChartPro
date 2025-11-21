@@ -1,7 +1,7 @@
 package com.EcoChartPro.ui.sidebar.journal;
 
 import com.EcoChartPro.core.journal.JournalAnalysisService;
-import com.EcoChartPro.ui.dashboard.theme.UITheme;
+import com.EcoChartPro.ui.home.theme.UITheme;
 
 import javax.swing.*;
 import java.awt.*;

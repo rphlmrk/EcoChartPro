@@ -2,7 +2,7 @@ package com.EcoChartPro.ui.Analysis;
 
 import com.EcoChartPro.core.journal.JournalAnalysisService;
 import com.EcoChartPro.model.Trade;
-import com.EcoChartPro.ui.dashboard.widgets.TrendChartWidget;
+import com.EcoChartPro.ui.home.widgets.TrendChartWidget;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableCellRenderer;

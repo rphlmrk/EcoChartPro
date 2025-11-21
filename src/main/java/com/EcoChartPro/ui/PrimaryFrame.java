@@ -6,9 +6,9 @@ import com.EcoChartPro.core.service.InternetConnectivityService;
 import com.EcoChartPro.core.state.ReplaySessionState;
 import com.EcoChartPro.ui.Analysis.AnalysisMainPanel;
 import com.EcoChartPro.ui.action.TitleBarManager;
-import com.EcoChartPro.ui.dashboard.ComprehensiveReportPanel;
-import com.EcoChartPro.ui.dashboard.DashboardViewPanel;
-import com.EcoChartPro.ui.dashboard.theme.UITheme;
+import com.EcoChartPro.ui.home.ComprehensiveReportPanel;
+import com.EcoChartPro.ui.home.DashboardViewPanel;
+import com.EcoChartPro.ui.home.theme.UITheme;
 import com.EcoChartPro.ui.dialogs.AboutDialog;
 
 import javax.swing.*;

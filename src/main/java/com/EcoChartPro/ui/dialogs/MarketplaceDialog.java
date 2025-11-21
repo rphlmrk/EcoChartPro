@@ -3,7 +3,7 @@ package com.EcoChartPro.ui.dialogs;
 import com.EcoChartPro.core.plugin.MarketplaceService;
 import com.EcoChartPro.core.plugin.PluginInfo;
 import com.EcoChartPro.core.plugin.PluginManager;
-import com.EcoChartPro.ui.dashboard.theme.UITheme;
+import com.EcoChartPro.ui.home.theme.UITheme;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;

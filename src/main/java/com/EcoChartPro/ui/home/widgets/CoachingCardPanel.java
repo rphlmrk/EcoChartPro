@@ -1,7 +1,7 @@
-package com.EcoChartPro.ui.dashboard.widgets;
+package com.EcoChartPro.ui.home.widgets;
 
 import com.EcoChartPro.core.gamification.ProgressCardViewModel;
-import com.EcoChartPro.ui.dashboard.theme.UITheme;
+import com.EcoChartPro.ui.home.theme.UITheme;
 
 import javax.swing.*;
 import java.awt.*;

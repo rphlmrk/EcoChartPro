@@ -1,4 +1,4 @@
-package com.EcoChartPro.ui.dashboard.widgets;
+package com.EcoChartPro.ui.home.widgets;
 
 import javax.swing.*;
 import java.awt.*;

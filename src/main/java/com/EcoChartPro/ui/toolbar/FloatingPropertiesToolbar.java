@@ -7,7 +7,7 @@ import com.EcoChartPro.model.drawing.TextObject;
 import com.EcoChartPro.ui.ChartWorkspacePanel;
 import com.EcoChartPro.ui.chart.ChartPanel;
 import com.EcoChartPro.ui.components.CustomColorChooserPanel;
-import com.EcoChartPro.ui.dashboard.theme.UITheme;
+import com.EcoChartPro.ui.home.theme.UITheme;
 
 import javax.swing.*;
 import javax.swing.border.Border;

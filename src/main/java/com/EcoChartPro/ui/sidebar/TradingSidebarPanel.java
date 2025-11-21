@@ -8,7 +8,7 @@ import com.EcoChartPro.model.Trade;
 import com.EcoChartPro.model.trading.Order;
 import com.EcoChartPro.model.trading.Position;
 import com.EcoChartPro.ui.chart.ChartPanel;
-import com.EcoChartPro.ui.dashboard.theme.UITheme;
+import com.EcoChartPro.ui.home.theme.UITheme;
 import com.EcoChartPro.ui.sidebar.checklists.ChecklistsViewPanel;
 import com.EcoChartPro.ui.sidebar.journal.SidebarJournalModePanel;
 

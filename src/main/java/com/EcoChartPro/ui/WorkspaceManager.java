@@ -17,7 +17,7 @@ import com.EcoChartPro.ui.chart.IndicatorPanel;
 import com.EcoChartPro.ui.chart.PriceAxisPanel;
 import com.EcoChartPro.ui.chart.TimeAxisPanel;
 import com.EcoChartPro.ui.chart.axis.ChartAxis;
-import com.EcoChartPro.ui.dashboard.theme.UITheme;
+import com.EcoChartPro.ui.home.theme.UITheme;
 import com.EcoChartPro.ui.dialogs.SessionDialog;
 import com.EcoChartPro.ui.toolbar.FloatingDrawingToolbar;
 import com.EcoChartPro.utils.DataSourceManager;

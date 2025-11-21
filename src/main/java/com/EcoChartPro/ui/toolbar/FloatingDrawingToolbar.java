@@ -9,7 +9,7 @@ import com.EcoChartPro.core.trading.PaperTradingService;
 import com.EcoChartPro.model.drawing.MeasureToolObject;
 import com.EcoChartPro.ui.ChartWorkspacePanel;
 import com.EcoChartPro.ui.chart.ChartPanel;
-import com.EcoChartPro.ui.dashboard.theme.UITheme;
+import com.EcoChartPro.ui.home.theme.UITheme;
 
 import javax.swing.*;
 import java.awt.*;

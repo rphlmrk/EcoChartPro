@@ -1,4 +1,4 @@
-package com.EcoChartPro.ui.dashboard;
+package com.EcoChartPro.ui.home;
 
 import com.EcoChartPro.core.journal.JournalAnalysisService;
 import com.EcoChartPro.core.state.ReplaySessionState;

@@ -6,7 +6,7 @@ import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.Timeframe;
 import com.EcoChartPro.model.Trade;
 import com.EcoChartPro.model.TradeDirection;
-import com.EcoChartPro.ui.dashboard.theme.UITheme;
+import com.EcoChartPro.ui.home.theme.UITheme;
 
 import javax.swing.*;
 import java.awt.*;

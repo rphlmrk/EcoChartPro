@@ -32,7 +32,7 @@ import com.EcoChartPro.ui.components.LiveStatusBar; // [NEW]
 import com.EcoChartPro.ui.components.OnFireStreakWidget;
 import com.EcoChartPro.ui.components.ConnectionStatusWidget;
 import com.EcoChartPro.ui.components.StopTradingNudgeWidget;
-import com.EcoChartPro.ui.dashboard.theme.UITheme;
+import com.EcoChartPro.ui.home.theme.UITheme;
 import com.EcoChartPro.ui.sidebar.TradingSidebarPanel;
 import com.EcoChartPro.ui.toolbar.ChartToolbarPanel;
 import com.EcoChartPro.ui.toolbar.FloatingDrawingToolbar;

@@ -1,9 +1,9 @@
-package com.EcoChartPro.ui.dashboard.widgets;
+package com.EcoChartPro.ui.home.widgets;
 
 import com.EcoChartPro.data.LiveDataManager;
 import com.EcoChartPro.data.provider.BinanceProvider;
 import com.EcoChartPro.model.KLine;
-import com.EcoChartPro.ui.dashboard.theme.UITheme;
+import com.EcoChartPro.ui.home.theme.UITheme;
 import com.EcoChartPro.ui.Analysis.TitledContentPanel;
 
 import javax.swing.*;

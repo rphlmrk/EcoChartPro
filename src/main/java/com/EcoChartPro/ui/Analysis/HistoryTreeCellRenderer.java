@@ -5,7 +5,7 @@ import com.EcoChartPro.model.PlanAdherence;
 import com.EcoChartPro.model.SetupQuality;
 import com.EcoChartPro.model.Trade;
 import com.EcoChartPro.model.TradeDirection;
-import com.EcoChartPro.ui.dashboard.theme.UITheme;
+import com.EcoChartPro.ui.home.theme.UITheme;
 import com.EcoChartPro.ui.Analysis.HistoryViewPanel.*;
 
 import javax.swing.*;

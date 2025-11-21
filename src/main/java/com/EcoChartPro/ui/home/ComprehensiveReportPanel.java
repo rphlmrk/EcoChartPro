@@ -1,4 +1,4 @@
-package com.EcoChartPro.ui.dashboard;
+package com.EcoChartPro.ui.home;
 
 import com.EcoChartPro.core.coaching.CoachingService;
 import com.EcoChartPro.core.controller.LiveSessionTrackerService;
@@ -11,8 +11,8 @@ import com.EcoChartPro.core.service.ReviewReminderService;
 import com.EcoChartPro.core.state.ReplaySessionState;
 import com.EcoChartPro.model.Trade;
 import com.EcoChartPro.ui.PrimaryFrame;
-import com.EcoChartPro.ui.dashboard.theme.UITheme;
-import com.EcoChartPro.ui.dashboard.widgets.*;
+import com.EcoChartPro.ui.home.theme.UITheme;
+import com.EcoChartPro.ui.home.widgets.*;
 import com.EcoChartPro.ui.dialogs.AchievementsDialog;
 import com.EcoChartPro.utils.DataSourceManager;
 import com.EcoChartPro.utils.report.HtmlReportGenerator;

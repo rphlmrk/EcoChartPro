@@ -1,7 +1,7 @@
 package com.EcoChartPro.ui.dialogs;
 
 import com.EcoChartPro.core.coaching.CoachingInsight;
-import com.EcoChartPro.ui.dashboard.theme.UITheme;
+import com.EcoChartPro.ui.home.theme.UITheme;
 
 import javax.swing.*;
 import java.awt.*;

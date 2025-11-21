@@ -1,7 +1,7 @@
 package com.EcoChartPro.ui.toolbar.components;
 
 import com.EcoChartPro.core.settings.SettingsService;
-import com.EcoChartPro.ui.dashboard.theme.UITheme;
+import com.EcoChartPro.ui.home.theme.UITheme;
 import com.EcoChartPro.ui.toolbar.components.SymbolProgressCache.SymbolProgress;
 import com.EcoChartPro.utils.DataSourceManager.ChartDataSource;
 import org.slf4j.Logger;

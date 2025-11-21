@@ -2,7 +2,7 @@ package com.EcoChartPro.ui.sidebar;
 
 import com.EcoChartPro.model.Trade;
 import com.EcoChartPro.model.TradeDirection;
-import com.EcoChartPro.ui.dashboard.theme.UITheme;
+import com.EcoChartPro.ui.home.theme.UITheme;
 
 import javax.swing.*;
 import java.awt.*;

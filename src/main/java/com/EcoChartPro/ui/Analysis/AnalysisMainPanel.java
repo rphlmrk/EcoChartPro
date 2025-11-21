@@ -4,7 +4,7 @@ import com.EcoChartPro.core.coaching.CoachingInsight;
 import com.EcoChartPro.core.state.ReplaySessionState;
 import com.EcoChartPro.core.state.SymbolSessionState;
 import com.EcoChartPro.model.Trade;
-import com.EcoChartPro.ui.dashboard.theme.UITheme;
+import com.EcoChartPro.ui.home.theme.UITheme;
 import com.EcoChartPro.ui.dialogs.CoachingInsightRenderer;
 import com.EcoChartPro.ui.dialogs.PerformanceAnalyticsPanel;
 import com.EcoChartPro.utils.report.HtmlReportGenerator;

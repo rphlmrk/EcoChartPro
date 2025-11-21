@@ -3,7 +3,7 @@ package com.EcoChartPro.ui.Analysis;
 import com.EcoChartPro.core.journal.JournalAnalysisService;
 import com.EcoChartPro.data.DataResampler;
 import com.EcoChartPro.model.*;
-import com.EcoChartPro.ui.dashboard.widgets.EquityCurveChart;
+import com.EcoChartPro.ui.home.widgets.EquityCurveChart;
 import com.EcoChartPro.utils.DatabaseManager;
 import com.EcoChartPro.utils.DataSourceManager;
 

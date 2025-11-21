@@ -1,8 +1,8 @@
-package com.EcoChartPro.ui.dashboard;
+package com.EcoChartPro.ui.home;
 
 import com.EcoChartPro.core.service.InternetConnectivityService;
 import com.EcoChartPro.ui.components.ConnectionStatusWidget;
-import com.EcoChartPro.ui.dashboard.theme.UITheme;
+import com.EcoChartPro.ui.home.theme.UITheme;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

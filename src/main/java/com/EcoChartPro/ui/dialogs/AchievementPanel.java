@@ -1,7 +1,7 @@
 package com.EcoChartPro.ui.dialogs;
 
 import com.EcoChartPro.core.gamification.Achievement;
-import com.EcoChartPro.ui.dashboard.theme.UITheme;
+import com.EcoChartPro.ui.home.theme.UITheme;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;

@@ -5,7 +5,7 @@ import com.EcoChartPro.core.journal.JournalAnalysisService.DailyStats;
 import com.EcoChartPro.core.journal.JournalAnalysisService.MonthlyStats;
 import com.EcoChartPro.core.journal.JournalAnalysisService.WeeklyStats;
 import com.EcoChartPro.model.Trade;
-import com.EcoChartPro.ui.dashboard.theme.UITheme;
+import com.EcoChartPro.ui.home.theme.UITheme;
 
 import javax.swing.*;
 import java.awt.*;

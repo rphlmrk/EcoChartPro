@@ -1,6 +1,6 @@
 package com.EcoChartPro.ui.components;
 
-import com.EcoChartPro.ui.dashboard.theme.UITheme;
+import com.EcoChartPro.ui.home.theme.UITheme;
 
 import javax.swing.*;
 import java.awt.*;

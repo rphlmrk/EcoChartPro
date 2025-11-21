@@ -1,4 +1,4 @@
-package com.EcoChartPro.ui.dashboard.theme;
+package com.EcoChartPro.ui.home.theme;
 
 import com.formdev.flatlaf.extras.FlatSVGIcon;
 

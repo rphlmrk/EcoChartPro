@@ -1,8 +1,8 @@
-package com.EcoChartPro.ui.dashboard;
+package com.EcoChartPro.ui.home;
 
-import com.EcoChartPro.ui.dashboard.theme.UITheme;
-import com.EcoChartPro.ui.dashboard.widgets.BtcPerformanceWidget;
-import com.EcoChartPro.ui.dashboard.widgets.PluginMarketplaceWidget;
+import com.EcoChartPro.ui.home.theme.UITheme;
+import com.EcoChartPro.ui.home.widgets.BtcPerformanceWidget;
+import com.EcoChartPro.ui.home.widgets.PluginMarketplaceWidget;
 import javax.swing.*;
 import java.awt.*;
 

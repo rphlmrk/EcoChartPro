@@ -1,8 +1,8 @@
 package com.EcoChartPro.ui;
 
 import com.EcoChartPro.core.gamification.Achievement;
-import com.EcoChartPro.ui.dashboard.DashboardFrame;
-import com.EcoChartPro.ui.dashboard.theme.UITheme;
+import com.EcoChartPro.ui.home.DashboardFrame;
+import com.EcoChartPro.ui.home.theme.UITheme;
 
 import javax.swing.*;
 import java.awt.*;

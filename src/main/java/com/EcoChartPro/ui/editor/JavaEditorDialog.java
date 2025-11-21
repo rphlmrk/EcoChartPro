@@ -4,7 +4,7 @@ import com.EcoChartPro.api.indicator.CustomIndicator;
 import com.EcoChartPro.core.plugin.PluginManager;
 import com.EcoChartPro.core.service.CompilationService;
 import com.EcoChartPro.ui.ChartWorkspacePanel;
-import com.EcoChartPro.ui.dashboard.theme.UITheme;
+import com.EcoChartPro.ui.home.theme.UITheme;
 import com.EcoChartPro.utils.AppDataManager;
 import io.github.classgraph.ClassInfo;
 import io.github.classgraph.FieldInfo;

@@ -2,7 +2,7 @@ package com.EcoChartPro.ui.components;
 
 import com.EcoChartPro.core.service.InternetConnectivityService;
 import com.EcoChartPro.data.LiveDataManager;
-import com.EcoChartPro.ui.dashboard.theme.UITheme;
+import com.EcoChartPro.ui.home.theme.UITheme;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;

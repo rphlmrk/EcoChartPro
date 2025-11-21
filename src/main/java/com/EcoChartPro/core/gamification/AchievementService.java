@@ -3,7 +3,7 @@ package com.EcoChartPro.core.gamification;
 import com.EcoChartPro.core.state.AchievementState;
 import com.EcoChartPro.model.Trade;
 import com.EcoChartPro.ui.NotificationService;
-import com.EcoChartPro.ui.dashboard.theme.UITheme;
+import com.EcoChartPro.ui.home.theme.UITheme;
 import com.EcoChartPro.utils.AppDataManager;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;

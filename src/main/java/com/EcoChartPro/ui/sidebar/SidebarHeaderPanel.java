@@ -1,6 +1,6 @@
 package com.EcoChartPro.ui.sidebar;
 
-import com.EcoChartPro.ui.dashboard.theme.UITheme;
+import com.EcoChartPro.ui.home.theme.UITheme;
 
 import javax.swing.*;
 import javax.swing.border.Border;

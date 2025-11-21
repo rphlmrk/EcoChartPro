@@ -7,7 +7,7 @@ import com.EcoChartPro.core.gamification.AchievementService.GamificationStats;
 import com.EcoChartPro.core.state.GamificationState;
 import com.EcoChartPro.model.Trade;
 import com.EcoChartPro.ui.NotificationService;
-import com.EcoChartPro.ui.dashboard.theme.UITheme;
+import com.EcoChartPro.ui.home.theme.UITheme;
 import com.EcoChartPro.utils.AppDataManager;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;

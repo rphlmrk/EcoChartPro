@@ -3,7 +3,7 @@ package com.EcoChartPro.ui.sidebar.journal;
 import com.EcoChartPro.core.controller.WorkspaceContext;
 import com.EcoChartPro.model.Trade;
 import com.EcoChartPro.model.TradeDirection;
-import com.EcoChartPro.ui.dashboard.theme.UITheme;
+import com.EcoChartPro.ui.home.theme.UITheme;
 import com.EcoChartPro.ui.trading.JournalEntryDialog;
 
 import javax.swing.*;

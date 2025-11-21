@@ -1,9 +1,9 @@
-package com.EcoChartPro.ui.dashboard.widgets;
+package com.EcoChartPro.ui.home.widgets;
 
 import com.EcoChartPro.core.plugin.MarketplaceService;
 import com.EcoChartPro.core.plugin.PluginInfo;
 import com.EcoChartPro.ui.Analysis.TitledContentPanel;
-import com.EcoChartPro.ui.dashboard.theme.UITheme;
+import com.EcoChartPro.ui.home.theme.UITheme;
 import com.EcoChartPro.ui.dialogs.MarketplaceDialog;
 
 import javax.swing.*;

@@ -1,7 +1,7 @@
 package com.EcoChartPro.ui.toolbar.components;
 
 import com.EcoChartPro.ui.WorkspaceManager;
-import com.EcoChartPro.ui.dashboard.theme.UITheme;
+import com.EcoChartPro.ui.home.theme.UITheme;
 
 import javax.swing.*;
 import javax.swing.event.EventListenerList;

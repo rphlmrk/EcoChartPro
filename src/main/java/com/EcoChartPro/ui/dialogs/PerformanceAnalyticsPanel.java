@@ -6,9 +6,9 @@ import com.EcoChartPro.core.journal.JournalAnalysisService;
 import com.EcoChartPro.core.state.ReplaySessionState;
 import com.EcoChartPro.model.Trade;
 import com.EcoChartPro.ui.Analysis.TitledContentPanel;
-import com.EcoChartPro.ui.dashboard.widgets.HistogramChart;
-import com.EcoChartPro.ui.dashboard.widgets.MfeMaeScatterPlot;
-import com.EcoChartPro.ui.dashboard.widgets.MonthlyPerformanceChart;
+import com.EcoChartPro.ui.home.widgets.HistogramChart;
+import com.EcoChartPro.ui.home.widgets.MfeMaeScatterPlot;
+import com.EcoChartPro.ui.home.widgets.MonthlyPerformanceChart;
 import com.EcoChartPro.utils.DataSourceManager;
 
 import javax.swing.*;

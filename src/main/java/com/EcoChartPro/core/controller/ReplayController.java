@@ -11,7 +11,7 @@ import com.EcoChartPro.model.Trade;
 import com.EcoChartPro.model.trading.Position;
 import com.EcoChartPro.ui.NotificationService;
 import com.EcoChartPro.ui.chart.ChartPanel;
-import com.EcoChartPro.ui.dashboard.theme.UITheme;
+import com.EcoChartPro.ui.home.theme.UITheme;
 import com.EcoChartPro.utils.AppDataManager;
 import com.EcoChartPro.utils.SessionManager;
 import org.slf4j.Logger;

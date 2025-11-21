@@ -38,7 +38,7 @@ import com.EcoChartPro.ui.chart.render.VisibleRangeVolumeProfileRenderer;
 import com.EcoChartPro.ui.chart.render.drawing.DrawingRenderer;
 import com.EcoChartPro.ui.chart.render.trading.OrderRenderer;
 import com.EcoChartPro.ui.chart.render.trading.TradeSignalRenderer;
-import com.EcoChartPro.ui.dashboard.theme.UITheme;
+import com.EcoChartPro.ui.home.theme.UITheme;
 import com.EcoChartPro.ui.dialogs.TimeframeInputDialog;
 import com.EcoChartPro.ui.toolbar.FloatingPropertiesToolbar;
 import com.EcoChartPro.ui.trading.OrderPreview;

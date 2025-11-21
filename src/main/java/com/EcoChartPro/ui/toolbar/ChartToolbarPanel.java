@@ -10,7 +10,7 @@ import com.EcoChartPro.model.chart.ChartType;
 import com.EcoChartPro.ui.ChartWorkspacePanel;
 import com.EcoChartPro.ui.WorkspaceManager;
 import com.EcoChartPro.ui.chart.ChartPanel;
-import com.EcoChartPro.ui.dashboard.theme.UITheme;
+import com.EcoChartPro.ui.home.theme.UITheme;
 import com.EcoChartPro.ui.dialogs.IndicatorDialog;
 import com.EcoChartPro.ui.toolbar.components.ChartTypeSelectionPanel;
 import com.EcoChartPro.ui.toolbar.components.LayoutSelectionPanel;
