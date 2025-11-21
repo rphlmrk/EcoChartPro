@@ -35,15 +35,23 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * The central data model for a specific chart view.
+ * It orchestrates the flow between the HistoryProvider (Live or Replay) and the UI.
+ * 
+ * REFACTORED FOR PHASE 3:
+ * - Efficient handling of "Finalized" vs "Forming" candles.
+ * - Explicit wiring for LiveHistoryProvider's hybrid data.
+ */
 public class ChartDataModel implements PropertyChangeListener {
 
     private static final Logger logger = LoggerFactory.getLogger(ChartDataModel.class);
-
-    private final PropertyChangeSupport pcs = new PropertyChangeSupport(this);
     private static final int INDICATOR_LOOKBACK_BUFFER = 500;
     private static final int LIVE_PAN_TRIGGER_THRESHOLD = 500;
 
-    // --- Core State and Dependencies ---
+    private final PropertyChangeSupport pcs = new PropertyChangeSupport(this);
+
+    // --- Core State ---
     private List<KLine> visibleKLines;
     private BigDecimal minPrice, maxPrice;
     private DatabaseManager dbManager;
@@ -54,11 +62,12 @@ public class ChartDataModel implements PropertyChangeListener {
     private final IndicatorManager indicatorManager;
     private final DrawingManager drawingManager;
 
-    // --- Provider and Calculator Abstractions ---
+    // --- Providers ---
     private IHistoryProvider historyProvider;
     private final FootprintCalculator footprintCalculator;
 
     // --- Caching ---
+    // Cache for Higher Timeframe (HTF) views used by indicators
     private final Map<Timeframe, List<KLine>> htfCache = new ConcurrentHashMap<>();
     private List<KLine> heikinAshiCandlesCache;
     private boolean isHaCacheDirty = true;
@@ -86,38 +95,7 @@ public class ChartDataModel implements PropertyChangeListener {
         this.interactionManager.addPropertyChangeListener(this);
     }
 
-    public void cleanup() {
-        if (this.drawingManager != null) {
-            this.drawingManager.removePropertyChangeListener("activeSymbolChanged", this);
-        }
-        if (this.interactionManager != null)
-            this.interactionManager.removePropertyChangeListener(this);
-        if (this.historyProvider != null) {
-            this.historyProvider.cleanup();
-            historyProvider = null;
-        }
-    }
-
-    public void onChartTypeChanged(ChartType oldType, ChartType newType) {
-        if (isInReplayMode()) {
-            if (newType == ChartType.FOOTPRINT) {
-                logger.warn("Footprint chart type is not supported in Replay mode.");
-                if (chartPanel != null)
-                    chartPanel.setChartType(oldType);
-            }
-            return;
-        }
-
-        boolean switchedToOrFromFootprint = (newType == ChartType.FOOTPRINT && oldType != ChartType.FOOTPRINT) ||
-                (newType != ChartType.FOOTPRINT && oldType == ChartType.FOOTPRINT);
-
-        if (switchedToOrFromFootprint) {
-            logger.info("Chart type changed to/from Footprint. Triggering data reload.");
-            loadDataset(currentSource, currentDisplayTimeframe, true);
-        }
-    }
-
-    // --- Data Loading Entry Points ---
+    // --- Data Loading ---
 
     public void loadDataset(DataSourceManager.ChartDataSource source, Timeframe timeframe) {
         loadDataset(source, timeframe, false);
@@ -142,12 +120,10 @@ public class ChartDataModel implements PropertyChangeListener {
 
         if (liveDataProvider != null) {
             boolean isFootprint = chartPanel != null && chartPanel.getChartType() == ChartType.FOOTPRINT;
-            // LiveHistoryProvider now handles Base vs Target Timeframe logic internally
-            this.historyProvider = new LiveHistoryProvider(chartPanel, source, liveDataProvider, timeframe, isFootprint,
-                    footprintCalculator);
+            // Initialize LiveHistoryProvider which handles the 1m stream aggregation
+            this.historyProvider = new LiveHistoryProvider(chartPanel, source, liveDataProvider, timeframe, isFootprint, footprintCalculator);
         } else {
-            logger.error("Cannot create LiveHistoryProvider without a valid DataProvider for '{}'.",
-                    source.providerName());
+            logger.error("Cannot create LiveHistoryProvider without a valid DataProvider for '{}'.", source.providerName());
         }
     }
 
@@ -158,13 +134,115 @@ public class ChartDataModel implements PropertyChangeListener {
         this.historyProvider = new ReplayHistoryProvider(interactionManager, chartPanel, initialDisplayTimeframe);
     }
 
-    // --- Other Public Methods ---
+    // --- Data Access ---
+
+    public List<KLine> getAllChartableCandles() {
+        if (historyProvider == null) return Collections.emptyList();
+
+        // Combine finalized candles with the currently forming one (if any)
+        List<KLine> all = new ArrayList<>(historyProvider.getFinalizedCandles());
+        KLine forming = historyProvider.getFormingCandle();
+        if (forming != null) {
+            all.add(forming);
+        }
+        return all;
+    }
+
+    public List<KLine> getResampledDataForView(Timeframe targetTimeframe) {
+        if (htfCache.containsKey(targetTimeframe)) {
+            return htfCache.get(targetTimeframe);
+        }
+
+        if (historyProvider instanceof LiveHistoryProvider) {
+            if (targetTimeframe.equals(this.currentDisplayTimeframe)) {
+                return getAllChartableCandles();
+            } else {
+                // For Multi-Timeframe Indicators: Resample the finalized data
+                List<KLine> resampled = DataResampler.resample(historyProvider.getFinalizedCandles(), targetTimeframe);
+                htfCache.put(targetTimeframe, resampled);
+                return resampled;
+            }
+        }
+        return Collections.emptyList();
+    }
+
+    // --- Live Update Handling ---
+
+    public void fireLiveCandleAdded(KLine finalizedCandle) {
+        Runnable updateTask = () -> {
+            // Notify interaction manager first (e.g., to auto-scroll)
+            if (interactionManager != null) {
+                interactionManager.onReplayTick(finalizedCandle);
+            }
+            // Full view update required as data structure changed
+            updateView();
+            pcs.firePropertyChange("liveCandleAdded", null, finalizedCandle);
+        };
+        runOnUIThread(updateTask);
+    }
+
+    public void fireLiveTickReceived(KLine formingCandle) {
+        Runnable updateTask = () -> {
+            // Only update view/indicators, don't scroll (handled by candle added)
+            if (interactionManager != null) {
+                interactionManager.onReplayTick(formingCandle);
+            }
+            updateView();
+            pcs.firePropertyChange("liveTickReceived", null, formingCandle);
+        };
+        runOnUIThread(updateTask);
+    }
+    
+    private void runOnUIThread(Runnable task) {
+        if (SwingUtilities.isEventDispatchThread()) {
+            task.run();
+        } else {
+            SwingUtilities.invokeLater(task);
+        }
+    }
+
+    private void updateView() {
+        if (historyProvider instanceof LiveHistoryProvider liveProvider) {
+            // Logic to auto-fetch history if user scrolls back
+            checkForLivePanBack(liveProvider);
+        }
+        assembleVisibleKLines();
+        calculateBoundaries();
+        triggerIndicatorRecalculation();
+        fireDataUpdated();
+    }
+
+    private void assembleVisibleKLines() {
+        if (historyProvider == null) {
+            this.visibleKLines = Collections.emptyList();
+            return;
+        }
+        
+        int currentStartIndex = interactionManager.getStartIndex();
+        int currentBarsPerScreen = interactionManager.getBarsPerScreen();
+        int dataWindowStart = historyProvider.getDataWindowStartIndex();
+        
+        List<KLine> allChartableCandles = getAllChartableCandles();
+        
+        if (!allChartableCandles.isEmpty()) {
+            int fromIndex = Math.max(0, currentStartIndex - dataWindowStart);
+            int toIndex = Math.min(fromIndex + currentBarsPerScreen, allChartableCandles.size());
+            
+            if (fromIndex < toIndex) {
+                this.visibleKLines = allChartableCandles.subList(fromIndex, toIndex);
+            } else {
+                this.visibleKLines = Collections.emptyList();
+            }
+        } else {
+            this.visibleKLines = Collections.emptyList();
+        }
+    }
+
+    // --- Boilerplate Methods ---
 
     public void setDisplayTimeframe(Timeframe newTimeframe, boolean forceReload) {
-        if (newTimeframe == null)
-            return;
-        if (!forceReload && this.currentDisplayTimeframe != null && this.currentDisplayTimeframe.equals(newTimeframe))
-            return;
+        if (newTimeframe == null) return;
+        if (!forceReload && this.currentDisplayTimeframe != null && this.currentDisplayTimeframe.equals(newTimeframe)) return;
 
         Timeframe oldTimeframe = this.currentDisplayTimeframe;
         this.currentDisplayTimeframe = newTimeframe;
@@ -172,10 +250,13 @@ public class ChartDataModel implements PropertyChangeListener {
         isHaCacheDirty = true;
 
         if (historyProvider != null) {
-            // In Live mode, this tells the provider to switch its Base/Target logic
             historyProvider.setTimeframe(newTimeframe, forceReload);
         }
         pcs.firePropertyChange("displayTimeframeChanged", oldTimeframe, newTimeframe);
+    }
+
+    public void setDisplayTimeframe(Timeframe newTimeframe) {
+        setDisplayTimeframe(newTimeframe, false);
     }
 
     public void clearData() {
@@ -193,92 +274,17 @@ public class ChartDataModel implements PropertyChangeListener {
         fireDataUpdated();
     }
 
-    // --- Getters and Setters ---
-
-    public void setDatabaseManager(DatabaseManager dbManager, DataSourceManager.ChartDataSource source) {
-        this.dbManager = dbManager;
-    }
-
-    public List<KLine> getAllChartableCandles() {
-        if (historyProvider == null)
-            return Collections.emptyList();
-
-        // CLEANUP: LiveHistoryProvider now guarantees these returns match the Target
-        // Timeframe
-        List<KLine> all = new ArrayList<>(historyProvider.getFinalizedCandles());
-        if (historyProvider.getFormingCandle() != null) {
-            all.add(historyProvider.getFormingCandle());
+    private void calculateBoundaries() {
+        if (visibleKLines.isEmpty()) {
+            minPrice = BigDecimal.ZERO;
+            maxPrice = BigDecimal.ONE;
+            return;
         }
-        return all;
-    }
-
-    public List<KLine> getHeikinAshiCandles() {
-        if (!isHaCacheDirty && heikinAshiCandlesCache != null)
-            return heikinAshiCandlesCache;
-        List<KLine> allRaw = getAllChartableCandles();
-        heikinAshiCandlesCache = DataTransformer.transformToHeikinAshi(allRaw);
-        isHaCacheDirty = false;
-        return heikinAshiCandlesCache;
-    }
-
-    public Map<Instant, FootprintBar> getFootprintData() {
-        return this.footprintCalculator.getFootprintData();
-    }
-
-    public List<KLine> getResampledDataForView(Timeframe targetTimeframe) {
-        // Cache check first
-        if (htfCache.containsKey(targetTimeframe)) {
-            return htfCache.get(targetTimeframe);
-        }
-
-        // 1. Replay Mode logic (Existing)
-        if (historyProvider instanceof ReplayHistoryProvider) {
-            logger.warn("Resampling for HTF {} in replay mode is not yet fully supported post-refactor.",
-                    targetTimeframe);
-            return Collections.emptyList();
-        }
-
-        // 2. Live Mode logic (NEW)
-        // LiveHistoryProvider is now smarter.
-        if (historyProvider instanceof LiveHistoryProvider) {
-            // If the request matches what the provider is already displaying, return it
-            // directly.
-            if (targetTimeframe.equals(this.currentDisplayTimeframe)) {
-                return getAllChartableCandles();
-            } else {
-                // If requesting HTF for indicators (e.g., Indicator on 1H while chart is 5m),
-                // we can safely resample the finalized candles we have.
-                // Note: This only works for HTF overlay (Target > Current).
-                // We cannot generate lower timeframe data from here.
-                List<KLine> resampled = DataResampler.resample(historyProvider.getFinalizedCandles(), targetTimeframe);
-                htfCache.put(targetTimeframe, resampled); // Cache it
-                return resampled;
-            }
-        }
-
-        return Collections.emptyList();
-    }
-
-    // --- Private Helper Methods ---
-
-    private void updateView() {
-        if (historyProvider instanceof LiveHistoryProvider liveProvider) {
-            checkForLivePanBack(liveProvider);
-        }
-        assembleVisibleKLines();
-        calculateBoundaries();
-        triggerIndicatorRecalculation();
-        fireDataUpdated();
-    }
-
-    private void checkForLivePanBack(LiveHistoryProvider liveProvider) {
-        if (interactionManager.getStartIndex() < LIVE_PAN_TRIGGER_THRESHOLD) {
-            List<KLine> candles = liveProvider.getFinalizedCandles();
-            if (candles.isEmpty())
-                return;
-            KLine oldestCandle = candles.get(0);
-            long endTimeForFetch = oldestCandle.timestamp().toEpochMilli();
-            liveProvider.fetchOlderHistoryAsync(endTimeForFetch, 1000);
+        minPrice = visibleKLines.get(0).low();
+        maxPrice = visibleKLines.get(0).high();
+        for (KLine k : visibleKLines) {
+            if (k.low().compareTo(minPrice) < 0) minPrice = k.low();
+            if (k.high().compareTo(maxPrice) > 0) maxPrice = k.high();
         }
     }
 
@@ -290,159 +296,96 @@ public class ChartDataModel implements PropertyChangeListener {
         int currentStartIndex = interactionManager.getStartIndex();
         int currentBarsPerScreen = interactionManager.getBarsPerScreen();
         int dataWindowStart = (historyProvider != null) ? historyProvider.getDataWindowStartIndex() : 0;
+        
         List<KLine> sourceData = getAllChartableCandles();
-        if (sourceData.isEmpty())
-            return Collections.emptyList();
+        if (sourceData.isEmpty()) return Collections.emptyList();
+        
         int viewStartInWindow = currentStartIndex - dataWindowStart;
         int calculationEndIndex = Math.min(viewStartInWindow + currentBarsPerScreen, sourceData.size());
         int calculationStartIndex = Math.max(0, viewStartInWindow - INDICATOR_LOOKBACK_BUFFER);
-        if (calculationStartIndex >= calculationEndIndex || calculationStartIndex < 0
-                || calculationEndIndex > sourceData.size())
+        
+        if (calculationStartIndex >= calculationEndIndex || calculationStartIndex < 0 || calculationEndIndex > sourceData.size()) {
             return Collections.emptyList();
+        }
         return sourceData.subList(calculationStartIndex, calculationEndIndex);
     }
 
-    private void assembleVisibleKLines() {
-        if (historyProvider == null) {
-            this.visibleKLines = Collections.emptyList();
-            return;
+    private void checkForLivePanBack(LiveHistoryProvider liveProvider) {
+        if (interactionManager.getStartIndex() < LIVE_PAN_TRIGGER_THRESHOLD) {
+            List<KLine> candles = liveProvider.getFinalizedCandles();
+            if (candles.isEmpty()) return;
+            KLine oldestCandle = candles.get(0);
+            long endTimeForFetch = oldestCandle.timestamp().toEpochMilli();
+            liveProvider.fetchOlderHistoryAsync(endTimeForFetch, 1000);
         }
-        int currentStartIndex = interactionManager.getStartIndex();
-        int currentBarsPerScreen = interactionManager.getBarsPerScreen();
-        int dataWindowStart = historyProvider.getDataWindowStartIndex();
-        List<KLine> allChartableCandles = getAllChartableCandles();
-        if (!allChartableCandles.isEmpty()) {
-            int fromIndex = Math.max(0, currentStartIndex - dataWindowStart);
-            int toIndex = Math.min(fromIndex + currentBarsPerScreen, allChartableCandles.size());
-            this.visibleKLines = (fromIndex < toIndex) ? allChartableCandles.subList(fromIndex, toIndex)
-                    : Collections.emptyList();
-        } else {
-            this.visibleKLines = Collections.emptyList();
-        }
-    }
-
-    private void calculateBoundaries() {
-        if (visibleKLines.isEmpty()) {
-            minPrice = BigDecimal.ZERO;
-            maxPrice = BigDecimal.ONE;
-            return;
-        }
-        minPrice = visibleKLines.get(0).low();
-        maxPrice = visibleKLines.get(0).high();
-        for (KLine k : visibleKLines) {
-            if (k.low().compareTo(minPrice) < 0)
-                minPrice = k.low();
-            if (k.high().compareTo(maxPrice) > 0)
-                maxPrice = k.high();
-        }
-    }
-
-    // Boilerplate getters, setters, and event firing
-    public void setDisplayTimeframe(Timeframe newTimeframe) {
-        setDisplayTimeframe(newTimeframe, false);
-    }
-
-    public void centerOnTrade(Trade trade) {
-        /* Placeholder */ }
-
-    public void setView(ChartPanel chartPanel) {
-        this.chartPanel = chartPanel;
-    }
-
-    public ChartPanel getChartPanel() {
-        return chartPanel;
-    }
-
-    public IndicatorManager getIndicatorManager() {
-        return indicatorManager;
-    }
-
-    public List<KLine> getVisibleKLines() {
-        return visibleKLines;
-    }
-
-    public DataSourceManager.ChartDataSource getCurrentSymbol() {
-        return this.currentSource;
-    }
-
-    public Timeframe getCurrentDisplayTimeframe() {
-        return this.currentDisplayTimeframe;
-    }
-
-    public int getTotalCandleCount() {
-        return (historyProvider != null) ? historyProvider.getTotalCandleCount() : 0;
-    }
-
-    public KLine getCurrentReplayKLine() {
-        return (historyProvider != null) ? historyProvider.getFormingCandle() : null;
-    }
-
-    public BigDecimal getMinPrice() {
-        return minPrice;
-    }
-
-    public BigDecimal getMaxPrice() {
-        return maxPrice;
-    }
-
-    public boolean isInReplayMode() {
-        return historyProvider instanceof ReplayHistoryProvider;
-    }
-
-    public ChartInteractionManager getInteractionManager() {
-        return this.interactionManager;
-    }
-
-    // --- Property Change Listeners & Event Firing ---
-    public void addPropertyChangeListener(PropertyChangeListener listener) {
-        pcs.addPropertyChangeListener(listener);
-    }
-
-    public void addPropertyChangeListener(String propertyName, PropertyChangeListener listener) {
-        pcs.addPropertyChangeListener(propertyName, listener);
-    }
-
-    public void removePropertyChangeListener(PropertyChangeListener listener) {
-        pcs.removePropertyChangeListener(listener);
-    }
-
-    public void removePropertyChangeListener(String propertyName, PropertyChangeListener listener) {
-        pcs.removePropertyChangeListener(propertyName, listener);
     }
 
     public void fireDataUpdated() {
         pcs.firePropertyChange("dataUpdated", null, null);
     }
 
-    public void fireLiveCandleAdded(KLine finalizedCandle) {
-        Runnable updateTask = () -> {
-            if (interactionManager != null) {
-                interactionManager.onReplayTick(finalizedCandle);
-            }
-            updateView();
-            pcs.firePropertyChange("liveCandleAdded", null, finalizedCandle);
-        };
+    public void setDatabaseManager(DatabaseManager dbManager, DataSourceManager.ChartDataSource source) {
+        this.dbManager = dbManager;
+    }
 
-        if (SwingUtilities.isEventDispatchThread()) {
-            updateTask.run();
-        } else {
-            SwingUtilities.invokeLater(updateTask);
+    public void cleanup() {
+        if (this.drawingManager != null) {
+            this.drawingManager.removePropertyChangeListener("activeSymbolChanged", this);
+        }
+        if (this.interactionManager != null)
+            this.interactionManager.removePropertyChangeListener(this);
+        if (this.historyProvider != null) {
+            this.historyProvider.cleanup();
+            historyProvider = null;
         }
     }
 
-    public void fireLiveTickReceived(KLine formingCandle) {
-        Runnable updateTask = () -> {
-            if (interactionManager != null) {
-                interactionManager.onReplayTick(formingCandle);
+    public void onChartTypeChanged(ChartType oldType, ChartType newType) {
+        if (isInReplayMode()) {
+            if (newType == ChartType.FOOTPRINT) {
+                logger.warn("Footprint chart type is not supported in Replay mode.");
+                if (chartPanel != null)
+                    chartPanel.setChartType(oldType);
             }
-            updateView();
-            pcs.firePropertyChange("liveTickReceived", null, formingCandle);
-        };
-
-        if (SwingUtilities.isEventDispatchThread()) {
-            updateTask.run();
-        } else {
-            SwingUtilities.invokeLater(updateTask);
+            return;
+        }
+        boolean switchedToOrFromFootprint = (newType == ChartType.FOOTPRINT && oldType != ChartType.FOOTPRINT) ||
+                (newType != ChartType.FOOTPRINT && oldType == ChartType.FOOTPRINT);
+        if (switchedToOrFromFootprint) {
+            loadDataset(currentSource, currentDisplayTimeframe, true);
         }
     }
+
+    // Standard Getters/Setters
+    public void setView(ChartPanel chartPanel) { this.chartPanel = chartPanel; }
+    public ChartPanel getChartPanel() { return chartPanel; }
+    public IndicatorManager getIndicatorManager() { return indicatorManager; }
+    public List<KLine> getVisibleKLines() { return visibleKLines; }
+    public DataSourceManager.ChartDataSource getCurrentSymbol() { return this.currentSource; }
+    public Timeframe getCurrentDisplayTimeframe() { return this.currentDisplayTimeframe; }
+    public int getTotalCandleCount() { return (historyProvider != null) ? historyProvider.getTotalCandleCount() : 0; }
+    public KLine getCurrentReplayKLine() { return (historyProvider != null) ? historyProvider.getFormingCandle() : null; }
+    public BigDecimal getMinPrice() { return minPrice; }
+    public BigDecimal getMaxPrice() { return maxPrice; }
+    public boolean isInReplayMode() { return historyProvider instanceof ReplayHistoryProvider; }
+    public ChartInteractionManager getInteractionManager() { return this.interactionManager; }
+    
+    public List<KLine> getHeikinAshiCandles() {
+        if (!isHaCacheDirty && heikinAshiCandlesCache != null) return heikinAshiCandlesCache;
+        List<KLine> allRaw = getAllChartableCandles();
+        heikinAshiCandlesCache = DataTransformer.transformToHeikinAshi(allRaw);
+        isHaCacheDirty = false;
+        return heikinAshiCandlesCache;
+    }
+
+    public Map<Instant, FootprintBar> getFootprintData() {
+        return this.footprintCalculator.getFootprintData();
+    }
+    
+    public void centerOnTrade(Trade trade) { /* Placeholder */ }
+
+    public void addPropertyChangeListener(PropertyChangeListener listener) { pcs.addPropertyChangeListener(listener); }
+    public void addPropertyChangeListener(String propertyName, PropertyChangeListener listener) { pcs.addPropertyChangeListener(propertyName, listener); }
+    public void removePropertyChangeListener(PropertyChangeListener listener) { pcs.removePropertyChangeListener(listener); }
+    public void removePropertyChangeListener(String propertyName, PropertyChangeListener listener) { pcs.removePropertyChangeListener(propertyName, listener); }
 }

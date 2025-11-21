@@ -15,22 +15,27 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.swing.*;
-import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 
 /**
  * Manages state, data fetching, and resampling for a chart in Live mode.
- * Acts as an engine that converts a Base Data Stream (e.g., 5m) into a Target
- * View (e.g., 20m).
+ * <p>
+ * FEATURES:
+ * 1. Hybrid Loading: Bulk History (Smart Base) + 1m Gap Fill.
+ * 2. Custom Timeframe Support: Automatically fetches divisible base data (e.g., 9m -> fetch 3m) and resamples.
+ * 3. 1m Base Stream: Always subscribes to 1m data for live updates.
+ * 4. Live Aggregation: Accumulates 1m bars to build/finalize Target bars.
  */
 public class LiveHistoryProvider implements IHistoryProvider {
 
     private static final Logger logger = LoggerFactory.getLogger(LiveHistoryProvider.class);
-    private static final int MAX_BASE_CACHE_SIZE = 10000; // [NEW] Memory limit constant
+    
+    private static final int MAX_BUFFER_SIZE = 5000; 
 
     // --- Dependencies ---
     private final ChartPanel chartPanel;
@@ -41,12 +46,12 @@ public class LiveHistoryProvider implements IHistoryProvider {
 
     // --- State ---
     private Timeframe targetTimeframe;
-    private Timeframe baseTimeframe;
+    private final Timeframe baseTimeframe = Timeframe.M1; // Always bridge from M1 for live updates
 
-    // CACHE: Raw data from the provider
-    private final List<KLine> baseDataCache = new ArrayList<>();
+    // BUFFER: Holds 1m candles for the current forming Target candle
+    private final List<KLine> formingBuffer = new ArrayList<>();
 
-    // VIEW: Resampled data for the chart
+    // VIEW: Finalized Target candles
     private List<KLine> finalizedCandles = new ArrayList<>();
     private KLine currentlyFormingCandle;
 
@@ -100,11 +105,10 @@ public class LiveHistoryProvider implements IHistoryProvider {
         cleanupSubscriptions();
 
         this.targetTimeframe = newTimeframe;
-        this.baseTimeframe = Timeframe.getSmartBaseTimeframe(newTimeframe);
+        
+        logger.info("Timeframe set to {}. Bridging with Base: {}", targetTimeframe, baseTimeframe);
 
-        logger.info("Timeframe set to {}. Using Base: {}", targetTimeframe, baseTimeframe);
-
-        this.baseDataCache.clear();
+        this.formingBuffer.clear();
         this.finalizedCandles.clear();
         this.currentlyFormingCandle = null;
         if (isFootprintMode)
@@ -118,22 +122,21 @@ public class LiveHistoryProvider implements IHistoryProvider {
         cleanupSubscriptions();
     }
 
-    private void onLiveBaseKLineUpdate(KLine incomingBaseTick) {
+    private void onLiveBaseKLineUpdate(KLine incomingM1Tick) {
         SwingUtilities.invokeLater(() -> {
-            updateBaseCache(incomingBaseTick);
-            refreshViewFromCache();
+            processNewM1Tick(incomingM1Tick);
             chartPanel.getDataModel().fireLiveTickReceived(currentlyFormingCandle);
             chartPanel.getDataModel().fireDataUpdated();
         });
     }
 
-    private void onLiveFootprintKLineUpdate(KLine incomingBaseTick) {
+    private void onLiveFootprintKLineUpdate(KLine incomingM1Tick) {
         SwingUtilities.invokeLater(() -> {
-            updateBaseCache(incomingBaseTick);
-            refreshViewFromCache();
+            processNewM1Tick(incomingM1Tick);
             if (currentlyFormingCandle != null) {
                 footprintCalculator.addLiveTrade(
-                        new TradeTick(Instant.now(), incomingBaseTick.close(), BigDecimal.ZERO, "buy"),
+                        new TradeTick(Instant.now(), incomingM1Tick.close(), incomingM1Tick.volume(), 
+                        incomingM1Tick.close().compareTo(incomingM1Tick.open()) >= 0 ? "buy" : "sell"),
                         currentlyFormingCandle);
             }
             chartPanel.getDataModel().fireDataUpdated();
@@ -149,91 +152,132 @@ public class LiveHistoryProvider implements IHistoryProvider {
         });
     }
 
-    private void updateBaseCache(KLine tick) {
-        if (baseDataCache.isEmpty()) {
-            baseDataCache.add(tick);
-            return;
-        }
-
-        KLine lastBase = baseDataCache.get(baseDataCache.size() - 1);
-        if (tick.timestamp().equals(lastBase.timestamp())) {
-            // Update existing forming base candle
-            baseDataCache.set(baseDataCache.size() - 1, tick);
+    private void processNewM1Tick(KLine tick) {
+        if (formingBuffer.isEmpty()) {
+            formingBuffer.add(tick);
         } else {
-            // New base candle started
-            baseDataCache.add(tick);
-
-            // [NEW] Memory Management: Prune old data if cache exceeds limit
-            // We only remove data from the head (oldest) if it's not needed for the view.
-            // Since the View is resampled from this cache, removing the head might shift
-            // the view indices, but since this is live mode, we typically look at the tail.
-            if (baseDataCache.size() > MAX_BASE_CACHE_SIZE) {
-                // Remove the oldest candle
-                baseDataCache.remove(0);
-
-                // We must also adjust the startIndex in ChartInteractionManager to prevent
-                // the chart from "jumping" visually, as the total count effectively decreases
-                // relative to the viewport if we are scrolled back.
-                // However, for Live mode defaulting to the right edge, this is less critical
-                // than preventing OOM.
+            KLine lastTick = formingBuffer.get(formingBuffer.size() - 1);
+            if (tick.timestamp().equals(lastTick.timestamp())) {
+                formingBuffer.set(formingBuffer.size() - 1, tick);
+            } else {
+                formingBuffer.add(tick);
             }
         }
-    }
 
-    private void refreshViewFromCache() {
-        List<KLine> resampled = DataResampler.resample(baseDataCache, targetTimeframe);
+        List<KLine> resampled = DataResampler.resample(formingBuffer, targetTimeframe);
 
-        if (!resampled.isEmpty()) {
+        if (resampled.isEmpty()) return;
+        
+        if (resampled.size() > 1) {
+            List<KLine> newlyFinalized = resampled.subList(0, resampled.size() - 1);
+            finalizedCandles.addAll(newlyFinalized);
+            
+            for(KLine k : newlyFinalized) {
+                chartPanel.getDataModel().fireLiveCandleAdded(k);
+            }
+
             KLine newForming = resampled.get(resampled.size() - 1);
-
-            if (currentlyFormingCandle != null && !newForming.timestamp().equals(currentlyFormingCandle.timestamp())) {
-                finalizedCandles.add(currentlyFormingCandle);
-                chartPanel.getDataModel().fireLiveCandleAdded(currentlyFormingCandle);
-            }
-
-            if (finalizedCandles.size() != resampled.size() - 1) {
-                if (resampled.size() > 1) {
-                    finalizedCandles = new ArrayList<>(resampled.subList(0, resampled.size() - 1));
-                } else {
-                    finalizedCandles.clear();
-                }
-            }
-
+            formingBuffer.removeIf(m1 -> m1.timestamp().isBefore(newForming.timestamp()));
+            
             currentlyFormingCandle = newForming;
+        } else {
+            currentlyFormingCandle = resampled.get(0);
+        }
+        
+        if (formingBuffer.size() > MAX_BUFFER_SIZE) {
+            formingBuffer.subList(0, formingBuffer.size() - 1000).clear();
         }
     }
 
+    /**
+     * Loads history intelligently.
+     * If Target is "9m", it fetches "3m" from API and resamples.
+     * If Target is "7m", it fetches "1m" from API and resamples.
+     */
     private void loadInitialHistory() {
         if (chartPanel != null)
-            chartPanel.setLoading(true, "Optimizing " + targetTimeframe.displayName() + " view...");
+            chartPanel.setLoading(true, "Loading " + targetTimeframe.displayName() + "...");
 
-        new SwingWorker<List<KLine>, Void>() {
+        new SwingWorker<Void, Void>() {
+            private List<KLine> loadedTargetHistory;
+            private List<KLine> loadedGapM1Data;
+
             @Override
-            protected List<KLine> doInBackground() {
-                long targetMin = targetTimeframe.duration().toMinutes();
-                long baseMin = baseTimeframe.duration().toMinutes();
-                double multiplier = (double) targetMin / Math.max(1, baseMin);
-                int baseLimit = (int) Math.min(1000 * multiplier, 5000);
+            protected Void doInBackground() {
+                // 1. Determine Smart Base Timeframe for Fetching
+                // E.g. if Target=9m, SmartBase=3m. If Target=7m, SmartBase=1m.
+                Timeframe fetchTimeframe = Timeframe.getSmartBaseTimeframe(targetTimeframe);
+                boolean requiresResampling = !fetchTimeframe.equals(targetTimeframe);
 
-                return dataProvider.getHistoricalData(source.symbol(), baseTimeframe.displayName(), baseLimit);
+                int fetchLimit = 1000;
+                // If we are fetching a smaller timeframe to resample, we need more bars 
+                // to cover the same time period.
+                if (requiresResampling) {
+                    long targetDuration = targetTimeframe.duration().toMinutes();
+                    long fetchDuration = Math.max(1, fetchTimeframe.duration().toMinutes());
+                    double multiplier = (double) targetDuration / fetchDuration;
+                    fetchLimit = (int) Math.min(1000 * multiplier, 5000); // Cap at 5000 for API safety
+                }
+
+                logger.info("Loading history for {}. Fetching {} candles of {} (Smart Base). Resampling needed: {}",
+                        targetTimeframe.displayName(), fetchLimit, fetchTimeframe.displayName(), requiresResampling);
+
+                // 2. Fetch History using the Smart Base
+                List<KLine> rawFetchedData = dataProvider.getHistoricalData(source.symbol(), fetchTimeframe.displayName(), fetchLimit);
+
+                if (rawFetchedData == null || rawFetchedData.isEmpty()) {
+                    return null;
+                }
+
+                // 3. Resample if necessary (e.g., 3m -> 9m)
+                if (requiresResampling) {
+                    loadedTargetHistory = DataResampler.resample(rawFetchedData, targetTimeframe);
+                } else {
+                    loadedTargetHistory = rawFetchedData;
+                }
+
+                if (loadedTargetHistory.isEmpty()) return null;
+
+                // 4. Identify Gap & Backfill
+                KLine lastBulkCandle = loadedTargetHistory.remove(loadedTargetHistory.size() - 1);
+                Instant gapStartTime = lastBulkCandle.timestamp();
+                
+                // Gap fill always uses 1m for precision
+                if (dataProvider instanceof BinanceProvider bp) {
+                    loadedGapM1Data = bp.backfillHistoricalData(source.symbol(), baseTimeframe.displayName(), gapStartTime.toEpochMilli());
+                } else if (dataProvider instanceof OkxProvider op) {
+                    loadedGapM1Data = op.backfillHistoricalData(source.symbol(), baseTimeframe.displayName(), gapStartTime.toEpochMilli());
+                } else {
+                    loadedGapM1Data = dataProvider.getHistoricalData(source.symbol(), baseTimeframe.displayName(), 1000);
+                    if (loadedGapM1Data != null) {
+                        loadedGapM1Data = loadedGapM1Data.stream()
+                            .filter(k -> !k.timestamp().isBefore(gapStartTime))
+                            .collect(Collectors.toList());
+                    }
+                }
+                
+                return null;
             }
 
             @Override
             protected void done() {
                 try {
-                    List<KLine> initialBaseData = get();
-                    if (initialBaseData != null && !initialBaseData.isEmpty()) {
-                        baseDataCache.addAll(initialBaseData);
-                        refreshViewFromCache();
-
-                        if (isFootprintMode) {
-                            List<KLine> all = new ArrayList<>(finalizedCandles);
-                            if (currentlyFormingCandle != null)
-                                all.add(currentlyFormingCandle);
-                            footprintCalculator.calculateHistoricalFootprints(all);
-                        }
+                    if (loadedTargetHistory != null) {
+                        finalizedCandles.addAll(loadedTargetHistory);
                     }
 
+                    if (loadedGapM1Data != null && !loadedGapM1Data.isEmpty()) {
+                        processGapData(loadedGapM1Data);
+                    }
+
+                    if (isFootprintMode) {
+                        List<KLine> all = new ArrayList<>(finalizedCandles);
+                        if (currentlyFormingCandle != null)
+                            all.add(currentlyFormingCandle);
+                        footprintCalculator.calculateHistoricalFootprints(all);
+                    }
+
+                    // Subscribe to 1m stream
                     LiveDataManager.getInstance().subscribeToKLine(source.symbol(), baseTimeframe.displayName(),
                             liveKLineConsumer);
                     if (isFootprintMode)
@@ -246,13 +290,19 @@ public class LiveHistoryProvider implements IHistoryProvider {
 
                     chartPanel.getDataModel().fireDataUpdated();
                 } catch (Exception e) {
-                    logger.error("Failed to load live history for timeframe {}", targetTimeframe, e);
+                    logger.error("Failed to load hybrid history for {}", targetTimeframe, e);
                 } finally {
                     if (chartPanel != null)
                         chartPanel.setLoading(false, null);
                 }
             }
         }.execute();
+    }
+    
+    private void processGapData(List<KLine> gapData) {
+        for (KLine k : gapData) {
+            processNewM1Tick(k);
+        }
     }
 
     public void fetchOlderHistoryAsync(long endTimeForFetch, int limit) {
@@ -265,19 +315,31 @@ public class LiveHistoryProvider implements IHistoryProvider {
         new SwingWorker<List<KLine>, Void>() {
             @Override
             protected List<KLine> doInBackground() throws Exception {
-                long targetMin = targetTimeframe.duration().toMinutes();
-                long baseMin = baseTimeframe.duration().toMinutes();
-                double multiplier = (double) targetMin / Math.max(1, baseMin);
-                int baseLimit = (int) Math.min(limit * multiplier, 1000);
-
-                if (dataProvider instanceof BinanceProvider bp) {
-                    return bp.getHistoricalData(source.symbol(), baseTimeframe.displayName(), baseLimit, null,
-                            endTimeForFetch);
-                } else if (dataProvider instanceof OkxProvider op) {
-                    return op.getHistoricalData(source.symbol(), baseTimeframe.displayName(), baseLimit, null,
-                            endTimeForFetch);
+                // Determine Smart Base for older history too
+                Timeframe fetchTimeframe = Timeframe.getSmartBaseTimeframe(targetTimeframe);
+                boolean requiresResampling = !fetchTimeframe.equals(targetTimeframe);
+                
+                int fetchLimit = limit;
+                if (requiresResampling) {
+                     long targetDuration = targetTimeframe.duration().toMinutes();
+                     long fetchDuration = Math.max(1, fetchTimeframe.duration().toMinutes());
+                     double multiplier = (double) targetDuration / fetchDuration;
+                     fetchLimit = (int) Math.min(limit * multiplier, 1000);
                 }
-                return Collections.emptyList();
+
+                List<KLine> rawFetched;
+                if (dataProvider instanceof BinanceProvider bp) {
+                    rawFetched = bp.getHistoricalData(source.symbol(), fetchTimeframe.displayName(), fetchLimit, null, endTimeForFetch);
+                } else if (dataProvider instanceof OkxProvider op) {
+                    rawFetched = op.getHistoricalData(source.symbol(), fetchTimeframe.displayName(), fetchLimit, null, endTimeForFetch);
+                } else {
+                    return Collections.emptyList();
+                }
+
+                if (requiresResampling && rawFetched != null) {
+                    return DataResampler.resample(rawFetched, targetTimeframe);
+                }
+                return rawFetched;
             }
 
             @Override
@@ -285,8 +347,15 @@ public class LiveHistoryProvider implements IHistoryProvider {
                 try {
                     List<KLine> olderData = get();
                     if (olderData != null && !olderData.isEmpty()) {
-                        baseDataCache.addAll(0, olderData);
-                        refreshViewFromCache();
+                        if (!finalizedCandles.isEmpty() && !olderData.isEmpty()) {
+                             KLine firstCurrent = finalizedCandles.get(0);
+                             KLine lastOlder = olderData.get(olderData.size()-1);
+                             if (lastOlder.timestamp().equals(firstCurrent.timestamp())) {
+                                 olderData.remove(olderData.size()-1);
+                             }
+                        }
+                        
+                        finalizedCandles.addAll(0, olderData);
 
                         if (isFootprintMode) {
                             List<KLine> all = new ArrayList<>(finalizedCandles);
@@ -295,11 +364,8 @@ public class LiveHistoryProvider implements IHistoryProvider {
                             footprintCalculator.calculateHistoricalFootprints(all);
                         }
 
-                        long multiplier = Math.max(1,
-                                targetTimeframe.duration().toMinutes() / baseTimeframe.duration().toMinutes());
-                        int addedTargetBars = olderData.size() / (int) multiplier;
                         chartPanel.getDataModel().getInteractionManager().setStartIndex(
-                                chartPanel.getDataModel().getInteractionManager().getStartIndex() + addedTargetBars);
+                                chartPanel.getDataModel().getInteractionManager().getStartIndex() + olderData.size());
                     }
                 } catch (Exception e) {
                     logger.error("Failed to fetch older live data.", e);
@@ -314,7 +380,7 @@ public class LiveHistoryProvider implements IHistoryProvider {
     }
 
     private void cleanupSubscriptions() {
-        if (source != null && baseTimeframe != null) {
+        if (source != null) {
             if (liveKLineConsumer != null)
                 LiveDataManager.getInstance().unsubscribeFromKLine(source.symbol(), baseTimeframe.displayName(),
                         liveKLineConsumer);

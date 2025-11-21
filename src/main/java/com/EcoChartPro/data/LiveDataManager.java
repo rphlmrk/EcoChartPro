@@ -1,6 +1,5 @@
 package com.EcoChartPro.data;
 
-import com.EcoChartPro.core.settings.SettingsService;
 import com.EcoChartPro.data.provider.*;
 import com.EcoChartPro.model.KLine;
 import com.EcoChartPro.model.TradeTick;
@@ -27,16 +26,19 @@ import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 /**
- * [MODIFIED] A thread-safe, singleton service that multiplexes WebSocket connections
- * for the entire application, delegating to exchange-specific clients for handling
- * subscriptions, message routing, and reconnections.
+ * [MODIFIED] A thread-safe, singleton service that multiplexes WebSocket connections.
+ * <p>
+ * PHASE 2 IMPLEMENTATION:
+ * 1. Single-Stream Multiplexing: Forces all K-Line subscriptions to use the '1m' base timeframe.
+ *    This ensures we only open one stream per symbol (e.g., btcusdt@kline_1m) and route that
+ *    high-frequency data to all chart timeframes (which then handle aggregation).
  */
 public class LiveDataManager {
     private static final Logger logger = LoggerFactory.getLogger(LiveDataManager.class);
     private static final LiveDataManager INSTANCE = new LiveDataManager();
     private static final long RECONNECT_GAP_THRESHOLD_MS = 120_000; // 2 minutes
+    private static final String BASE_TIMEFRAME_ID = "1m"; // The single source of truth for live data
 
-    // [NEW] Public enum for overall system state, consumed by the UI
     public enum LiveDataSystemState {
         CONNECTED,      // All systems normal
         INTERRUPTED,    // Connection lost, trying to reconnect
@@ -50,12 +52,11 @@ public class LiveDataManager {
     private record SubscriptionInfo(String symbol, String timeframe, Consumer<KLine> callback) {}
     private final ConcurrentMap<String, List<SubscriptionInfo>> subscribers = new ConcurrentHashMap<>();
     private final Map<String, Long> lastKLineTimestampPerStream = new ConcurrentHashMap<>();
-    private final PropertyChangeSupport pcs = new PropertyChangeSupport(this); // For latency and system state events
+    private final PropertyChangeSupport pcs = new PropertyChangeSupport(this);
 
     private record TradeSubscriptionInfo(String symbol, Consumer<TradeTick> callback) {}
     private final ConcurrentMap<String, List<TradeSubscriptionInfo>> tradeSubscribers = new ConcurrentHashMap<>();
 
-    // [NEW] State tracking members
     private final Map<String, Object> clientStates = new ConcurrentHashMap<>();
     private volatile LiveDataSystemState systemState = LiveDataSystemState.CONNECTED;
 
@@ -76,6 +77,13 @@ public class LiveDataManager {
         logger.info("LiveDataManager initialized with {} symbol-to-exchange mappings.", symbolToExchangeMap.size());
     }
 
+    /**
+     * Subscribes to a K-Line stream.
+     * <p>
+     * PHASE 2 CHANGE: This method ignores the provided `timeframe` argument for the
+     * actual WebSocket subscription. It forces the use of '1m' (BASE_TIMEFRAME_ID).
+     * Consumers (charts) are expected to handle aggregation of 1m bars.
+     */
     public synchronized void subscribeToKLine(String symbol, String timeframe, Consumer<KLine> onKLineUpdate) {
         String exchange = symbolToExchangeMap.get(symbol);
         if (exchange == null) {
@@ -83,13 +91,20 @@ public class LiveDataManager {
             return;
         }
 
-        String streamName = buildStreamName(symbol, timeframe, exchange);
-        SubscriptionInfo subInfo = new SubscriptionInfo(symbol, timeframe, onKLineUpdate);
+        // FORCE 1m BASE STREAM
+        // We use BASE_TIMEFRAME_ID ("1m") instead of the requested 'timeframe'
+        String streamName = buildStreamName(symbol, BASE_TIMEFRAME_ID, exchange);
+        
+        // We still store the consumer, but associated with the 1m stream.
+        // Note: We store BASE_TIMEFRAME_ID in SubscriptionInfo so backfills fetch 1m data.
+        SubscriptionInfo subInfo = new SubscriptionInfo(symbol, BASE_TIMEFRAME_ID, onKLineUpdate);
         subscribers.computeIfAbsent(streamName, k -> new CopyOnWriteArrayList<>()).add(subInfo);
 
         if (activeSubscriptions.add(streamName)) {
-            logger.info("New subscription added: {}. Total active: {}. Updating {} client.", streamName, activeSubscriptions.size(), exchange);
+            logger.info("New base subscription added: {}. Total active: {}. Updating {} client.", streamName, activeSubscriptions.size(), exchange);
             updateClientSubscriptions(exchange);
+        } else {
+            logger.debug("Added listener to existing base stream: {}. Total listeners: {}", streamName, subscribers.get(streamName).size());
         }
     }
 
@@ -100,7 +115,8 @@ public class LiveDataManager {
             return;
         }
         
-        String streamName = buildStreamName(symbol, timeframe, exchange);
+        // Unsubscribe from the forced 1m stream
+        String streamName = buildStreamName(symbol, BASE_TIMEFRAME_ID, exchange);
         List<SubscriptionInfo> streamSubscribers = subscribers.get(streamName);
         
         if (streamSubscribers != null) {
@@ -109,7 +125,7 @@ public class LiveDataManager {
                 subscribers.remove(streamName);
                 lastKLineTimestampPerStream.remove(streamName);
                 if (activeSubscriptions.remove(streamName)) {
-                    logger.info("Last subscriber for {} removed. Total active: {}. Updating {} client.", streamName, activeSubscriptions.size(), exchange);
+                    logger.info("Last subscriber for base stream {} removed. Total active: {}. Updating {} client.", streamName, activeSubscriptions.size(), exchange);
                     updateClientSubscriptions(exchange);
                 }
             }
@@ -180,7 +196,6 @@ public class LiveDataManager {
             default:
                 throw new IllegalArgumentException("No WebSocket client implementation for exchange: " + exchange);
         }
-        // [MODIFIED] Add a listener to relay client events up to the UI
         client.addPropertyChangeListener(evt -> {
             if ("connectionStateChanged".equals(evt.getPropertyName())) {
                 clientStates.put(exchange, evt.getNewValue());
@@ -192,23 +207,18 @@ public class LiveDataManager {
         return client;
     }
     
-    /**
-     * [MODIFIED] Calculates the overall system state based on all client states and fires an event if it changes.
-     */
     private synchronized void updateAndFireSystemState() {
-        // If we are actively syncing, that state takes precedence and should not be overridden.
         if (systemState == LiveDataSystemState.SYNCING) {
             return;
         }
 
         LiveDataSystemState newSystemState = LiveDataSystemState.CONNECTED;
-        // Check if any active client is in an interrupted state.
         for (String exchange : exchangeClients.keySet()) {
             if (clientStates.containsKey(exchange)) {
                 String stateName = clientStates.get(exchange).toString();
                 if ("DISCONNECTED".equals(stateName) || "CONNECTING".equals(stateName)) {
                     newSystemState = LiveDataSystemState.INTERRUPTED;
-                    break; // One interrupted client is enough to mark the whole system as interrupted.
+                    break;
                 }
             }
         }
@@ -218,10 +228,6 @@ public class LiveDataManager {
         }
     }
     
-    /**
-     * [MODIFIED] Helper method to manually set the system state and fire a property change event.
-     * @param newState The new state to set.
-     */
     private synchronized void setSystemState(LiveDataSystemState newState) {
         if (this.systemState != newState) {
             LiveDataSystemState oldState = this.systemState;
@@ -364,15 +370,15 @@ public class LiveDataManager {
             List<SubscriptionInfo> subs = subscribers.get(streamName);
 
             if (lastTimestamp != null && subs != null && !subs.isEmpty() && (Instant.now().toEpochMilli() - lastTimestamp > RECONNECT_GAP_THRESHOLD_MS)) {
-                // [MODIFIED] Manually set the system state to SYNCING
                 setSystemState(LiveDataSystemState.SYNCING);
                 
                 SubscriptionInfo subInfo = subs.get(0);
                 String symbol = subInfo.symbol();
-                String timeframe = subInfo.timeframe();
+                // This will now be "1m" because we forced it in subscribeToKLine
+                String timeframe = subInfo.timeframe(); 
                 
-                logger.info("Significant data gap detected for stream {}. Last data at {}. Attempting backfill.",
-                        streamName, Instant.ofEpochMilli(lastTimestamp));
+                logger.info("Significant data gap detected for stream {}. Last data at {}. Attempting backfill using base timeframe {}.",
+                        streamName, Instant.ofEpochMilli(lastTimestamp), timeframe);
                 
                 new Thread(() -> {
                     try {
@@ -384,7 +390,7 @@ public class LiveDataManager {
                         }
                         
                         if (!backfilledData.isEmpty()) {
-                            logger.info("Successfully backfilled {} candles for {}. Dispatching to subscribers.",
+                            logger.info("Successfully backfilled {} 1m candles for {}. Dispatching to subscribers.",
                                     backfilledData.size(), streamName);
                             List<SubscriptionInfo> currentSubscribers = subscribers.get(streamName);
                             if (currentSubscribers != null) {
@@ -401,7 +407,6 @@ public class LiveDataManager {
                     } catch (Exception e) {
                         logger.error("Error during backfill for stream {}", streamName, e);
                     } finally {
-                        // [MODIFIED] Reset the system state to connected after the backfill attempt
                         setSystemState(LiveDataSystemState.CONNECTED);
                     }
                 }, "Backfill-" + streamName).start();

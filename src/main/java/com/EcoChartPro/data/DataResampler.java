@@ -11,57 +11,70 @@ import java.util.List;
 
 /**
  * A utility class for performing high-performance K-line data resampling.
- * This class contains the logic to aggregate lower-timeframe data into a higher timeframe.
+ * This serves as the "Ticker Engine" logic, aggregating lower-timeframe data
+ * into higher timeframe representations.
  */
 public class DataResampler {
 
     /**
-     * Resamples a list of 1-minute K-lines into a target timeframe.
-     * This method is highly optimized to process the data in a single pass.
+     * Resamples a list of source K-lines (usually 1m) into a target timeframe.
+     * This method is optimized to process the data in a single pass.
      *
-     * @param oneMinuteData   A list of 1-minute K-lines, sorted chronologically.
+     * @param sourceData      A list of K-lines (e.g., 1m bars), sorted chronologically.
      * @param targetTimeframe The timeframe to aggregate the data into (e.g., M5, H1, D1).
      * @return A new list of K-lines aggregated to the target timeframe.
      */
-    public static List<KLine> resample(List<KLine> oneMinuteData, Timeframe targetTimeframe) {
-        if (oneMinuteData == null || oneMinuteData.isEmpty() || targetTimeframe == null) {
+    public static List<KLine> resample(List<KLine> sourceData, Timeframe targetTimeframe) {
+        if (sourceData == null || sourceData.isEmpty()) {
             return Collections.emptyList();
         }
+        if (targetTimeframe == null) {
+            return new ArrayList<>(sourceData);
+        }
 
-        // If the target is M1, no resampling is needed. Return a copy of the original list.
+        // If the target is the same as the source duration (assuming source is M1),
+        // we can return a copy. 
+        // Note: A more robust check would compare durations, but this catches the common case.
         if (targetTimeframe == Timeframe.M1) {
-            return new ArrayList<>(oneMinuteData);
+            return new ArrayList<>(sourceData);
         }
 
         List<KLine> resampledKLines = new ArrayList<>();
         KLine currentlyFormingCandle = null;
 
-        for (KLine m1Bar : oneMinuteData) {
-            Instant m1Timestamp = m1Bar.timestamp();
-            Instant intervalStart = getIntervalStart(m1Timestamp, targetTimeframe);
+        for (KLine bar : sourceData) {
+            Instant barTimestamp = bar.timestamp();
+            Instant intervalStart = getIntervalStart(barTimestamp, targetTimeframe);
 
             if (currentlyFormingCandle == null) {
-                // This is the first bar in a new, empty aggregation period.
-                currentlyFormingCandle = new KLine(intervalStart, m1Bar.open(), m1Bar.high(), m1Bar.low(), m1Bar.close(), m1Bar.volume());
-            } else if (!currentlyFormingCandle.timestamp().equals(intervalStart)) {
-                // This m1Bar belongs to a NEW interval. The previous candle is complete.
-                resampledKLines.add(currentlyFormingCandle);
-                // Start a new candle for the new interval.
-                currentlyFormingCandle = new KLine(intervalStart, m1Bar.open(), m1Bar.high(), m1Bar.low(), m1Bar.close(), m1Bar.volume());
-            } else {
-                // This m1Bar is within the same interval. Aggregate its data.
+                // Initialize the first bucket
                 currentlyFormingCandle = new KLine(
-                    currentlyFormingCandle.timestamp(),                      // Timestamp (and open price) remains the same
-                    currentlyFormingCandle.open(),
-                    currentlyFormingCandle.high().max(m1Bar.high()),        // Find the new max high
-                    currentlyFormingCandle.low().min(m1Bar.low()),          // Find the new min low
-                    m1Bar.close(),                                          // The close is always the latest close
-                    currentlyFormingCandle.volume().add(m1Bar.volume())     // Accumulate the volume
+                    intervalStart, 
+                    bar.open(), 
+                    bar.high(), 
+                    bar.low(), 
+                    bar.close(), 
+                    bar.volume()
                 );
+            } else if (!currentlyFormingCandle.timestamp().equals(intervalStart)) {
+                // The incoming bar belongs to a NEW interval. 
+                // Finalize the previous one and start a new one.
+                resampledKLines.add(currentlyFormingCandle);
+                currentlyFormingCandle = new KLine(
+                    intervalStart, 
+                    bar.open(), 
+                    bar.high(), 
+                    bar.low(), 
+                    bar.close(), 
+                    bar.volume()
+                );
+            } else {
+                // The incoming bar is within the current forming interval. Aggregate it.
+                currentlyFormingCandle = aggregate(currentlyFormingCandle, bar);
             }
         }
 
-        // After the loop, the last forming candle needs to be added to the results.
+        // Add the final forming candle (which might be incomplete/live)
         if (currentlyFormingCandle != null) {
             resampledKLines.add(currentlyFormingCandle);
         }
@@ -70,19 +83,41 @@ public class DataResampler {
     }
 
     /**
+     * Merges a new tick (or sub-bar) into an existing cumulative bar.
+     * This logic encapsulates the OHLCV merging rules.
+     *
+     * @param current The existing aggregated bar.
+     * @param tick    The new data to merge into it.
+     * @return A new KLine representing the merged state.
+     */
+    public static KLine aggregate(KLine current, KLine tick) {
+        return new KLine(
+            current.timestamp(),                        // Timestamp remains the bucket start
+            current.open(),                             // Open price never changes
+            current.high().max(tick.high()),            // Max of existing high and new high
+            current.low().min(tick.low()),              // Min of existing low and new low
+            tick.close(),                               // Close is always the latest tick's close
+            current.volume().add(tick.volume())         // Volume is accumulated
+        );
+    }
+
+    /**
      * Calculates the start time of the interval a given timestamp belongs to.
-     * For example, for a 5-minute timeframe, 10:03, 10:04, and 10:00 all belong
-     * to the interval starting at 10:00.
+     * Examples for M5: 
+     * 10:03 -> 10:00
+     * 10:05 -> 10:05
      *
      * @param timestamp The timestamp to check.
      * @param timeframe The target timeframe.
      * @return The exact start time of the interval.
      */
     private static Instant getIntervalStart(Instant timestamp, Timeframe timeframe) {
-        // Use the record's accessor method 'duration()' instead of 'getDuration()'
         long durationMillis = timeframe.duration().toMillis();
-        if (durationMillis == 0) return timestamp; // Avoid division by zero
+        if (durationMillis == 0) return timestamp;
+        
         long epochMillis = timestamp.toEpochMilli();
-        return Instant.ofEpochMilli(epochMillis - (epochMillis % durationMillis));
+        long remainder = epochMillis % durationMillis;
+        
+        return Instant.ofEpochMilli(epochMillis - remainder);
     }
 }
