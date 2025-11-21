@@ -7,10 +7,12 @@ import com.EcoChartPro.data.LiveDataManager;
 import com.EcoChartPro.data.provider.BinanceProvider;
 import com.EcoChartPro.data.provider.OkxProvider;
 import com.EcoChartPro.model.KLine;
+import com.EcoChartPro.model.Symbol;
 import com.EcoChartPro.model.Timeframe;
 import com.EcoChartPro.model.TradeTick;
 import com.EcoChartPro.ui.chart.ChartPanel;
 import com.EcoChartPro.utils.DataSourceManager;
+import com.EcoChartPro.utils.DatabaseManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -25,17 +27,15 @@ import java.util.stream.Collectors;
 /**
  * Manages state, data fetching, and resampling for a chart in Live mode.
  * <p>
- * FEATURES:
- * 1. Hybrid Loading: Bulk History (Smart Base) + 1m Gap Fill.
- * 2. Custom Timeframe Support: Automatically fetches divisible base data (e.g., 9m -> fetch 3m) and resamples.
- * 3. 1m Base Stream: Always subscribes to 1m data for live updates.
- * 4. Live Aggregation: Accumulates 1m bars to build/finalize Target bars.
+ * PHASE 4 FEATURES:
+ * - Live Data Persistence: Automatically buffers and flushes 1m socket data to the local database.
  */
 public class LiveHistoryProvider implements IHistoryProvider {
 
     private static final Logger logger = LoggerFactory.getLogger(LiveHistoryProvider.class);
     
     private static final int MAX_BUFFER_SIZE = 5000; 
+    private static final int AUTO_SAVE_INTERVAL_MS = 60_000; // Save live data every 1 minute
 
     // --- Dependencies ---
     private final ChartPanel chartPanel;
@@ -43,34 +43,50 @@ public class LiveHistoryProvider implements IHistoryProvider {
     private final DataProvider dataProvider;
     private final FootprintCalculator footprintCalculator;
     private final boolean isFootprintMode;
+    private final DatabaseManager dbManager; // For persistence
 
     // --- State ---
     private Timeframe targetTimeframe;
-    private final Timeframe baseTimeframe = Timeframe.M1; // Always bridge from M1 for live updates
+    private final Timeframe baseTimeframe = Timeframe.M1;
 
-    // BUFFER: Holds 1m candles for the current forming Target candle
+    // BUFFER: Holds 1m candles for the current forming Target candle (UI Logic)
     private final List<KLine> formingBuffer = new ArrayList<>();
+    
+    // PERSISTENCE BUFFER: Holds 1m candles waiting to be saved to DB (Storage Logic)
+    // Synchronized because socket thread adds, timer thread reads/clears.
+    private final List<KLine> pendingSaveBuffer = Collections.synchronizedList(new ArrayList<>());
 
     // VIEW: Finalized Target candles
     private List<KLine> finalizedCandles = new ArrayList<>();
     private KLine currentlyFormingCandle;
 
     private volatile boolean isFetchingHistory = false;
+    private final Timer autoSaveTimer;
 
     private final Consumer<KLine> liveKLineConsumer;
     private final Consumer<TradeTick> liveTradeConsumer;
 
     public LiveHistoryProvider(ChartPanel chartPanel, DataSourceManager.ChartDataSource source,
             DataProvider dataProvider, Timeframe initialTimeframe, boolean isFootprintMode,
-            FootprintCalculator footprintCalculator) {
+            FootprintCalculator footprintCalculator, DatabaseManager dbManager) {
         this.chartPanel = chartPanel;
         this.source = source;
         this.dataProvider = dataProvider;
         this.isFootprintMode = isFootprintMode;
         this.footprintCalculator = footprintCalculator;
+        this.dbManager = dbManager;
 
         this.liveKLineConsumer = isFootprintMode ? this::onLiveFootprintKLineUpdate : this::onLiveBaseKLineUpdate;
         this.liveTradeConsumer = isFootprintMode ? this::onLiveTradeUpdate : null;
+
+        // Start the auto-save timer if we have a DB connection
+        if (this.dbManager != null) {
+            this.autoSaveTimer = new Timer(AUTO_SAVE_INTERVAL_MS, e -> savePendingData());
+            this.autoSaveTimer.setRepeats(true);
+            this.autoSaveTimer.start();
+        } else {
+            this.autoSaveTimer = null;
+        }
 
         setTimeframe(initialTimeframe, true);
     }
@@ -119,6 +135,10 @@ public class LiveHistoryProvider implements IHistoryProvider {
 
     @Override
     public void cleanup() {
+        if (autoSaveTimer != null && autoSaveTimer.isRunning()) {
+            autoSaveTimer.stop();
+            savePendingData(); // Final flush
+        }
         cleanupSubscriptions();
     }
 
@@ -153,6 +173,7 @@ public class LiveHistoryProvider implements IHistoryProvider {
     }
 
     private void processNewM1Tick(KLine tick) {
+        // 1. UI Buffer (Resampling Logic)
         if (formingBuffer.isEmpty()) {
             formingBuffer.add(tick);
         } else {
@@ -163,7 +184,23 @@ public class LiveHistoryProvider implements IHistoryProvider {
                 formingBuffer.add(tick);
             }
         }
+        
+        // 2. Persistence Buffer (DB Logic)
+        // We buffer the raw M1 tick. Similar replace/add logic to avoid duplicates.
+        synchronized(pendingSaveBuffer) {
+            if (pendingSaveBuffer.isEmpty()) {
+                pendingSaveBuffer.add(tick);
+            } else {
+                KLine lastSaved = pendingSaveBuffer.get(pendingSaveBuffer.size() - 1);
+                if (tick.timestamp().equals(lastSaved.timestamp())) {
+                    pendingSaveBuffer.set(pendingSaveBuffer.size() - 1, tick);
+                } else {
+                    pendingSaveBuffer.add(tick);
+                }
+            }
+        }
 
+        // 3. View Processing
         List<KLine> resampled = DataResampler.resample(formingBuffer, targetTimeframe);
 
         if (resampled.isEmpty()) return;
@@ -188,12 +225,37 @@ public class LiveHistoryProvider implements IHistoryProvider {
             formingBuffer.subList(0, formingBuffer.size() - 1000).clear();
         }
     }
+    
+    private void savePendingData() {
+        if (dbManager == null || source.dbPath() == null) return;
 
-    /**
-     * Loads history intelligently.
-     * If Target is "9m", it fetches "3m" from API and resamples.
-     * If Target is "7m", it fetches "1m" from API and resamples.
-     */
+        final List<KLine> batchToSave;
+        synchronized(pendingSaveBuffer) {
+            if (pendingSaveBuffer.isEmpty()) return;
+            batchToSave = new ArrayList<>(pendingSaveBuffer);
+            // We intentionally keep the very last forming candle in the buffer
+            // because it is still updating. We only remove finalized ones, 
+            // OR we overwrite the last one on the next tick. 
+            // For simplicity in this design: we clear, and the next tick re-adds 
+            // or updates. Since saveKLines uses REPLACE, it's safe to save an incomplete bar.
+            pendingSaveBuffer.clear();
+        }
+
+        new SwingWorker<Void, Void>() {
+            @Override
+            protected Void doInBackground() {
+                try {
+                    // We explicitly save to "1m" timeframe table, as this is our base data
+                    dbManager.saveKLines(batchToSave, new Symbol(source.symbol()), "1m");
+                    logger.debug("Auto-saved {} live 1m candles to database.", batchToSave.size());
+                } catch (Exception e) {
+                    logger.error("Failed to auto-save live data for {}", source.symbol(), e);
+                }
+                return null;
+            }
+        }.execute();
+    }
+
     private void loadInitialHistory() {
         if (chartPanel != null)
             chartPanel.setLoading(true, "Loading " + targetTimeframe.displayName() + "...");
@@ -204,32 +266,26 @@ public class LiveHistoryProvider implements IHistoryProvider {
 
             @Override
             protected Void doInBackground() {
-                // 1. Determine Smart Base Timeframe for Fetching
-                // E.g. if Target=9m, SmartBase=3m. If Target=7m, SmartBase=1m.
                 Timeframe fetchTimeframe = Timeframe.getSmartBaseTimeframe(targetTimeframe);
                 boolean requiresResampling = !fetchTimeframe.equals(targetTimeframe);
 
                 int fetchLimit = 1000;
-                // If we are fetching a smaller timeframe to resample, we need more bars 
-                // to cover the same time period.
                 if (requiresResampling) {
                     long targetDuration = targetTimeframe.duration().toMinutes();
                     long fetchDuration = Math.max(1, fetchTimeframe.duration().toMinutes());
                     double multiplier = (double) targetDuration / fetchDuration;
-                    fetchLimit = (int) Math.min(1000 * multiplier, 5000); // Cap at 5000 for API safety
+                    fetchLimit = (int) Math.min(1000 * multiplier, 5000);
                 }
 
-                logger.info("Loading history for {}. Fetching {} candles of {} (Smart Base). Resampling needed: {}",
-                        targetTimeframe.displayName(), fetchLimit, fetchTimeframe.displayName(), requiresResampling);
+                logger.info("Loading history for {}. Fetching {} candles of {} (Smart Base).",
+                        targetTimeframe.displayName(), fetchLimit, fetchTimeframe.displayName());
 
-                // 2. Fetch History using the Smart Base
                 List<KLine> rawFetchedData = dataProvider.getHistoricalData(source.symbol(), fetchTimeframe.displayName(), fetchLimit);
 
                 if (rawFetchedData == null || rawFetchedData.isEmpty()) {
                     return null;
                 }
 
-                // 3. Resample if necessary (e.g., 3m -> 9m)
                 if (requiresResampling) {
                     loadedTargetHistory = DataResampler.resample(rawFetchedData, targetTimeframe);
                 } else {
@@ -238,11 +294,9 @@ public class LiveHistoryProvider implements IHistoryProvider {
 
                 if (loadedTargetHistory.isEmpty()) return null;
 
-                // 4. Identify Gap & Backfill
                 KLine lastBulkCandle = loadedTargetHistory.remove(loadedTargetHistory.size() - 1);
                 Instant gapStartTime = lastBulkCandle.timestamp();
                 
-                // Gap fill always uses 1m for precision
                 if (dataProvider instanceof BinanceProvider bp) {
                     loadedGapM1Data = bp.backfillHistoricalData(source.symbol(), baseTimeframe.displayName(), gapStartTime.toEpochMilli());
                 } else if (dataProvider instanceof OkxProvider op) {
@@ -277,7 +331,6 @@ public class LiveHistoryProvider implements IHistoryProvider {
                         footprintCalculator.calculateHistoricalFootprints(all);
                     }
 
-                    // Subscribe to 1m stream
                     LiveDataManager.getInstance().subscribeToKLine(source.symbol(), baseTimeframe.displayName(),
                             liveKLineConsumer);
                     if (isFootprintMode)
@@ -315,7 +368,6 @@ public class LiveHistoryProvider implements IHistoryProvider {
         new SwingWorker<List<KLine>, Void>() {
             @Override
             protected List<KLine> doInBackground() throws Exception {
-                // Determine Smart Base for older history too
                 Timeframe fetchTimeframe = Timeframe.getSmartBaseTimeframe(targetTimeframe);
                 boolean requiresResampling = !fetchTimeframe.equals(targetTimeframe);
                 

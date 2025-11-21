@@ -37,11 +37,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * The central data model for a specific chart view.
- * It orchestrates the flow between the HistoryProvider (Live or Replay) and the UI.
- * 
- * REFACTORED FOR PHASE 3:
- * - Efficient handling of "Finalized" vs "Forming" candles.
- * - Explicit wiring for LiveHistoryProvider's hybrid data.
+ * Refactored to support Phase 4: Passing DatabaseManager to Live Provider for persistence.
  */
 public class ChartDataModel implements PropertyChangeListener {
 
@@ -54,7 +50,7 @@ public class ChartDataModel implements PropertyChangeListener {
     // --- Core State ---
     private List<KLine> visibleKLines;
     private BigDecimal minPrice, maxPrice;
-    private DatabaseManager dbManager;
+    private DatabaseManager dbManager; // Reference to the active DB
     private DataSourceManager.ChartDataSource currentSource;
     private Timeframe currentDisplayTimeframe;
     private ChartInteractionManager interactionManager;
@@ -67,7 +63,6 @@ public class ChartDataModel implements PropertyChangeListener {
     private final FootprintCalculator footprintCalculator;
 
     // --- Caching ---
-    // Cache for Higher Timeframe (HTF) views used by indicators
     private final Map<Timeframe, List<KLine>> htfCache = new ConcurrentHashMap<>();
     private List<KLine> heikinAshiCandlesCache;
     private boolean isHaCacheDirty = true;
@@ -120,8 +115,17 @@ public class ChartDataModel implements PropertyChangeListener {
 
         if (liveDataProvider != null) {
             boolean isFootprint = chartPanel != null && chartPanel.getChartType() == ChartType.FOOTPRINT;
-            // Initialize LiveHistoryProvider which handles the 1m stream aggregation
-            this.historyProvider = new LiveHistoryProvider(chartPanel, source, liveDataProvider, timeframe, isFootprint, footprintCalculator);
+            
+            // [PHASE 4] Pass the dbManager to the provider so it can save live data
+            this.historyProvider = new LiveHistoryProvider(
+                chartPanel, 
+                source, 
+                liveDataProvider, 
+                timeframe, 
+                isFootprint, 
+                footprintCalculator,
+                this.dbManager // <-- Injection point
+            );
         } else {
             logger.error("Cannot create LiveHistoryProvider without a valid DataProvider for '{}'.", source.providerName());
         }
@@ -138,8 +142,6 @@ public class ChartDataModel implements PropertyChangeListener {
 
     public List<KLine> getAllChartableCandles() {
         if (historyProvider == null) return Collections.emptyList();
-
-        // Combine finalized candles with the currently forming one (if any)
         List<KLine> all = new ArrayList<>(historyProvider.getFinalizedCandles());
         KLine forming = historyProvider.getFormingCandle();
         if (forming != null) {
@@ -157,7 +159,6 @@ public class ChartDataModel implements PropertyChangeListener {
             if (targetTimeframe.equals(this.currentDisplayTimeframe)) {
                 return getAllChartableCandles();
             } else {
-                // For Multi-Timeframe Indicators: Resample the finalized data
                 List<KLine> resampled = DataResampler.resample(historyProvider.getFinalizedCandles(), targetTimeframe);
                 htfCache.put(targetTimeframe, resampled);
                 return resampled;
@@ -170,11 +171,9 @@ public class ChartDataModel implements PropertyChangeListener {
 
     public void fireLiveCandleAdded(KLine finalizedCandle) {
         Runnable updateTask = () -> {
-            // Notify interaction manager first (e.g., to auto-scroll)
             if (interactionManager != null) {
                 interactionManager.onReplayTick(finalizedCandle);
             }
-            // Full view update required as data structure changed
             updateView();
             pcs.firePropertyChange("liveCandleAdded", null, finalizedCandle);
         };
@@ -183,7 +182,6 @@ public class ChartDataModel implements PropertyChangeListener {
 
     public void fireLiveTickReceived(KLine formingCandle) {
         Runnable updateTask = () -> {
-            // Only update view/indicators, don't scroll (handled by candle added)
             if (interactionManager != null) {
                 interactionManager.onReplayTick(formingCandle);
             }
@@ -203,7 +201,6 @@ public class ChartDataModel implements PropertyChangeListener {
 
     private void updateView() {
         if (historyProvider instanceof LiveHistoryProvider liveProvider) {
-            // Logic to auto-fetch history if user scrolls back
             checkForLivePanBack(liveProvider);
         }
         assembleVisibleKLines();
@@ -237,8 +234,6 @@ public class ChartDataModel implements PropertyChangeListener {
             this.visibleKLines = Collections.emptyList();
         }
     }
-
-    // --- Boilerplate Methods ---
 
     public void setDisplayTimeframe(Timeframe newTimeframe, boolean forceReload) {
         if (newTimeframe == null) return;
@@ -326,6 +321,8 @@ public class ChartDataModel implements PropertyChangeListener {
 
     public void setDatabaseManager(DatabaseManager dbManager, DataSourceManager.ChartDataSource source) {
         this.dbManager = dbManager;
+        // If a provider already exists (e.g., switch was called separately), we might need to update it, 
+        // but usually setDatabaseManager happens before loadDataset.
     }
 
     public void cleanup() {
