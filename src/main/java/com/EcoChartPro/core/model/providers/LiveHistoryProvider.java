@@ -21,48 +21,47 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 /**
  * Manages state, data fetching, and resampling for a chart in Live mode.
  * <p>
- * PHASE 4 FEATURES:
- * - Live Data Persistence: Automatically buffers and flushes 1m socket data to the local database.
+ * UPDATES:
+ * - Added missing 'isFetchingHistory' field.
+ * - Fixed Gap Filling logic.
+ * - Zero Loss Init implementation.
  */
 public class LiveHistoryProvider implements IHistoryProvider {
 
     private static final Logger logger = LoggerFactory.getLogger(LiveHistoryProvider.class);
     
     private static final int MAX_BUFFER_SIZE = 5000; 
-    private static final int AUTO_SAVE_INTERVAL_MS = 60_000; // Save live data every 1 minute
+    private static final int AUTO_SAVE_INTERVAL_MS = 60_000;
+    private static final long CACHE_STALE_THRESHOLD_MS = 12 * 60 * 60 * 1000; 
 
-    // --- Dependencies ---
     private final ChartPanel chartPanel;
     private final DataSourceManager.ChartDataSource source;
     private final DataProvider dataProvider;
     private final FootprintCalculator footprintCalculator;
     private final boolean isFootprintMode;
-    private final DatabaseManager dbManager; // For persistence
+    private final DatabaseManager dbManager;
 
-    // --- State ---
     private Timeframe targetTimeframe;
     private final Timeframe baseTimeframe = Timeframe.M1;
 
-    // BUFFER: Holds 1m candles for the current forming Target candle (UI Logic)
     private final List<KLine> formingBuffer = new ArrayList<>();
-    
-    // PERSISTENCE BUFFER: Holds 1m candles waiting to be saved to DB (Storage Logic)
-    // Synchronized because socket thread adds, timer thread reads/clears.
     private final List<KLine> pendingSaveBuffer = Collections.synchronizedList(new ArrayList<>());
-
-    // VIEW: Finalized Target candles
     private List<KLine> finalizedCandles = new ArrayList<>();
     private KLine currentlyFormingCandle;
 
-    private volatile boolean isFetchingHistory = false;
-    private final Timer autoSaveTimer;
+    // Initialization & Loading State
+    private volatile boolean isInitializing = false;
+    private volatile boolean isFetchingHistory = false; // [FIX] Added missing field
+    private final List<KLine> liveTickBuffer = Collections.synchronizedList(new ArrayList<>());
 
+    private final Timer autoSaveTimer;
     private final Consumer<KLine> liveKLineConsumer;
     private final Consumer<TradeTick> liveTradeConsumer;
 
@@ -79,7 +78,6 @@ public class LiveHistoryProvider implements IHistoryProvider {
         this.liveKLineConsumer = isFootprintMode ? this::onLiveFootprintKLineUpdate : this::onLiveBaseKLineUpdate;
         this.liveTradeConsumer = isFootprintMode ? this::onLiveTradeUpdate : null;
 
-        // Start the auto-save timer if we have a DB connection
         if (this.dbManager != null) {
             this.autoSaveTimer = new Timer(AUTO_SAVE_INTERVAL_MS, e -> savePendingData());
             this.autoSaveTimer.setRepeats(true);
@@ -92,34 +90,20 @@ public class LiveHistoryProvider implements IHistoryProvider {
     }
 
     @Override
-    public List<KLine> getFinalizedCandles() {
-        return finalizedCandles;
-    }
-
+    public List<KLine> getFinalizedCandles() { return finalizedCandles; }
     @Override
-    public KLine getFormingCandle() {
-        return currentlyFormingCandle;
-    }
-
+    public KLine getFormingCandle() { return currentlyFormingCandle; }
     @Override
-    public int getTotalCandleCount() {
-        return finalizedCandles.size() + (currentlyFormingCandle != null ? 1 : 0);
-    }
-
+    public int getTotalCandleCount() { return finalizedCandles.size() + (currentlyFormingCandle != null ? 1 : 0); }
     @Override
-    public int getDataWindowStartIndex() {
-        return 0;
-    }
+    public int getDataWindowStartIndex() { return 0; }
 
     @Override
     public void setTimeframe(Timeframe newTimeframe, boolean forceReload) {
-        if (newTimeframe == null)
-            return;
-        if (!forceReload && newTimeframe.equals(this.targetTimeframe))
-            return;
+        if (newTimeframe == null) return;
+        if (!forceReload && newTimeframe.equals(this.targetTimeframe)) return;
 
         cleanupSubscriptions();
-
         this.targetTimeframe = newTimeframe;
         
         logger.info("Timeframe set to {}. Bridging with Base: {}", targetTimeframe, baseTimeframe);
@@ -127,8 +111,7 @@ public class LiveHistoryProvider implements IHistoryProvider {
         this.formingBuffer.clear();
         this.finalizedCandles.clear();
         this.currentlyFormingCandle = null;
-        if (isFootprintMode)
-            this.footprintCalculator.clear();
+        if (isFootprintMode) this.footprintCalculator.clear();
 
         loadInitialHistory();
     }
@@ -137,43 +120,51 @@ public class LiveHistoryProvider implements IHistoryProvider {
     public void cleanup() {
         if (autoSaveTimer != null && autoSaveTimer.isRunning()) {
             autoSaveTimer.stop();
-            savePendingData(); // Final flush
+            savePendingData();
         }
         cleanupSubscriptions();
     }
 
     private void onLiveBaseKLineUpdate(KLine incomingM1Tick) {
-        SwingUtilities.invokeLater(() -> {
-            processNewM1Tick(incomingM1Tick);
-            chartPanel.getDataModel().fireLiveTickReceived(currentlyFormingCandle);
-            chartPanel.getDataModel().fireDataUpdated();
-        });
+        if (isInitializing) {
+            liveTickBuffer.add(incomingM1Tick);
+        } else {
+            SwingUtilities.invokeLater(() -> {
+                processNewM1Tick(incomingM1Tick);
+                chartPanel.getDataModel().fireLiveTickReceived(currentlyFormingCandle);
+                chartPanel.getDataModel().fireDataUpdated();
+            });
+        }
     }
 
     private void onLiveFootprintKLineUpdate(KLine incomingM1Tick) {
-        SwingUtilities.invokeLater(() -> {
-            processNewM1Tick(incomingM1Tick);
-            if (currentlyFormingCandle != null) {
-                footprintCalculator.addLiveTrade(
-                        new TradeTick(Instant.now(), incomingM1Tick.close(), incomingM1Tick.volume(), 
-                        incomingM1Tick.close().compareTo(incomingM1Tick.open()) >= 0 ? "buy" : "sell"),
-                        currentlyFormingCandle);
-            }
-            chartPanel.getDataModel().fireDataUpdated();
-        });
+        if (isInitializing) {
+            liveTickBuffer.add(incomingM1Tick);
+        } else {
+            SwingUtilities.invokeLater(() -> {
+                processNewM1Tick(incomingM1Tick);
+                if (currentlyFormingCandle != null) {
+                    footprintCalculator.addLiveTrade(
+                            new TradeTick(Instant.now(), incomingM1Tick.close(), incomingM1Tick.volume(), 
+                            incomingM1Tick.close().compareTo(incomingM1Tick.open()) >= 0 ? "buy" : "sell"),
+                            currentlyFormingCandle);
+                }
+                chartPanel.getDataModel().fireDataUpdated();
+            });
+        }
     }
 
     private void onLiveTradeUpdate(TradeTick newTrade) {
-        SwingUtilities.invokeLater(() -> {
-            if (currentlyFormingCandle == null)
-                return;
-            footprintCalculator.addLiveTrade(newTrade, currentlyFormingCandle);
-            chartPanel.getDataModel().fireDataUpdated();
-        });
+        if (!isInitializing) {
+            SwingUtilities.invokeLater(() -> {
+                if (currentlyFormingCandle == null) return;
+                footprintCalculator.addLiveTrade(newTrade, currentlyFormingCandle);
+                chartPanel.getDataModel().fireDataUpdated();
+            });
+        }
     }
 
     private void processNewM1Tick(KLine tick) {
-        // 1. UI Buffer (Resampling Logic)
         if (formingBuffer.isEmpty()) {
             formingBuffer.add(tick);
         } else {
@@ -185,8 +176,6 @@ public class LiveHistoryProvider implements IHistoryProvider {
             }
         }
         
-        // 2. Persistence Buffer (DB Logic)
-        // We buffer the raw M1 tick. Similar replace/add logic to avoid duplicates.
         synchronized(pendingSaveBuffer) {
             if (pendingSaveBuffer.isEmpty()) {
                 pendingSaveBuffer.add(tick);
@@ -200,7 +189,6 @@ public class LiveHistoryProvider implements IHistoryProvider {
             }
         }
 
-        // 3. View Processing
         List<KLine> resampled = DataResampler.resample(formingBuffer, targetTimeframe);
 
         if (resampled.isEmpty()) return;
@@ -227,17 +215,12 @@ public class LiveHistoryProvider implements IHistoryProvider {
     }
     
     private void savePendingData() {
-        if (dbManager == null || source.dbPath() == null) return;
+        if (dbManager == null) return;
 
         final List<KLine> batchToSave;
         synchronized(pendingSaveBuffer) {
             if (pendingSaveBuffer.isEmpty()) return;
             batchToSave = new ArrayList<>(pendingSaveBuffer);
-            // We intentionally keep the very last forming candle in the buffer
-            // because it is still updating. We only remove finalized ones, 
-            // OR we overwrite the last one on the next tick. 
-            // For simplicity in this design: we clear, and the next tick re-adds 
-            // or updates. Since saveKLines uses REPLACE, it's safe to save an incomplete bar.
             pendingSaveBuffer.clear();
         }
 
@@ -245,7 +228,6 @@ public class LiveHistoryProvider implements IHistoryProvider {
             @Override
             protected Void doInBackground() {
                 try {
-                    // We explicitly save to "1m" timeframe table, as this is our base data
                     dbManager.saveKLines(batchToSave, new Symbol(source.symbol()), "1m");
                     logger.debug("Auto-saved {} live 1m candles to database.", batchToSave.size());
                 } catch (Exception e) {
@@ -260,53 +242,91 @@ public class LiveHistoryProvider implements IHistoryProvider {
         if (chartPanel != null)
             chartPanel.setLoading(true, "Loading " + targetTimeframe.displayName() + "...");
 
+        this.isInitializing = true;
+        this.liveTickBuffer.clear();
+        LiveDataManager.getInstance().subscribeToKLine(source.symbol(), baseTimeframe.displayName(), liveKLineConsumer);
+        if (isFootprintMode)
+            LiveDataManager.getInstance().subscribeToTrades(source.symbol(), liveTradeConsumer);
+
         new SwingWorker<Void, Void>() {
-            private List<KLine> loadedTargetHistory;
-            private List<KLine> loadedGapM1Data;
+            private List<KLine> historyData = new ArrayList<>();
+            private List<KLine> gapData = new ArrayList<>();
 
             @Override
             protected Void doInBackground() {
-                Timeframe fetchTimeframe = Timeframe.getSmartBaseTimeframe(targetTimeframe);
-                boolean requiresResampling = !fetchTimeframe.equals(targetTimeframe);
-
-                int fetchLimit = 1000;
-                if (requiresResampling) {
-                    long targetDuration = targetTimeframe.duration().toMinutes();
-                    long fetchDuration = Math.max(1, fetchTimeframe.duration().toMinutes());
-                    double multiplier = (double) targetDuration / fetchDuration;
-                    fetchLimit = (int) Math.min(1000 * multiplier, 5000);
-                }
-
-                logger.info("Loading history for {}. Fetching {} candles of {} (Smart Base).",
-                        targetTimeframe.displayName(), fetchLimit, fetchTimeframe.displayName());
-
-                List<KLine> rawFetchedData = dataProvider.getHistoricalData(source.symbol(), fetchTimeframe.displayName(), fetchLimit);
-
-                if (rawFetchedData == null || rawFetchedData.isEmpty()) {
-                    return null;
-                }
-
-                if (requiresResampling) {
-                    loadedTargetHistory = DataResampler.resample(rawFetchedData, targetTimeframe);
-                } else {
-                    loadedTargetHistory = rawFetchedData;
-                }
-
-                if (loadedTargetHistory.isEmpty()) return null;
-
-                KLine lastBulkCandle = loadedTargetHistory.remove(loadedTargetHistory.size() - 1);
-                Instant gapStartTime = lastBulkCandle.timestamp();
+                long targetDuration = targetTimeframe.duration().toMinutes();
+                int requiredTargetBars = 1000;
+                long requiredM1Bars = requiredTargetBars * targetDuration;
                 
-                if (dataProvider instanceof BinanceProvider bp) {
-                    loadedGapM1Data = bp.backfillHistoricalData(source.symbol(), baseTimeframe.displayName(), gapStartTime.toEpochMilli());
-                } else if (dataProvider instanceof OkxProvider op) {
-                    loadedGapM1Data = op.backfillHistoricalData(source.symbol(), baseTimeframe.displayName(), gapStartTime.toEpochMilli());
+                List<KLine> localM1Data = Collections.emptyList();
+                if (dbManager != null) {
+                    Optional<DatabaseManager.DataRange> range = dbManager.getDataRange(new Symbol(source.symbol()), "1m");
+                    if (range.isPresent()) {
+                        localM1Data = dbManager.getKLinesByIndex(new Symbol(source.symbol()), "1m", 
+                                Math.max(0, dbManager.getTotalKLineCount(new Symbol(source.symbol()), "1m") - (int)requiredM1Bars), 
+                                (int)requiredM1Bars);
+                    }
+                }
+
+                if (!localM1Data.isEmpty()) {
+                    long lastTimestamp = localM1Data.get(localM1Data.size() - 1).timestamp().toEpochMilli();
+                    if (System.currentTimeMillis() - lastTimestamp > CACHE_STALE_THRESHOLD_MS) {
+                        logger.info("Cache stale. Forcing full API fetch.");
+                        localM1Data = Collections.emptyList(); 
+                    }
+                }
+
+                long cachedTargetBars = localM1Data.size() / Math.max(1, targetDuration);
+                if (!localM1Data.isEmpty() && cachedTargetBars < 50) {
+                    logger.info("Cache insufficient ({} bars). Forcing full API fetch.", cachedTargetBars);
+                    localM1Data = Collections.emptyList(); 
+                }
+
+                long startTimeForGap = 0;
+
+                if (localM1Data.isEmpty()) {
+                    Timeframe fetchTimeframe = Timeframe.getSmartBaseTimeframe(targetTimeframe);
+                    boolean requiresResampling = !fetchTimeframe.equals(targetTimeframe);
+                    int fetchLimit = 1000;
+
+                    List<KLine> rawFetched = dataProvider.getHistoricalData(source.symbol(), fetchTimeframe.displayName(), fetchLimit);
+                    
+                    if (rawFetched != null && !rawFetched.isEmpty()) {
+                        List<KLine> resampled;
+                        if (requiresResampling) {
+                            resampled = DataResampler.resample(rawFetched, targetTimeframe);
+                        } else {
+                            resampled = new ArrayList<>(rawFetched);
+                        }
+                        
+                        if (!resampled.isEmpty()) {
+                            KLine last = resampled.remove(resampled.size()-1);
+                            startTimeForGap = last.timestamp().toEpochMilli();
+                        }
+                        
+                        historyData = resampled;
+                    }
                 } else {
-                    loadedGapM1Data = dataProvider.getHistoricalData(source.symbol(), baseTimeframe.displayName(), 1000);
-                    if (loadedGapM1Data != null) {
-                        loadedGapM1Data = loadedGapM1Data.stream()
-                            .filter(k -> !k.timestamp().isBefore(gapStartTime))
-                            .collect(Collectors.toList());
+                    List<KLine> resampled = DataResampler.resample(localM1Data, targetTimeframe);
+                    
+                    if (!resampled.isEmpty()) {
+                        KLine last = resampled.remove(resampled.size()-1);
+                        startTimeForGap = last.timestamp().toEpochMilli(); 
+                    } else {
+                        startTimeForGap = System.currentTimeMillis() - (60000 * 1000); 
+                    }
+                    
+                    historyData = resampled;
+                }
+
+                if (startTimeForGap > 0 && (System.currentTimeMillis() - startTimeForGap > 0)) {
+                    logger.info("Filling gap for {} from {}", source.symbol(), Instant.ofEpochMilli(startTimeForGap));
+                    if (dataProvider instanceof BinanceProvider bp) {
+                        gapData = bp.backfillHistoricalData(source.symbol(), "1m", startTimeForGap);
+                    } else if (dataProvider instanceof OkxProvider op) {
+                        gapData = op.backfillHistoricalDataForward(source.symbol(), "1m", startTimeForGap);
+                    } else {
+                        gapData = dataProvider.getHistoricalData(source.symbol(), "1m", 1000);
                     }
                 }
                 
@@ -316,25 +336,29 @@ public class LiveHistoryProvider implements IHistoryProvider {
             @Override
             protected void done() {
                 try {
-                    if (loadedTargetHistory != null) {
-                        finalizedCandles.addAll(loadedTargetHistory);
+                    if (!historyData.isEmpty()) {
+                        finalizedCandles.addAll(historyData);
                     }
 
-                    if (loadedGapM1Data != null && !loadedGapM1Data.isEmpty()) {
-                        processGapData(loadedGapM1Data);
+                    if (gapData != null) {
+                        for(KLine k : gapData) {
+                            processNewM1Tick(k);
+                        }
+                    }
+
+                    synchronized(liveTickBuffer) {
+                        for(KLine k : liveTickBuffer) {
+                            processNewM1Tick(k);
+                        }
+                        liveTickBuffer.clear();
+                        isInitializing = false; 
                     }
 
                     if (isFootprintMode) {
                         List<KLine> all = new ArrayList<>(finalizedCandles);
-                        if (currentlyFormingCandle != null)
-                            all.add(currentlyFormingCandle);
+                        if (currentlyFormingCandle != null) all.add(currentlyFormingCandle);
                         footprintCalculator.calculateHistoricalFootprints(all);
                     }
-
-                    LiveDataManager.getInstance().subscribeToKLine(source.symbol(), baseTimeframe.displayName(),
-                            liveKLineConsumer);
-                    if (isFootprintMode)
-                        LiveDataManager.getInstance().subscribeToTrades(source.symbol(), liveTradeConsumer);
 
                     int dataBarsOnScreen = (int) (chartPanel.getDataModel().getInteractionManager().getBarsPerScreen()
                             * (1.0 - chartPanel.getDataModel().getInteractionManager().getRightMarginRatio()));
@@ -352,32 +376,17 @@ public class LiveHistoryProvider implements IHistoryProvider {
         }.execute();
     }
     
-    private void processGapData(List<KLine> gapData) {
-        for (KLine k : gapData) {
-            processNewM1Tick(k);
-        }
-    }
-
     public void fetchOlderHistoryAsync(long endTimeForFetch, int limit) {
-        if (isFetchingHistory)
-            return;
+        if (isFetchingHistory) return;
         isFetchingHistory = true;
-        if (chartPanel != null)
-            chartPanel.setLoading(true, "Loading older history...");
+        if (chartPanel != null) chartPanel.setLoading(true, "Loading older history...");
 
         new SwingWorker<List<KLine>, Void>() {
             @Override
             protected List<KLine> doInBackground() throws Exception {
                 Timeframe fetchTimeframe = Timeframe.getSmartBaseTimeframe(targetTimeframe);
                 boolean requiresResampling = !fetchTimeframe.equals(targetTimeframe);
-                
-                int fetchLimit = limit;
-                if (requiresResampling) {
-                     long targetDuration = targetTimeframe.duration().toMinutes();
-                     long fetchDuration = Math.max(1, fetchTimeframe.duration().toMinutes());
-                     double multiplier = (double) targetDuration / fetchDuration;
-                     fetchLimit = (int) Math.min(limit * multiplier, 1000);
-                }
+                int fetchLimit = 1000;
 
                 List<KLine> rawFetched;
                 if (dataProvider instanceof BinanceProvider bp) {
@@ -406,16 +415,12 @@ public class LiveHistoryProvider implements IHistoryProvider {
                                  olderData.remove(olderData.size()-1);
                              }
                         }
-                        
                         finalizedCandles.addAll(0, olderData);
-
                         if (isFootprintMode) {
                             List<KLine> all = new ArrayList<>(finalizedCandles);
-                            if (currentlyFormingCandle != null)
-                                all.add(currentlyFormingCandle);
+                            if (currentlyFormingCandle != null) all.add(currentlyFormingCandle);
                             footprintCalculator.calculateHistoricalFootprints(all);
                         }
-
                         chartPanel.getDataModel().getInteractionManager().setStartIndex(
                                 chartPanel.getDataModel().getInteractionManager().getStartIndex() + olderData.size());
                     }
@@ -423,8 +428,7 @@ public class LiveHistoryProvider implements IHistoryProvider {
                     logger.error("Failed to fetch older live data.", e);
                 } finally {
                     isFetchingHistory = false;
-                    if (chartPanel != null)
-                        chartPanel.setLoading(false, null);
+                    if (chartPanel != null) chartPanel.setLoading(false, null);
                     chartPanel.getDataModel().fireDataUpdated();
                 }
             }

@@ -2,37 +2,29 @@ package com.EcoChartPro.ui;
 
 import com.EcoChartPro.api.indicator.CustomIndicator;
 import com.EcoChartPro.api.indicator.IndicatorType;
-import com.EcoChartPro.core.controller.LiveSessionTrackerService;
 import com.EcoChartPro.core.controller.LiveWindowManager;
 import com.EcoChartPro.core.controller.ReplayController;
 import com.EcoChartPro.core.controller.ReplaySessionManager;
 import com.EcoChartPro.core.controller.SessionController;
 import com.EcoChartPro.core.controller.WorkspaceContext;
 import com.EcoChartPro.core.indicator.Indicator;
-import com.EcoChartPro.core.manager.DrawingManager;
-import com.EcoChartPro.core.manager.UndoManager;
 import com.EcoChartPro.core.model.ChartDataModel;
 import com.EcoChartPro.core.service.InternetConnectivityService;
 import com.EcoChartPro.core.settings.SettingsService;
 import com.EcoChartPro.core.settings.config.DrawingConfig;
 import com.EcoChartPro.core.state.ReplaySessionState;
-import com.EcoChartPro.core.trading.PaperTradingService;
 import com.EcoChartPro.data.LiveDataManager;
 import com.EcoChartPro.model.Timeframe;
 import com.EcoChartPro.model.Trade;
 import com.EcoChartPro.model.TradeDirection;
 import com.EcoChartPro.model.chart.ChartType;
-import com.EcoChartPro.model.drawing.DrawingObject;
-import com.EcoChartPro.model.drawing.TextObject;
 import com.EcoChartPro.ui.action.KeyboardShortcutManager;
 import com.EcoChartPro.ui.action.TitleBarManager;
 import com.EcoChartPro.ui.chart.ChartPanel;
-import com.EcoChartPro.ui.components.CustomColorChooserPanel;
-import com.EcoChartPro.ui.components.LiveStatusBar; // [NEW]
-import com.EcoChartPro.ui.components.OnFireStreakWidget;
 import com.EcoChartPro.ui.components.ConnectionStatusWidget;
+import com.EcoChartPro.ui.components.LiveStatusBar;
+import com.EcoChartPro.ui.components.OnFireStreakWidget;
 import com.EcoChartPro.ui.components.StopTradingNudgeWidget;
-import com.EcoChartPro.ui.home.theme.UITheme;
 import com.EcoChartPro.ui.sidebar.TradingSidebarPanel;
 import com.EcoChartPro.ui.toolbar.ChartToolbarPanel;
 import com.EcoChartPro.ui.toolbar.FloatingDrawingToolbar;
@@ -40,20 +32,18 @@ import com.EcoChartPro.ui.toolbar.FloatingPropertiesToolbar;
 import com.EcoChartPro.ui.toolbar.ReplayControlPanel;
 import com.EcoChartPro.ui.trading.JournalEntryDialog;
 import com.EcoChartPro.ui.trading.OrderDialog;
-import com.EcoChartPro.utils.DatabaseManager;
 import com.EcoChartPro.utils.DataSourceManager;
 import com.EcoChartPro.utils.DataSourceManager.ChartDataSource;
+import com.EcoChartPro.utils.DatabaseManager;
 
 import javax.swing.*;
-import javax.swing.border.LineBorder;
 import java.awt.*;
-import java.awt.event.*;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
-import java.math.BigDecimal;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.function.Consumer;
 
 public class ChartWorkspacePanel extends JPanel implements PropertyChangeListener {
 
@@ -67,8 +57,6 @@ public class ChartWorkspacePanel extends JPanel implements PropertyChangeListene
     private final OnFireStreakWidget onFireWidget;
     private final StopTradingNudgeWidget stopTradingNudgeWidget;
     private final ConnectionStatusWidget connectionStatusWidget;
-
-    // [NEW] Bottom status bar for Live Mode
     private LiveStatusBar liveStatusBar;
 
     // --- Controllers & Managers ---
@@ -126,7 +114,6 @@ public class ChartWorkspacePanel extends JPanel implements PropertyChangeListene
             tradingButtonsPanel.add(sellButton);
             northPanel.add(tradingButtonsPanel, BorderLayout.EAST);
 
-            // [NEW] Add Live Status Bar at the bottom for Live Mode
             this.liveStatusBar = new LiveStatusBar();
             mainContainerPanel.add(this.liveStatusBar, BorderLayout.SOUTH);
         }
@@ -143,9 +130,6 @@ public class ChartWorkspacePanel extends JPanel implements PropertyChangeListene
         rootPanel.add(mainContainerPanel, JLayeredPane.DEFAULT_LAYER);
         rootPanel.add(onFireWidget, JLayeredPane.PALETTE_LAYER);
         rootPanel.add(stopTradingNudgeWidget, JLayeredPane.PALETTE_LAYER);
-        // Only add connection status widget (the large overlay) in Replay Mode or as a
-        // fallback
-        // In Live Mode, the status bar handles connection info.
         if (isReplayMode) {
             rootPanel.add(connectionStatusWidget, JLayeredPane.PALETTE_LAYER);
         }
@@ -165,8 +149,6 @@ public class ChartWorkspacePanel extends JPanel implements PropertyChangeListene
 
             @Override
             public void componentHidden(ComponentEvent e) {
-                // [FIX] When this workspace is hidden by CardLayout, hide its floating
-                // toolbars.
                 drawingToolbar.setVisible(false);
                 propertiesToolbar.setVisible(false);
             }
@@ -193,7 +175,6 @@ public class ChartWorkspacePanel extends JPanel implements PropertyChangeListene
             stopTradingNudgeWidget.setBounds((rootPanel.getWidth() - nudgeSize.width) / 2, 20, nudgeSize.width,
                     nudgeSize.height);
         }
-        // Only position the large overlay widget if it's actually added (Replay mode)
         if (connectionStatusWidget.isVisible() && connectionStatusWidget.getParent() == rootPanel) {
             ChartPanel activeChart = getActiveChartPanel();
             if (activeChart != null) {
@@ -220,18 +201,8 @@ public class ChartWorkspacePanel extends JPanel implements PropertyChangeListene
     }
 
     public void setOfflineMode(boolean isOffline) {
-        if (isReplayMode) {
-            return;
-        }
-
-        // In Live Mode, the LiveStatusBar handles visual feedback.
-        // The large overlay widget is disabled for Live Mode to avoid redundancy.
-        if (isOffline) {
-            // Optional: You could trigger a non-intrusive notification here if desired
-        }
-
-        // The status bar listens to connectivity events directly, so no manual update
-        // needed here.
+        if (isReplayMode) return;
+        // Status bar handles this
     }
 
     public void handleCloseRequest() {
@@ -241,41 +212,36 @@ public class ChartWorkspacePanel extends JPanel implements PropertyChangeListene
     private void addPropertyChangeListeners() {
         SettingsService.getInstance().addPropertyChangeListener(this);
         workspaceContext.getDrawingManager().addPropertyChangeListener("activeSymbolChanged", this);
-
         workspaceContext.getSessionTracker().addPropertyChangeListener(this);
         workspaceContext.getPaperTradingService().addPropertyChangeListener(this);
-
-        // We still listen to connectivity here for other logic, even if the widget is
-        // gone
         InternetConnectivityService.getInstance().addPropertyChangeListener(this);
         LiveDataManager.getInstance().addPropertyChangeListener("liveDataSystemStateChanged", this);
     }
 
     public void dispose() {
-        if (activeDbManager != null) {
+        // Close the active DB manager ONLY if it's a symbol-specific instance.
+        // The singleton instance (for live cache) should persist.
+        if (activeDbManager != null && activeDbManager != DatabaseManager.getInstance()) {
             activeDbManager.close();
-            activeDbManager = null;
         }
+        activeDbManager = null;
+
         workspaceManager.getChartPanels().forEach(ChartPanel::cleanup);
         if (replayController != null) {
             ReplaySessionManager.getInstance().removeListener(replayController);
         }
         SettingsService.getInstance().removePropertyChangeListener(this);
         workspaceContext.getDrawingManager().removePropertyChangeListener(this);
-
         workspaceContext.getSessionTracker().removePropertyChangeListener(this);
         if (!isReplayMode) {
             this.workspaceContext.getSessionTracker().stop();
-            // [NEW] Clean up status bar
             if (liveStatusBar != null) {
                 liveStatusBar.dispose();
             }
         }
-
         workspaceContext.getPaperTradingService().removePropertyChangeListener(this);
         InternetConnectivityService.getInstance().removePropertyChangeListener(this);
         LiveDataManager.getInstance().removePropertyChangeListener("liveDataSystemStateChanged", this);
-
         uiManager.disposeDialogs();
         keyboardShortcutManager.dispose();
         drawingToolbar.dispose();
@@ -348,13 +314,7 @@ public class ChartWorkspacePanel extends JPanel implements PropertyChangeListene
     }
 
     private void updateConnectionWidget(LiveDataManager.LiveDataSystemState state) {
-        if (isReplayMode) {
-            // In replay mode, we might use the large overlay widget if we wanted to
-            // simulate connection loss,
-            // but typically replay is offline.
-            return;
-        }
-        // In Live mode, the status bar handles this.
+        // Handled by status bar in live mode
     }
 
     private void launchJournalDialogForTrade(Trade trade) {
@@ -515,19 +475,31 @@ public class ChartWorkspacePanel extends JPanel implements PropertyChangeListene
         }
     }
 
+    /**
+     * [PHASE 5 FIX] Ensures that live charts (Binance/OKX) have access to the
+     * shared persistence DB (trading_data.db) even if they don't have a specific
+     * local DB file.
+     */
     public void setDbManagerForSource(ChartDataSource source) {
         DatabaseManager oldDbManager = this.activeDbManager;
-        if (source == null || source.dbPath() == null) {
-            this.activeDbManager = null;
-        } else {
+
+        if (source != null && source.dbPath() != null) {
+            // Case 1: Local File Replay (specific .db file)
             String jdbcUrl = "jdbc:sqlite:" + source.dbPath().toAbsolutePath();
             this.activeDbManager = new DatabaseManager(jdbcUrl);
+        } else {
+            // Case 2: Live Data (Binance/OKX) - Use the main application DB for caching
+            this.activeDbManager = DatabaseManager.getInstance();
         }
+
         for (ChartPanel panel : workspaceManager.getChartPanels()) {
             panel.getDataModel().setDatabaseManager(this.activeDbManager, source);
         }
+        
         topToolbarPanel.setCurrentSymbol(source);
-        if (oldDbManager != null) {
+
+        // Clean up the old manager only if it was a specific instance we created
+        if (oldDbManager != null && oldDbManager != DatabaseManager.getInstance()) {
             oldDbManager.close();
         }
     }
@@ -544,7 +516,6 @@ public class ChartWorkspacePanel extends JPanel implements PropertyChangeListene
     public void startReplaySession(DataSourceManager.ChartDataSource source, int startIndex) {
         ensureReplayUIInitialized();
         ReplaySessionManager.getInstance().startSession(source, startIndex);
-        // [FIX] Set the active symbol for the paper trading service context.
         workspaceContext.getPaperTradingService().switchActiveSymbol(source.symbol());
         workspaceContext.getDrawingManager().setActiveSymbol(source.symbol());
         setDbManagerForSource(source);
@@ -672,11 +643,10 @@ public class ChartWorkspacePanel extends JPanel implements PropertyChangeListene
     private void loadChartForSource(DataSourceManager.ChartDataSource source) {
         if (source == null)
             return;
-        if (source.dbPath() != null) {
-            setDbManagerForSource(source);
-        } else {
-            setDbManagerForSource(null);
-        }
+        
+        // Ensure DB manager is set correctly (Persistence wiring)
+        setDbManagerForSource(source);
+        
         workspaceContext.getPaperTradingService().switchActiveSymbol(source.symbol());
         workspaceContext.getDrawingManager().setActiveSymbol(source.symbol());
         topToolbarPanel.populateTimeframes(source.timeframes());
