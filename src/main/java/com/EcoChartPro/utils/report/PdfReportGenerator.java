@@ -1,10 +1,11 @@
 package com.EcoChartPro.utils.report;
 
 import com.EcoChartPro.core.coaching.CoachingInsight;
-import com.EcoChartPro.core.journal.JournalAnalysisService;
 import com.EcoChartPro.core.journal.JournalAnalysisService.EquityPoint;
 import com.EcoChartPro.core.journal.JournalAnalysisService.OverallStats;
 import com.EcoChartPro.core.journal.JournalAnalysisService.PnlDistributionBin;
+import com.EcoChartPro.core.journal.JournalAnalysisService.TagPerformanceStats;
+import com.EcoChartPro.core.journal.JournalAnalysisService.TradeMfeMae;
 import com.EcoChartPro.core.state.ReplaySessionState;
 import com.EcoChartPro.model.MistakeStats;
 import com.EcoChartPro.model.Trade;
@@ -22,10 +23,12 @@ import org.slf4j.LoggerFactory;
 
 import java.awt.Color;
 import java.awt.Polygon;
+import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.text.DecimalFormat;
 import java.time.Duration;
 import java.time.Instant;
@@ -33,23 +36,17 @@ import java.time.YearMonth;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Map;
-import java.util.TreeMap;
+import java.util.*;
 import java.util.stream.Collectors;
-import java.awt.RenderingHints;
 
 public class PdfReportGenerator {
 
     private static final Logger logger = LoggerFactory.getLogger(PdfReportGenerator.class);
     private static final PDType1Font FONT_BOLD = new PDType1Font(Standard14Fonts.FontName.HELVETICA_BOLD);
     private static final PDType1Font FONT_NORMAL = new PDType1Font(Standard14Fonts.FontName.HELVETICA);
-    private static final PDType1Font FONT_MONO = new PDType1Font(Standard14Fonts.FontName.COURIER);
 
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd").withZone(ZoneId.systemDefault());
-    private static final DateTimeFormatter DATETIME_FORMATTER = DateTimeFormatter.ofPattern("yy-MM-dd HH:mm:ss").withZone(ZoneId.systemDefault());
+    private static final DateTimeFormatter DATETIME_SHORT = DateTimeFormatter.ofPattern("MM-dd HH:mm").withZone(ZoneId.systemDefault());
     private static final DecimalFormat PNL_FORMAT = new DecimalFormat("+$#,##0.00;-$#,##0.00");
     private static final DecimalFormat DECIMAL_FORMAT = new DecimalFormat("0.00");
     private static final DecimalFormat PERCENT_FORMAT = new DecimalFormat("0.0'%'");
@@ -64,7 +61,6 @@ public class PdfReportGenerator {
     }
 
     private void createReport(ReplaySessionState state, File outputFile) throws IOException {
-        // --- [REFACTORED] Use the centralized data preparation method ---
         ReportData data = ReportDataAggregator.prepareReportData(state);
 
         try (PDDocument doc = new PDDocument()) {
@@ -74,10 +70,15 @@ public class PdfReportGenerator {
             drawHeader(state, data.stats());
             drawKeyMetrics(data.stats());
             drawEquityCurveChart(data.stats());
+            
+            if (!data.strategyPerformance().isEmpty()) {
+                drawStrategyPerformance(data.strategyPerformance());
+            }
+            
             drawPerformanceAnalytics(data.pnlDistribution());
             drawMistakeAnalysis(data.mistakeAnalysis());
             drawCoachingInsights(data.insights());
-            drawTradeHistory(data.stats().trades());
+            drawTradeHistory(data.stats().trades(), data.tradeMetrics());
 
             this.contentStream.close();
             document.save(outputFile);
@@ -127,7 +128,7 @@ public class PdfReportGenerator {
     private void drawEquityCurveChart(OverallStats stats) throws IOException {
         drawSectionHeader("Equity Curve");
         int chartWidth = 500;
-        int chartHeight = 250;
+        int chartHeight = 200; // Slightly shorter
 
         if (stats.equityCurve().size() < 2) {
             drawText(FONT_NORMAL, 10, 60, yPosition, "Not enough data to draw chart.");
@@ -135,73 +136,81 @@ public class PdfReportGenerator {
             return;
         }
 
-        BufferedImage chartImage = createEquityCurveImage(stats, chartWidth, chartHeight);
+        BufferedImage chartImage = createEquityCurveImage(stats, chartWidth * 2, chartHeight * 2); // High DPI
         PDImageXObject pdImage = LosslessFactory.createFromImage(document, chartImage);
         contentStream.drawImage(pdImage, 50, yPosition - chartHeight, chartWidth, chartHeight);
         yPosition -= (chartHeight + 20);
     }
     
-    private void drawPerformanceAnalytics(List<PnlDistributionBin> pnlDistribution) throws IOException {
-        if (checkPageBreak(300)) startNewPage();
-        drawSectionHeader("Performance Analytics");
+    private void drawStrategyPerformance(Map<String, TagPerformanceStats> strategies) throws IOException {
+        if (checkPageBreak(100)) startNewPage();
+        drawSectionHeader("Strategy Performance");
 
-        // P&L Distribution
+        float[] colWidths = {200, 70, 90, 90, 90};
+        String[] headers = {"Strategy", "Trades", "Win Rate", "Prof. Factor", "Expectancy"};
+        
+        drawTableHeader(headers, colWidths);
+
+        List<TagPerformanceStats> sorted = strategies.values().stream()
+                .sorted(Comparator.comparing(TagPerformanceStats::profitFactor).reversed())
+                .collect(Collectors.toList());
+
+        for (TagPerformanceStats stat : sorted) {
+            if (checkPageBreak(15)) {
+                startNewPageWithHeader("Strategy Performance (Continued)");
+                drawTableHeader(headers, colWidths);
+            }
+            String[] rowData = {
+                stat.tag(),
+                String.valueOf(stat.tradeCount()),
+                PERCENT_FORMAT.format(stat.winRate() * 100),
+                DECIMAL_FORMAT.format(stat.profitFactor()),
+                PNL_FORMAT.format(stat.expectancy())
+            };
+            drawTableRow(rowData, colWidths);
+        }
+        yPosition -= 15;
+    }
+
+    private void drawPerformanceAnalytics(List<PnlDistributionBin> pnlDistribution) throws IOException {
+        if (checkPageBreak(200)) startNewPage();
+        drawSectionHeader("Performance Analytics");
         drawSubSectionHeader("P&L Distribution (# of Trades)");
-        drawHistogram(pnlDistribution, 50, yPosition, 500, 150);
-        yPosition -= 180;
+        drawHistogram(pnlDistribution, 50, yPosition, 500, 120);
+        yPosition -= 150;
     }
 
     private void drawMistakeAnalysis(Map<String, MistakeStats> mistakeAnalysis) throws IOException {
         if (mistakeAnalysis.isEmpty()) return;
-        
-        if (checkPageBreak(80)) startNewPage();
+        if (checkPageBreak(100)) startNewPage();
         drawSectionHeader("Mistake Analysis");
 
         float[] colWidths = {200, 70, 90, 90};
         String[] headers = {"Mistake", "Frequency", "Total P&L", "Avg P&L"};
         
-        // Header
-        float x = 50;
-        for (int i = 0; i < headers.length; i++) {
-            drawText(FONT_BOLD, 9, x + 5, yPosition - 10, headers[i]);
-            x += colWidths[i];
-        }
-        yPosition -= 15;
+        drawTableHeader(headers, colWidths);
 
-        // Rows
         List<MistakeStats> sortedMistakes = mistakeAnalysis.values().stream()
             .sorted(Comparator.comparing(MistakeStats::totalPnl)).collect(Collectors.toList());
 
         for (MistakeStats mistake : sortedMistakes) {
             if (checkPageBreak(15)) {
                 startNewPageWithHeader("Mistake Analysis (Continued)");
-                x = 50;
-                for (int i = 0; i < headers.length; i++) {
-                    drawText(FONT_BOLD, 9, x + 5, yPosition - 10, headers[i]);
-                    x += colWidths[i];
-                }
-                yPosition -= 15;
+                drawTableHeader(headers, colWidths);
             }
-            
-            x = 50;
             String[] rowData = {
                 mistake.mistakeName(),
                 String.valueOf(mistake.frequency()),
                 PNL_FORMAT.format(mistake.totalPnl()),
                 PNL_FORMAT.format(mistake.averagePnl())
             };
-            for (int i = 0; i < rowData.length; i++) {
-                drawText(FONT_NORMAL, 9, x + 5, yPosition - 10, rowData[i]);
-                x += colWidths[i];
-            }
-            yPosition -= 15;
+            drawTableRow(rowData, colWidths);
         }
         yPosition -= 15;
     }
 
     private void drawCoachingInsights(List<CoachingInsight> insights) throws IOException {
         if (insights.isEmpty()) return;
-
         if (checkPageBreak(80)) startNewPage();
         drawSectionHeader("Coaching Insights");
 
@@ -222,7 +231,7 @@ public class PdfReportGenerator {
         yPosition -= 15;
     }
 
-    private void drawTradeHistory(List<Trade> trades) throws IOException {
+    private void drawTradeHistory(List<Trade> trades, Map<UUID, TradeMfeMae> metricsMap) throws IOException {
         if (checkPageBreak(80)) startNewPageWithHeader("Trade History");
         else drawSectionHeader("Trade History");
 
@@ -230,8 +239,9 @@ public class PdfReportGenerator {
                 .collect(Collectors.groupingBy(t -> YearMonth.from(t.exitTime().atZone(ZoneOffset.UTC)), TreeMap::new, Collectors.toList()));
         
         DateTimeFormatter monthFormatter = DateTimeFormatter.ofPattern("MMMM yyyy");
-        float[] colWidths = {30, 80, 50, 100, 100, 60, 70};
-        String[] headers = {"#", "Symbol", "Side", "Entry Time", "Exit Time", "Duration", "P&L"};
+        // Tightened columns to fit MFE/MAE
+        float[] colWidths = {20, 50, 30, 80, 60, 60, 60, 60, 60}; // Total ~480
+        String[] headers = {"#", "Sym", "Side", "Date", "Dur", "P&L", "MFE", "MAE", "Eff%"};
         
         int globalTradeNum = 1;
         for(Map.Entry<YearMonth, List<Trade>> entry : tradesByMonth.entrySet()) {
@@ -241,13 +251,64 @@ public class PdfReportGenerator {
             drawText(FONT_BOLD, 11, 55, yPosition, entry.getKey().format(monthFormatter));
             yPosition -= 5;
             
-            drawTable(entry.getValue(), headers, colWidths, globalTradeNum);
-            globalTradeNum += entry.getValue().size();
+            drawTableHeader(headers, colWidths);
+            
+            for (Trade trade : entry.getValue()) {
+                if (checkPageBreak(15)) {
+                    startNewPageWithHeader("Trade History (Continued)");
+                    drawTableHeader(headers, colWidths);
+                }
+                
+                Duration d = Duration.between(trade.entryTime(), trade.exitTime());
+                String durStr = String.format("%02d:%02d", d.toMinutes(), d.toSecondsPart()); // Short format
+                
+                TradeMfeMae metrics = metricsMap.get(trade.id());
+                String mfe = "-", mae = "-", eff = "-";
+                
+                if (metrics != null) {
+                    mfe = PNL_FORMAT.format(metrics.mfe());
+                    mae = PNL_FORMAT.format(metrics.mae().negate());
+                    if (metrics.mfe().compareTo(BigDecimal.ZERO) > 0 && trade.profitAndLoss().compareTo(BigDecimal.ZERO) > 0) {
+                        BigDecimal effVal = trade.profitAndLoss().divide(metrics.mfe(), 2, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100));
+                        eff = String.format("%.0f%%", effVal);
+                    }
+                }
+
+                String[] rowData = {
+                    String.valueOf(globalTradeNum++),
+                    trade.symbol().name(),
+                    trade.direction().toString().substring(0, 1), // "L" or "S"
+                    DATETIME_SHORT.format(trade.entryTime()),
+                    durStr,
+                    PNL_FORMAT.format(trade.profitAndLoss()),
+                    mfe, mae, eff
+                };
+                drawTableRow(rowData, colWidths);
+            }
+            yPosition -= 10;
         }
     }
 
     // --- Drawing Helpers ---
     
+    private void drawTableHeader(String[] headers, float[] colWidths) throws IOException {
+        float x = 50;
+        for (int i = 0; i < headers.length; i++) {
+            drawText(FONT_BOLD, 8, x + 2, yPosition - 10, headers[i]);
+            x += colWidths[i];
+        }
+        yPosition -= 12;
+    }
+    
+    private void drawTableRow(String[] rowData, float[] colWidths) throws IOException {
+        float x = 50;
+        for (int i = 0; i < rowData.length; i++) {
+            drawText(FONT_NORMAL, 8, x + 2, yPosition - 10, rowData[i]);
+            x += colWidths[i];
+        }
+        yPosition -= 12;
+    }
+
     private void drawSubSectionHeader(String title) throws IOException {
         drawText(FONT_BOLD, 11, 55, yPosition, title);
         yPosition -= 15;
@@ -255,25 +316,25 @@ public class PdfReportGenerator {
 
     private void drawHistogram(List<PnlDistributionBin> data, float x, float y, float width, float height) throws IOException {
         if (data.isEmpty()) return;
-
         int maxCount = data.stream().mapToInt(PnlDistributionBin::count).max().orElse(1);
         float barGap = 4;
         float barWidth = (width - (data.size() - 1) * barGap) / data.size();
 
         for (int i = 0; i < data.size(); i++) {
             PnlDistributionBin bin = data.get(i);
-            float barHeight = (float) bin.count() / maxCount * (height - 20); // leave space for text
+            float barHeight = (float) bin.count() / maxCount * (height - 20);
             float barX = x + i * (barWidth + barGap);
             float barY = y - height;
 
             if (bin.upperBound().signum() <= 0) contentStream.setStrokingColor(Color.RED);
             else if (bin.lowerBound().signum() >= 0) contentStream.setStrokingColor(new Color(0, 150, 0));
             else contentStream.setStrokingColor(Color.BLUE);
+            
             contentStream.addRect(barX, barY, barWidth, barHeight);
             contentStream.stroke();
-
             drawText(FONT_NORMAL, 7, barX + 2, barY - 10, String.valueOf(bin.count()));
         }
+        contentStream.setStrokingColor(Color.BLACK); // Reset
     }
 
     private void drawSectionHeader(String title) throws IOException {
@@ -281,6 +342,7 @@ public class PdfReportGenerator {
         contentStream.moveTo(50, yPosition);
         contentStream.lineTo(545, yPosition);
         contentStream.stroke();
+        contentStream.setStrokingColor(Color.BLACK);
         yPosition -= 15;
         drawText(FONT_BOLD, 14, 50, yPosition, title);
         yPosition -= 20;
@@ -299,54 +361,6 @@ public class PdfReportGenerator {
         contentStream.endText();
     }
     
-    private void drawTable(List<Trade> trades, String[] headers, float[] colWidths, int startNum) throws IOException {
-        float rowHeight = 15;
-        float cellMargin = 5;
-        float x = 50;
-
-        // Draw header
-        for (int i = 0; i < headers.length; i++) {
-            drawText(FONT_BOLD, 9, x + cellMargin, yPosition - 10, headers[i]);
-            x += colWidths[i];
-        }
-        yPosition -= rowHeight;
-        
-        // Draw rows
-        int tradeNum = startNum;
-        for (Trade trade : trades) {
-            if (checkPageBreak(rowHeight)) {
-                 startNewPageWithHeader("Trade History (Continued)");
-                x = 50;
-                // Redraw header on new page
-                for (int i = 0; i < headers.length; i++) {
-                    drawText(FONT_BOLD, 9, x + cellMargin, yPosition - 10, headers[i]);
-                    x += colWidths[i];
-                }
-                 yPosition -= rowHeight;
-            }
-            
-            x = 50;
-            Duration d = Duration.between(trade.entryTime(), trade.exitTime());
-            String durStr = String.format("%d:%02d:%02d", d.toHours(), d.toMinutesPart(), d.toSecondsPart());
-            
-            String[] rowData = {
-                String.valueOf(tradeNum++),
-                trade.symbol().name(),
-                trade.direction().toString(),
-                DATETIME_FORMATTER.format(trade.entryTime()),
-                DATETIME_FORMATTER.format(trade.exitTime()),
-                durStr,
-                PNL_FORMAT.format(trade.profitAndLoss())
-            };
-            
-            for(int i=0; i < rowData.length; i++) {
-                drawText(FONT_NORMAL, 9, x + cellMargin, yPosition - 10, rowData[i]);
-                x += colWidths[i];
-            }
-            yPosition -= rowHeight;
-        }
-    }
-
     private boolean checkPageBreak(float requiredHeight) {
         return yPosition - requiredHeight < 50;
     }
@@ -361,16 +375,13 @@ public class PdfReportGenerator {
         List<String> lines = new ArrayList<>();
         String[] words = text.split(" ");
         StringBuilder line = new StringBuilder();
-
         for (String word : words) {
             float size = fontSize * font.getStringWidth(line + " " + word) / 1000;
             if (size > maxWidth) {
                 lines.add(line.toString());
                 line = new StringBuilder(word);
             } else {
-                if (line.length() > 0) {
-                    line.append(" ");
-                }
+                if (line.length() > 0) line.append(" ");
                 line.append(word);
             }
         }
@@ -386,24 +397,18 @@ public class PdfReportGenerator {
         g2.fillRect(0, 0, width, height);
 
         List<EquityPoint> curve = stats.equityCurve();
-        int p = 30; // padding
-
+        int p = 30;
         BigDecimal minBalance = curve.stream().map(EquityPoint::cumulativeBalance).min(Comparator.naturalOrder()).orElse(stats.startBalance());
         BigDecimal maxBalance = curve.stream().map(EquityPoint::cumulativeBalance).max(Comparator.naturalOrder()).orElse(stats.startBalance());
-        if (minBalance.compareTo(maxBalance) == 0) {
-            minBalance = minBalance.subtract(BigDecimal.ONE);
-            maxBalance = maxBalance.add(BigDecimal.ONE);
-        }
+        if (minBalance.compareTo(maxBalance) == 0) { minBalance = minBalance.subtract(BigDecimal.ONE); maxBalance = maxBalance.add(BigDecimal.ONE); }
         final BigDecimal range = maxBalance.subtract(minBalance);
-
         long minTime = curve.get(0).timestamp().toEpochMilli();
         long maxTime = curve.get(curve.size() - 1).timestamp().toEpochMilli();
         final long timeRange = (maxTime - minTime == 0) ? 1 : maxTime - minTime;
         
         g2.setColor(Color.LIGHT_GRAY);
-        g2.drawLine(p, p, p, height - p); // Y-axis
-        g2.drawLine(p, height - p, width - p, height - p); // X-axis
-        
+        g2.drawLine(p, p, p, height - p);
+        g2.drawLine(p, height - p, width - p, height - p);
         g2.setColor(Color.BLUE);
         Polygon poly = new Polygon();
         for (EquityPoint point : curve) {
@@ -412,7 +417,6 @@ public class PdfReportGenerator {
             poly.addPoint(x, y);
         }
         g2.drawPolyline(poly.xpoints, poly.ypoints, poly.npoints);
-        
         g2.dispose();
         return image;
     }
